@@ -475,6 +475,235 @@ Skills enable:
 
 ---
 
+## Swift vs PydanticAI Patterns
+
+### Patterns That Don't Translate Well
+
+| PydanticAI Pattern | Problem in Swift | Swift Alternative |
+|-------------------|------------------|-------------------|
+| `@agent.tool` decorator | No decorators in Swift | Protocol conformance + result builders |
+| Runtime schema introspection | Swift is compiled, no reflection | `@Schema` macro generates at compile time |
+| `async with agent.iter()` | Context managers don't exist | `for await` with `AsyncSequence` + structured concurrency |
+| `ModelRetry` exception | Swift doesn't use exceptions for control flow | Return `Result<T, ToolError>` or typed errors |
+| Dynamic tool registration | Can't add methods at runtime | Tool registry with type-erased wrappers |
+| Union return types | No union types | Enums with associated values |
+| Pydantic validators | Runtime validation | Compile-time via macros + `Codable` |
+
+### Swift-Native Alternatives
+
+**Tool Definition:**
+```swift
+// Protocol-based with result builders
+struct SearchTool: Tool {
+    typealias Arguments = SearchArgs
+    typealias Output = String
+
+    func call(context: Context, arguments: SearchArgs) async throws -> String { ... }
+}
+
+@AgentBuilder
+var agent: Agent<MyDeps, Report> {
+    SearchTool()
+    CalculatorTool()
+}
+```
+
+**Retry/Rejection (typed errors, not exceptions):**
+```swift
+enum ToolResult<T> {
+    case success(T)
+    case retry(String)  // Ask LLM to retry with feedback
+    case failure(Error)
+}
+```
+
+**Streaming Loop Control (native AsyncSequence):**
+```swift
+for await node in agent.stream(prompt, deps: deps) {
+    switch node {
+    case .toolCall(let call): // Can break, continue, or inject
+    case .delta(let text): ...
+    }
+}
+```
+
+### Key Architectural Decisions
+
+1. **Compile-time over runtime** - Use macros for schema, not reflection
+2. **Structured concurrency** - `AsyncSequence` + actors for thread safety
+3. **Type-safe errors** - Enums over exceptions
+4. **Protocol-oriented tools** - Composable, testable
+5. **Result builders** - Declarative agent configuration (optional)
+
+---
+
+## Risks and Unknowns
+
+### High-Risk Items (De-risk First)
+
+| Risk | Impact | Uncertainty | Status |
+|------|--------|-------------|--------|
+| **Macro JSON Schema generation** | High | High | ⏳ Needs POC |
+| **Streaming + Structured output** | High | Medium | ⏳ Needs POC |
+| **Swift 6 Sendable/Actor model** | High | Medium | ⏳ Needs POC |
+| **Tool type erasure** | Medium | Medium | ⏳ Needs POC |
+
+### POC 1: Schema Macro
+
+**Goal:** Validate we can generate JSON Schema from Swift types at compile time.
+
+```swift
+@Schema
+struct UserProfile {
+    let name: String
+    let age: Int?
+    let tags: [String]
+    let status: Status  // enum
+}
+
+// Must generate:
+// {
+//   "type": "object",
+//   "properties": {
+//     "name": { "type": "string" },
+//     "age": { "type": "integer" },
+//     "tags": { "type": "array", "items": { "type": "string" } },
+//     "status": { "type": "string", "enum": ["active", "inactive"] }
+//   },
+//   "required": ["name", "tags", "status"]
+// }
+```
+
+**Unknowns:**
+- Nested `@Schema` types - can macro see other macros?
+- Enum handling - raw values vs associated values
+- Recursive types
+
+**Success criteria:** Generate valid schema for struct with String, Int, Optional, Array, nested struct, enum.
+
+### POC 2: Streaming + Structured Output
+
+**Goal:** Verify providers support streaming while enforcing structured output.
+
+```swift
+for await chunk in provider.stream(
+    messages: [...],
+    output: UserProfile.self
+) {
+    // Do we get deltas? Or just final result?
+}
+```
+
+**Unknowns:**
+- Anthropic: `tool_use` blocks stream, but does JSON mode?
+- OpenAI: `response_format` with streaming?
+- May need to buffer and parse at end
+
+**Success criteria:** Stream partial JSON from Anthropic, parse valid struct at end.
+
+### POC 3: Concurrent Agent Loop
+
+**Goal:** Validate actor-based agent loop with Sendable tools.
+
+```swift
+actor AgentLoop<Deps: Sendable, Output> {
+    func run(_ prompt: String, deps: Deps) async throws -> Output {
+        // Can tools be called from here?
+        // How do we pass non-Sendable context?
+    }
+}
+```
+
+**Unknowns:**
+- Tool execution isolation
+- Callback patterns for streaming
+- Cancellation handling
+
+**Success criteria:** Execute tool from actor, return result, no data races.
+
+### POC 4: Type-Erased Tool Registry
+
+**Goal:** Verify heterogeneous tool collections work.
+
+```swift
+protocol AnyTool {
+    var name: String { get }
+    var schema: [String: Any] { get }
+    func callErased(context: Any, arguments: Data) async throws -> String
+}
+
+struct TypedToolWrapper<T: Tool>: AnyTool { ... }
+```
+
+**Success criteria:** Store `[any AnyTool]`, call correct implementation, preserve type safety.
+
+### Open Questions
+
+1. **Streaming tradeoff:** If we can't stream structured output, do we:
+   - Stream text, validate at end?
+   - Skip streaming for structured responses?
+   - Use `tool_use` for structure (streamable) vs JSON mode?
+
+2. **Macro scope:** Build full macro ourselves vs. depend on existing (SwiftAI's `@Generable`)?
+
+3. **Provider abstraction:** Thin wrapper vs. full normalization? (Anthropic's tool format ≠ OpenAI's)
+
+---
+
+## Testing Strategy
+
+### Principles
+
+1. **Integration tests with real providers** - Don't mock LLM responses for core functionality
+2. **Local secrets + GitHub secrets** - Same tests run locally and in CI
+3. **Deterministic where possible** - Use low temperature, seed parameters
+4. **Cost-aware** - Use smaller models (Haiku) for CI, cache responses where safe
+
+### Test Categories
+
+| Category | Mocked? | Runs in CI? | Example |
+|----------|---------|-------------|---------|
+| Schema generation | No (compile-time) | Yes | `@Schema` produces valid JSON |
+| Provider API calls | No | Yes (with secrets) | Anthropic returns structured response |
+| Tool execution | Tool logic only | Yes | Tool parses args, returns result |
+| Agent loop | Provider mocked | Yes | Loop terminates, tools called |
+| E2E integration | No | Yes (with secrets) | Full agent run with real LLM |
+
+### Secret Management
+
+```bash
+# Local: .env file (gitignored)
+ANTHROPIC_API_KEY=sk-...
+OPENAI_API_KEY=sk-...
+
+# GitHub: Repository secrets
+# Settings > Secrets > Actions
+```
+
+### CI Integration Test Workflow
+
+```yaml
+# .github/workflows/integration.yml
+name: Integration Tests
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * *'  # Daily
+
+jobs:
+  test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run integration tests
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: swift test --filter Integration
+```
+
+---
+
 ## Development Setup
 
 ### Local Development with Axii
