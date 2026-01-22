@@ -34,3 +34,7 @@ build/
 
 # Claude Code local settings
 .claude/
+
+# Environment secrets
+.env
+.env.local

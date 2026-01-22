@@ -444,34 +444,58 @@ Skills enable:
 
 ## Implementation Priorities
 
-### Phase 1: Foundation
-1. **Package setup** with macro target
-2. **`@Schema` macro** - JSON schema generation from Swift types
-3. **Provider protocol** + Anthropic implementation
-4. **Basic types**: Message, ToolCall, Response
+### Phase 1: Providers & Testing Foundation
+Start with providers to enable integration testing from day one.
 
-### Phase 2: Core Agent
-5. **Tool protocol** with typed arguments
-6. **Basic agent loop** (non-iterable first)
-7. **Streaming** throughout
+1. **Package setup** with test targets
+2. **Basic types**: Message, ToolCall, Response, errors
+3. **`LLMProvider` protocol** - Core abstraction
+4. **Providers** (each with integration tests):
+   - `AnthropicProvider` - tool_use + structured outputs beta
+   - `OpenAIProvider` - response_format with strict mode
+   - `OpenAICompatibleProvider` - Ollama, vLLM, LM Studio, etc.
+   - `OpenRouterProvider` - Multi-model aggregator
+   - `BedrockProvider` - AWS Converse API
+   - `MLXProvider` - Local models on Apple Silicon
+5. **Integration test suite** - Shared test cases across all providers
 
-### Phase 3: Advanced Control
-8. **Iterable agent loop** (`.iter()`)
-9. **Retry/rejection** handling (`ToolRejection`)
-10. **Result validators**
+### Phase 2: Schema Generation
+6. **`@Schema` macro** - JSON schema from Swift types
+7. **`@Guide` macro** - Descriptions and constraints
+8. **Local constraint validation**
+9. **Schema correctness tests** - JSON Schema Test Suite subset
 
-### Phase 4: Ecosystem
-11. **Additional providers**: OpenAI, OpenRouter, Bedrock
-12. **MLX** local model support
-13. **MCP client**
-14. **Sandbox execution**
+### Phase 3: Core Agent
+10. **Tool protocol** with typed arguments
+11. **Basic agent loop** (non-iterable first)
+12. **Streaming** throughout
 
-### Phase 5: Skills & Polish
-15. **Skills system** - Anthropic-style reusable capabilities
-16. **Multi-agent handoffs**
-17. **Guardrails**
-18. **Usage limits**
-19. **Documentation & examples**
+### Phase 4: Advanced Control
+13. **Iterable agent loop** (`.iter()`)
+14. **Retry/rejection** handling (`ToolRejection`)
+15. **Result validators**
+
+### Phase 5: Ecosystem
+16. **MCP client**
+17. **Sandbox execution**
+
+### Phase 6: Skills & Polish
+19. **Skills system** - Anthropic-style reusable capabilities
+20. **Multi-agent handoffs**
+21. **Guardrails**
+22. **Usage limits**
+23. **Documentation & examples**
+
+### Provider Summary
+
+| Provider | Backend | Structured Output Method |
+|----------|---------|-------------------------|
+| `AnthropicProvider` | Anthropic API | tool_use or structured outputs |
+| `OpenAIProvider` | OpenAI API | response_format + strict |
+| `OpenAICompatibleProvider` | Any OpenAI-compatible | response_format (varies) |
+| `OpenRouterProvider` | OpenRouter | provider-dependent |
+| `BedrockProvider` | AWS Bedrock | Converse API tools |
+| `MLXProvider` | Local MLX (Apple Silicon) | Outlines/grammar-based |
 
 ---
 
@@ -534,6 +558,231 @@ for await node in agent.stream(prompt, deps: deps) {
 3. **Type-safe errors** - Enums over exceptions
 4. **Protocol-oriented tools** - Composable, testable
 5. **Result builders** - Declarative agent configuration (optional)
+
+---
+
+## @Schema Specification (v1)
+
+### Design Rationale
+
+After researching provider support (January 2026), we found that Anthropic, OpenAI, and AWS Bedrock each support **different subsets** of JSON Schema. The only reliable approach is to use the **intersection** of supported features:
+
+| Feature | Anthropic | OpenAI | Bedrock | Yrden |
+|---------|-----------|--------|---------|-------|
+| Basic types | ✅ | ✅ | ✅ | ✅ |
+| `enum` (primitives) | ✅ | ✅ | ✅ | ✅ |
+| `required` | ✅ | ✅ | ✅ | ✅ |
+| `additionalProperties: false` | ✅ Required | ✅ Required | ✅ | ✅ |
+| `description` | ✅ | ✅ | ✅ | ✅ |
+| `$ref` / `$defs` (internal) | ✅ | ✅ | ❓ | ✅ |
+| `minimum` / `maximum` | ❌ | ❌ | ❌ | ❌ In description |
+| `minLength` / `maxLength` | ❌ | ❌ | ❌ | ❌ In description |
+| `pattern` | ⚠️ Limited | ❌ | ❌ | ❌ In description |
+| `format` | ⚠️ Some | ❌ | ❌ | ❌ In description |
+| `anyOf` / `allOf` | ⚠️ Limited | ⚠️ Limited | ❌ | ❌ Avoid |
+| Recursive schemas | ❌ | ❌ | ❌ | ❌ |
+
+**Strategy:** Generate universal schema subset. Constraints go into `description` field as hints, then validate locally after LLM response.
+
+### Supported Swift Types
+
+| Swift Type | JSON Schema | Notes |
+|------------|-------------|-------|
+| `String` | `{ "type": "string" }` | |
+| `Int` | `{ "type": "integer" }` | |
+| `Double` | `{ "type": "number" }` | |
+| `Bool` | `{ "type": "boolean" }` | |
+| `[T]` | `{ "type": "array", "items": ... }` | T must be supported |
+| `T?` | Same type, omitted from `required` | |
+| `@Schema struct` | `{ "type": "object", ... }` or `$ref` | Nested types |
+| `enum E: String` | `{ "type": "string", "enum": [...] }` | Raw value enums |
+| `enum E: Int` | `{ "type": "integer", "enum": [...] }` | |
+
+**Not Supported (v1):**
+- Enums with associated values
+- Recursive types
+- `Date`, `URL`, `UUID` (use String + validation)
+- Dictionaries `[String: T]`
+
+### Macros
+
+#### `@Schema`
+
+Type-level macro for structs and enums.
+
+```swift
+@Schema
+struct SearchQuery {
+    let query: String
+    let limit: Int
+}
+
+@Schema(description: "Parameters for searching the knowledge base")
+struct SearchQuery {
+    // ...
+}
+```
+
+**Generates:**
+1. `static var jsonSchema: [String: Any]` - The JSON Schema dictionary
+2. `static var constraints: SchemaConstraints` - For local validation
+3. `extension SearchQuery: SchemaType` - Protocol conformance
+
+#### `@Guide`
+
+Property-level macro for descriptions and constraints.
+
+```swift
+@Schema(description: "Tool for searching documents")
+struct SearchQuery {
+    @Guide(description: "Natural language search query")
+    let query: String
+
+    @Guide(description: "Maximum results to return", .range(1...100))
+    let limit: Int
+
+    @Guide(description: "Minimum relevance score", .range(0.0...1.0))
+    let threshold: Double
+
+    @Guide(description: "Tags to filter by", .count(1...10))
+    let tags: [String]?
+
+    @Guide(description: "Sort order", .options(["relevance", "date", "title"]))
+    let sortBy: String
+}
+```
+
+#### Constraint Types
+
+```swift
+// Numeric ranges
+.range(1...100)           // "Must be between 1 and 100"
+.range(1...)              // "Must be at least 1"
+.range(...100)            // "Must be at most 100"
+
+// Array counts
+.count(5)                 // "Must have exactly 5 items"
+.count(1...10)            // "Must have between 1 and 10 items"
+
+// String options (enum-like without Swift enum)
+.options(["a", "b", "c"]) // "Must be one of: a, b, c"
+
+// Regex pattern (docs + local validation only)
+.pattern("^[a-z]+$")      // "Must match pattern: ^[a-z]+$"
+```
+
+### Generated Output Example
+
+```swift
+@Schema(description: "Search parameters")
+struct SearchQuery {
+    @Guide(description: "Search terms")
+    let query: String
+
+    @Guide(description: "Max results", .range(1...50))
+    let limit: Int
+
+    @Guide(description: "Filter by type", .options(["pdf", "doc"]))
+    let fileType: String?
+}
+```
+
+**Generates JSON Schema:**
+
+```json
+{
+  "type": "object",
+  "description": "Search parameters",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Search terms"
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Max results. Must be between 1 and 50."
+    },
+    "fileType": {
+      "type": "string",
+      "description": "Filter by type. Must be one of: pdf, doc."
+    }
+  },
+  "required": ["query", "limit"],
+  "additionalProperties": false
+}
+```
+
+**Generates constraints metadata:**
+
+```swift
+static let constraints: SchemaConstraints = [
+    "limit": .range(1...50),
+    "fileType": .options(["pdf", "doc"])
+]
+```
+
+### Validation Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  1. LLM Response (JSON)                                     │
+│     Provider enforces: types, required fields, structure    │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│  2. JSON Decode                                             │
+│     Swift's Codable: type conversion                        │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│  3. Constraint Validation                                   │
+│     Yrden validates: ranges, counts, options, patterns      │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+              ┌─────────────┴─────────────┐
+              │                           │
+           Valid                       Invalid
+              │                           │
+              ▼                           ▼
+         Return T              throw ValidationError
+                               → ModelRetry with message
+                               → "limit must be between 1 and 50, got 200"
+```
+
+### Protocol Definition
+
+```swift
+/// Marker protocol for types with JSON Schema representation.
+/// Conformance is generated by the @Schema macro.
+public protocol SchemaType: Codable, Sendable {
+    /// JSON Schema dictionary (universal subset).
+    static var jsonSchema: [String: Any] { get }
+
+    /// Constraints for local validation.
+    static var constraints: SchemaConstraints { get }
+
+    /// Validates an instance against constraints.
+    /// Returns nil if valid, or error message if invalid.
+    static func validate(_ instance: Self) -> ValidationError?
+}
+
+public struct SchemaConstraints {
+    // Property name → Constraint
+    let constraints: [String: Constraint]
+}
+
+public enum Constraint {
+    case range(ClosedRange<Double>)
+    case rangeFrom(Double)
+    case rangeThrough(Double)
+    case count(ClosedRange<Int>)
+    case exactCount(Int)
+    case options([String])
+    case pattern(String)
+}
+```
 
 ---
 
@@ -652,22 +901,102 @@ struct TypedToolWrapper<T: Tool>: AnyTool { ... }
 
 ## Testing Strategy
 
-### Principles
+### Three-Layer Test Architecture
 
-1. **Integration tests with real providers** - Don't mock LLM responses for core functionality
-2. **Local secrets + GitHub secrets** - Same tests run locally and in CI
-3. **Deterministic where possible** - Use low temperature, seed parameters
-4. **Cost-aware** - Use smaller models (Haiku) for CI, cache responses where safe
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Layer 1: Schema Correctness                                │
+│  "Does our JSON Schema subset match the spec?"              │
+│                                                             │
+│  • Validate against official JSON Schema Test Suite         │
+│  • Only features we support (type, properties, enum, etc.)  │
+│  • No network, pure logic                                   │
+│  • Fast, runs on every commit                               │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Layer 2: Provider Integration                              │
+│  "Do real providers accept our schemas?"                    │
+│                                                             │
+│  • Same test cases run against ALL providers                │
+│  • Real API calls (Anthropic, OpenAI, Bedrock)              │
+│  • Capability flags skip unsupported features               │
+│  • Runs in CI with secrets, daily or on release             │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Layer 3: Local Constraint Validation                       │
+│  "Do our constraints catch invalid data?"                   │
+│                                                             │
+│  • Unit tests for each constraint type                      │
+│  • Edge cases: boundaries, empty, null                      │
+│  • No network, fast                                         │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### Test Categories
+### Layer 1: Schema Correctness
 
-| Category | Mocked? | Runs in CI? | Example |
-|----------|---------|-------------|---------|
-| Schema generation | No (compile-time) | Yes | `@Schema` produces valid JSON |
-| Provider API calls | No | Yes (with secrets) | Anthropic returns structured response |
-| Tool execution | Tool logic only | Yes | Tool parses args, returns result |
-| Agent loop | Provider mocked | Yes | Loop terminates, tools called |
-| E2E integration | No | Yes (with secrets) | Full agent run with real LLM |
+Use the official [JSON Schema Test Suite](https://github.com/json-schema-org/JSON-Schema-Test-Suite) to validate our subset.
+
+**Test files to include (Draft 7):**
+- `type.json` - Basic type validation
+- `properties.json` - Object properties
+- `required.json` - Required fields
+- `additionalProperties.json` - Must be false
+- `enum.json` - Primitive enums
+- `items.json` - Array items
+- `ref.json` - Internal $ref
+- `definitions.json` - $defs
+
+**Test files to skip:**
+- `minimum.json`, `maximum.json` - We use description hints
+- `pattern.json`, `format.json` - Not universally supported
+- `anyOf.json`, `allOf.json` - Avoided in our subset
+
+### Layer 2: Provider Integration
+
+**Key principle:** One test suite, multiple providers. Same test cases run against every provider implementation.
+
+**Provider capabilities** gate which tests run:
+```swift
+struct ProviderCapabilities: OptionSet {
+    static let nestedSchemas  // $ref / $defs support
+    static let imageInput     // Vision/image in prompt
+    // Add as needed
+}
+```
+
+**Test case categories:**
+- Basic types (String, Int, Double, Bool)
+- Multiple fields
+- Optional fields (present and absent)
+- Arrays (populated and empty)
+- String enums
+- Nested objects (capability-gated)
+- Description with constraint hints
+
+**Providers tested:**
+- `AnthropicProvider` (uses tool_use or structured outputs)
+- `OpenAIProvider` (uses response_format)
+- `BedrockProvider` (uses Converse API tools)
+
+### Layer 3: Local Validation
+
+Test each constraint type:
+- `.range()` - Boundaries, negative, overflow
+- `.count()` - Empty, exact, min/max
+- `.options()` - Valid, invalid, case sensitivity
+- `.pattern()` - Matches, non-matches, empty
+
+### Test Principles
+
+1. **Real providers for integration** - Don't mock LLM responses
+2. **Shared test cases** - Providers vary in implementation, not test logic
+3. **Capability skipping** - Skip tests for unsupported features, don't fail
+4. **Cost-aware** - Use cheapest models (Haiku, GPT-4o-mini) in CI
+5. **Deterministic prompts** - Low temperature, explicit expected values
 
 ### Secret Management
 
@@ -675,32 +1004,28 @@ struct TypedToolWrapper<T: Tool>: AnyTool { ... }
 # Local: .env file (gitignored)
 ANTHROPIC_API_KEY=sk-...
 OPENAI_API_KEY=sk-...
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
 
 # GitHub: Repository secrets
 # Settings > Secrets > Actions
 ```
 
-### CI Integration Test Workflow
+### CI Workflows
 
 ```yaml
-# .github/workflows/integration.yml
-name: Integration Tests
-on:
-  push:
-    branches: [main]
-  schedule:
-    - cron: '0 0 * * *'  # Daily
+# Unit tests - every push
+swift test --filter "SchemaTests|ValidationTests"
 
-jobs:
-  test:
-    runs-on: macos-26
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run integration tests
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: swift test --filter Integration
+# Integration tests - daily or on release
+swift test --filter Integration
 ```
+
+### References
+
+- [JSON Schema Test Suite](https://github.com/json-schema-org/JSON-Schema-Test-Suite)
+- [JSONSchema.swift](https://github.com/kylef/JSONSchema.swift) - Validator for testing
+- [PydanticAI Testing](https://ai.pydantic.dev/testing/) - TestModel pattern
 
 ---
 

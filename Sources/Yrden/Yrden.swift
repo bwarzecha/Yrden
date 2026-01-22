@@ -9,7 +9,11 @@
 /// Protocol for types that can generate JSON Schema representations.
 public protocol SchemaType: Codable, Sendable {
     /// JSON Schema representation of this type.
-    static var jsonSchema: [String: Any] { get }
+    /// Uses JSONValue instead of [String: Any] for:
+    /// - Sendable compliance (Swift 6 concurrency)
+    /// - Codable support (serialization)
+    /// - Type safety
+    static var jsonSchema: JSONValue { get }
 }
 
 /// Macro that generates JSON Schema from Swift struct definitions.
