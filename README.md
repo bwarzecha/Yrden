@@ -1,5 +1,7 @@
 # Yrden
 
+[![CI](https://github.com/bwarzecha/Yrden/actions/workflows/ci.yml/badge.svg)](https://github.com/bwarzecha/Yrden/actions/workflows/ci.yml)
+
 A Swift library for building AI agents with type-safe structured outputs.
 
 > **Yrden** - A Witcher sign that creates a magical trap, binding entities within its bounds. Like the sign, this library *constrains* LLM outputs to Swift types.
