@@ -8,7 +8,7 @@ A Swift library for building AI agents with type-safe structured outputs.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/bartosz/Yrden.git", from: "0.1.0")
+    .package(url: "https://github.com/bwarzecha/Yrden.git", from: "0.1.0")
 ]
 ```
 
