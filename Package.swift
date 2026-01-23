@@ -35,5 +35,18 @@ let package = Package(
                 .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
             ]
         ),
+
+        // MARK: - Examples
+
+        .executableTarget(
+            name: "BasicSchema",
+            dependencies: ["Yrden"],
+            path: "Examples/BasicSchema"
+        ),
+        .executableTarget(
+            name: "StructuredOutput",
+            dependencies: ["Yrden"],
+            path: "Examples/StructuredOutput"
+        ),
     ]
 )

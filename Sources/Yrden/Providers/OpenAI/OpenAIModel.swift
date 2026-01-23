@@ -41,20 +41,26 @@ public struct OpenAIModel: Model, Sendable {
     /// Default max tokens if not specified in request.
     private let defaultMaxTokens: Int
 
+    /// Retry configuration for transient errors.
+    private let retryConfig: RetryConfig
+
     /// Creates an OpenAI model.
     ///
     /// - Parameters:
     ///   - name: Model identifier (e.g., "gpt-4o", "o1-mini")
     ///   - provider: Provider for authentication
     ///   - defaultMaxTokens: Default max tokens (default: 4096)
+    ///   - retryConfig: Retry configuration for transient errors (default: 2 retries)
     public init(
         name: String,
         provider: any Provider & OpenAICompatibleProvider,
-        defaultMaxTokens: Int = 4096
+        defaultMaxTokens: Int = 4096,
+        retryConfig: RetryConfig = .default
     ) {
         self.name = name
         self.provider = provider
         self.defaultMaxTokens = defaultMaxTokens
+        self.retryConfig = retryConfig
         self.capabilities = Self.capabilities(for: name)
     }
 
@@ -62,9 +68,20 @@ public struct OpenAIModel: Model, Sendable {
 
     public func complete(_ request: CompletionRequest) async throws -> CompletionResponse {
         try validateRequest(request)
-        let openAIRequest = try encodeRequest(request, stream: false)
-        let data = try await sendRequest(openAIRequest)
-        return try decodeResponse(data)
+
+        // Use Responses API for simple requests, Chat Completions for complex multi-turn with tool results
+        // The Responses API requires previous_response_id for tool result handling, which we don't track
+        return try await retryConfig.execute {
+            if shouldUseResponsesAPI(request) {
+                let responsesRequest = try encodeResponsesRequest(request, stream: false)
+                let data = try await sendResponsesRequest(responsesRequest)
+                return try decodeResponsesResponse(data)
+            } else {
+                let openAIRequest = try encodeRequest(request, stream: false)
+                let data = try await sendRequest(openAIRequest)
+                return try decodeResponse(data)
+            }
+        }
     }
 
     public func stream(_ request: CompletionRequest) -> AsyncThrowingStream<StreamEvent, Error> {
@@ -72,8 +89,17 @@ public struct OpenAIModel: Model, Sendable {
             Task {
                 do {
                     try validateRequest(request)
-                    let openAIRequest = try encodeRequest(request, stream: true)
-                    try await streamRequest(openAIRequest, continuation: continuation)
+
+                    // Retry the entire stream on transient errors
+                    try await retryConfig.execute {
+                        if shouldUseResponsesAPI(request) {
+                            let responsesRequest = try encodeResponsesRequest(request, stream: true)
+                            try await streamResponsesRequest(responsesRequest, continuation: continuation)
+                        } else {
+                            let openAIRequest = try encodeRequest(request, stream: true)
+                            try await streamRequest(openAIRequest, continuation: continuation)
+                        }
+                    }
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -81,20 +107,67 @@ public struct OpenAIModel: Model, Sendable {
         }
     }
 
-    // MARK: - Request Encoding
+    /// Whether this model is in the GPT-5 family (uses reasoning).
+    private var isGPT5Family: Bool {
+        name.hasPrefix("gpt-5")
+    }
+
+    /// Determines whether to use the Responses API or Chat Completions API.
+    ///
+    /// We use Responses API for:
+    /// - GPT-5 family models (better tool calling with reasoning)
+    /// - Simple requests without tool results
+    ///
+    /// We use Chat Completions for:
+    /// - Requests with tool results (Responses API requires previous_response_id tracking)
+    /// - Multi-turn conversations with complex history
+    ///
+    /// ## Known Limitations
+    ///
+    /// The Responses API has a known issue where it doesn't reliably produce multiple
+    /// parallel tool calls in a single response, even with `parallel_tool_calls: true`.
+    /// This is an OpenAI API limitation, not a client issue.
+    /// See: https://community.openai.com/t/chatcompletions-vs-responses-api-difference-in-parallel-tool-call-behaviour-observed/1369663
+    private func shouldUseResponsesAPI(_ request: CompletionRequest) -> Bool {
+        // Check if request has tool results - these require previous_response_id in Responses API
+        let hasToolResults = request.messages.contains { message in
+            if case .toolResult = message { return true }
+            return false
+        }
+
+        // Check if request has assistant messages with tool calls
+        let hasAssistantToolCalls = request.messages.contains { message in
+            if case .assistant(_, let toolCalls) = message {
+                return !toolCalls.isEmpty
+            }
+            return false
+        }
+
+        // Use Responses API only for simple tool-calling scenarios (first turn)
+        // Complex multi-turn with tool results should use Chat Completions
+        if hasToolResults || hasAssistantToolCalls {
+            return false
+        }
+
+        // For GPT-5 family, prefer Responses API for better tool calling
+        // For other models, also use Responses API for consistency (better caching)
+        return true
+    }
+
+    // MARK: - Chat Completions Request Encoding (for non-GPT-5 models)
 
     private func encodeRequest(_ request: CompletionRequest, stream: Bool) throws -> OpenAIRequest {
-        // Convert messages (system stays in array for OpenAI)
-        let openAIMessages = try request.messages.map { try convertMessage($0) }
-
         // Convert tools
         let openAITools: [OpenAITool]? = request.tools?.isEmpty == false
             ? request.tools?.map { convertTool($0) }
             : nil
 
+        // Convert messages
+        let openAIMessages = try request.messages.map { try convertMessage($0) }
+
         let maxTokens = request.config.maxTokens ?? defaultMaxTokens
 
-        // Newer models (GPT-5.x, o3, o1) use max_completion_tokens instead of max_tokens
+        // Newer models (gpt-5.x, o3, o1, gpt-4.1) use max_completion_tokens instead of max_tokens
         let usesMaxCompletionTokens = name.hasPrefix("gpt-5") ||
                                       name.hasPrefix("o3") ||
                                       name.hasPrefix("o1") ||
@@ -105,7 +178,18 @@ public struct OpenAIModel: Model, Sendable {
             .jsonSchema(name: "response", schema: schema, strict: true)
         }
 
-        // Build request
+        // Determine tool_choice:
+        // - Use .required when tools are provided and no tool results yet (forces tool use)
+        // - Use .auto when conversation already has tool results (let model respond naturally)
+        let hasToolResults = request.messages.contains { message in
+            if case .toolResult = message { return true }
+            return false
+        }
+        let toolChoice: OpenAIToolChoice? = openAITools != nil
+            ? (hasToolResults ? .auto : .required)
+            : nil
+
+        // Build request (no reasoning_effort for Chat Completions - that's for Responses API)
         return OpenAIRequest(
             model: name,
             messages: openAIMessages,
@@ -114,10 +198,11 @@ public struct OpenAIModel: Model, Sendable {
             temperature: request.config.temperature,
             stop: request.config.stopSequences,
             tools: openAITools,
-            tool_choice: openAITools != nil ? .auto : nil,
+            tool_choice: toolChoice,
             response_format: responseFormat,
             stream: stream ? true : nil,
-            stream_options: stream ? OpenAIStreamOptions(include_usage: true) : nil
+            stream_options: stream ? OpenAIStreamOptions(include_usage: true) : nil,
+            reasoning_effort: nil
         )
     }
 
@@ -187,7 +272,7 @@ public struct OpenAIModel: Model, Sendable {
                 name: tool.name,
                 description: tool.description,
                 parameters: tool.inputSchema,
-                strict: nil
+                strict: nil  // Strict mode requires all properties in 'required'
             )
         )
     }
@@ -258,16 +343,14 @@ public struct OpenAIModel: Model, Sendable {
             throw LLMError.networkError("Invalid response type")
         }
 
-        switch http.statusCode {
+        let statusCode = http.statusCode
+
+        switch statusCode {
         case 200..<300:
             return
 
         case 401:
             throw LLMError.invalidAPIKey
-
-        case 429:
-            let retryAfter = parseRetryAfter(http)
-            throw LLMError.rateLimited(retryAfter: retryAfter)
 
         case 400:
             let message = parseErrorMessage(data)
@@ -282,16 +365,20 @@ public struct OpenAIModel: Model, Sendable {
 
         default:
             let message = parseErrorMessage(data)
-            throw LLMError.networkError("HTTP \(http.statusCode): \(message)")
-        }
-    }
+            let underlyingError = LLMError.networkError("HTTP \(statusCode): \(message)")
 
-    private func parseRetryAfter(_ response: HTTPURLResponse) -> TimeInterval? {
-        if let retryAfter = response.value(forHTTPHeaderField: "Retry-After"),
-           let seconds = Double(retryAfter) {
-            return seconds
+            // Check if this is a retriable error (408, 409, 429, 500+)
+            if isRetriableStatusCode(statusCode) {
+                let retryAfter = parseRetryAfter(http.value(forHTTPHeaderField: "Retry-After"))
+                throw RetriableError(
+                    underlyingError: underlyingError,
+                    retryAfter: retryAfter,
+                    statusCode: statusCode
+                )
+            }
+
+            throw underlyingError
         }
-        return nil
     }
 
     private func parseErrorMessage(_ data: Data) -> String {
@@ -301,7 +388,7 @@ public struct OpenAIModel: Model, Sendable {
         return String(data: data, encoding: .utf8) ?? "Unknown error"
     }
 
-    // MARK: - Streaming
+    // MARK: - Streaming (Chat Completions)
 
     private func streamRequest(
         _ request: OpenAIRequest,
@@ -439,6 +526,310 @@ public struct OpenAIModel: Model, Sendable {
         }
 
         accumulatedToolCalls[index] = acc
+    }
+
+    // MARK: - Responses API (GPT-5 Family)
+
+    private func encodeResponsesRequest(_ request: CompletionRequest, stream: Bool) throws -> ResponsesAPIRequest {
+        // Convert tools to Responses API format
+        let responsesTools: [ResponsesAPITool]? = request.tools?.isEmpty == false
+            ? request.tools?.map { tool in
+                ResponsesAPITool(
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.inputSchema,
+                    strict: nil
+                )
+            }
+            : nil
+
+        // Convert messages to Responses API input format
+        let inputItems = try request.messages.compactMap { message -> ResponsesInputItem? in
+            switch message {
+            case .system:
+                // System message becomes instructions, not input
+                return nil
+
+            case .user(let parts):
+                let contentParts = parts.map { part -> ResponsesContentPart in
+                    switch part {
+                    case .text(let text):
+                        return .inputText(text)
+                    case .image(let data, let mimeType):
+                        let base64 = data.base64EncodedString()
+                        let dataURL = "data:\(mimeType);base64,\(base64)"
+                        return .inputImage(url: dataURL)
+                    }
+                }
+                return .message(role: "user", content: contentParts)
+
+            case .assistant(let text, _):
+                // For assistant messages, use output_text content type
+                // Tool calls are implicit in the conversation flow
+                if !text.isEmpty {
+                    return .message(role: "assistant", content: [.outputText(text)])
+                }
+                return nil
+
+            case .toolResult(let toolCallId, let content):
+                return .functionCallOutput(callId: toolCallId, output: content)
+            }
+        }
+
+        // Extract system message as instructions
+        let instructions: String? = request.messages.compactMap { message in
+            if case .system(let text) = message {
+                return text
+            }
+            return nil
+        }.first
+
+        // Determine tool_choice
+        let hasToolResults = request.messages.contains { message in
+            if case .toolResult = message { return true }
+            return false
+        }
+        let toolChoice: ResponsesToolChoice? = responsesTools != nil
+            ? (hasToolResults ? .auto : .required)
+            : nil
+
+        // Configure output format for structured output
+        let textFormat: ResponsesTextFormat? = request.outputSchema.map { schema in
+            ResponsesTextFormat(format: .jsonSchema(name: "response", schema: schema, strict: true))
+        }
+
+        // Don't set reasoning effort - let the API use its default
+
+        let maxTokens = request.config.maxTokens ?? defaultMaxTokens
+
+        return ResponsesAPIRequest(
+            model: name,
+            input: inputItems.isEmpty ? .text("") : .items(inputItems),
+            instructions: instructions,
+            tools: responsesTools,
+            tool_choice: toolChoice,
+            parallel_tool_calls: responsesTools != nil ? true : nil,
+            temperature: request.config.temperature,
+            top_p: request.config.topP,
+            max_output_tokens: maxTokens,
+            reasoning: nil,
+            text: textFormat,
+            stream: stream ? true : nil,
+            store: request.config.store,
+            prompt_cache_key: request.config.promptCacheKey,
+            prompt_cache_retention: request.config.promptCacheRetention?.rawValue
+        )
+    }
+
+    private func sendResponsesRequest(_ request: ResponsesAPIRequest) async throws -> Data {
+        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("responses"))
+        urlRequest.httpMethod = "POST"
+        try await provider.authenticate(&urlRequest)
+        urlRequest.httpBody = try JSONEncoder().encode(request)
+
+        let (data, response) = try await URLSession.shared.data(for: urlRequest)
+        try handleHTTPResponse(response, data: data)
+        return data
+    }
+
+    private func decodeResponsesResponse(_ data: Data) throws -> CompletionResponse {
+        let response = try JSONDecoder().decode(ResponsesAPIResponse.self, from: data)
+
+        // Check for errors
+        if let error = response.error {
+            throw LLMError.invalidRequest(error.message)
+        }
+
+        // Extract content, refusal, and tool calls from output items
+        var content: String?
+        var refusal: String?
+        var toolCalls: [ToolCall] = []
+
+        for item in response.output {
+            switch item {
+            case .message(_, _, let contentItems):
+                for contentItem in contentItems {
+                    switch contentItem {
+                    case .outputText(let text, _):
+                        content = (content ?? "") + text
+                    case .refusal(let text):
+                        refusal = (refusal ?? "") + text
+                    case .unknown:
+                        break
+                    }
+                }
+
+            case .functionCall(_, let callId, let name, let arguments):
+                toolCalls.append(ToolCall(id: callId, name: name, arguments: arguments))
+
+            case .reasoning, .unknown:
+                // Reasoning items are internal; we don't expose them
+                break
+            }
+        }
+
+        // Determine stop reason from response status and incomplete_details
+        let stopReason: StopReason
+        if !toolCalls.isEmpty {
+            stopReason = .toolUse
+        } else if response.status == "incomplete" {
+            if response.incomplete_details?.reason == "max_output_tokens" {
+                stopReason = .maxTokens
+            } else if response.incomplete_details?.reason == "content_filter" {
+                stopReason = .contentFiltered
+            } else {
+                stopReason = .endTurn
+            }
+        } else {
+            stopReason = .endTurn
+        }
+
+        // Extract detailed usage including cached and reasoning tokens
+        let usage = Usage(
+            inputTokens: response.usage?.input_tokens ?? 0,
+            outputTokens: response.usage?.output_tokens ?? 0,
+            cachedTokens: response.usage?.input_tokens_details?.cached_tokens,
+            reasoningTokens: response.usage?.output_tokens_details?.reasoning_tokens
+        )
+
+        return CompletionResponse(
+            content: content,
+            refusal: refusal,
+            toolCalls: toolCalls,
+            stopReason: stopReason,
+            usage: usage
+        )
+    }
+
+    private func streamResponsesRequest(
+        _ request: ResponsesAPIRequest,
+        continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
+    ) async throws {
+        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("responses"))
+        urlRequest.httpMethod = "POST"
+        try await provider.authenticate(&urlRequest)
+        urlRequest.httpBody = try JSONEncoder().encode(request)
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: urlRequest)
+
+        guard let http = response as? HTTPURLResponse else {
+            throw LLMError.networkError("Invalid response type")
+        }
+
+        if http.statusCode != 200 {
+            var errorData = Data()
+            for try await byte in bytes {
+                errorData.append(byte)
+            }
+            try handleHTTPResponse(response, data: errorData)
+            return
+        }
+
+        var accumulatedContent = ""
+        var accumulatedRefusal = ""
+        // Map from call_id -> (name, arguments) for final response
+        var accumulatedToolCalls: [String: (name: String, arguments: String)] = [:]
+        // Map from item_id -> call_id (to resolve delta events)
+        var itemIdToCallId: [String: String] = [:]
+        var inputTokens = 0
+        var outputTokens = 0
+        var cachedTokens: Int?
+        var reasoningTokens: Int?
+
+        for try await line in bytes.lines {
+            guard line.hasPrefix("data: ") else { continue }
+            let data = String(line.dropFirst(6))
+
+            // Check for stream end
+            if data == "[DONE]" {
+                break
+            }
+
+            guard let jsonData = data.data(using: .utf8) else { continue }
+
+            // Parse streaming event
+            guard let event = try? JSONDecoder().decode(ResponsesStreamEvent.self, from: jsonData) else {
+                continue
+            }
+
+            switch event.type {
+            // Text content events
+            case "response.text.delta", "response.output_text.delta":
+                if let delta = event.delta {
+                    accumulatedContent += delta
+                    continuation.yield(.contentDelta(delta))
+                }
+
+            // Refusal events
+            case "response.refusal.delta":
+                if let delta = event.delta {
+                    accumulatedRefusal += delta
+                }
+
+            // Function call argument events - uses item_id to reference the tool call
+            case "response.function_call_arguments.delta":
+                if let delta = event.delta {
+                    // Look up call_id from item_id
+                    let itemId = event.item_id ?? event.item?.id
+                    if let itemId = itemId, let callId = itemIdToCallId[itemId] {
+                        var existing = accumulatedToolCalls[callId] ?? (name: "", arguments: "")
+                        existing.arguments += delta
+                        accumulatedToolCalls[callId] = existing
+                        continuation.yield(.toolCallDelta(argumentsDelta: delta))
+                    }
+                }
+
+            // Output item added - capture the item_id -> call_id mapping
+            case "response.output_item.added":
+                if let item = event.item, item.type == "function_call" {
+                    if let itemId = item.id, let callId = item.call_id, let name = item.name {
+                        itemIdToCallId[itemId] = callId
+                        accumulatedToolCalls[callId] = (name: name, arguments: "")
+                        continuation.yield(.toolCallStart(id: callId, name: name))
+                    }
+                }
+
+            case "response.output_item.done":
+                if let item = event.item, item.type == "function_call" {
+                    let itemId = item.id
+                    if let itemId = itemId, let callId = itemIdToCallId[itemId] {
+                        continuation.yield(.toolCallEnd(id: callId))
+                    }
+                }
+
+            case "response.completed":
+                if let resp = event.response, let usage = resp.usage {
+                    inputTokens = usage.input_tokens
+                    outputTokens = usage.output_tokens
+                    cachedTokens = usage.input_tokens_details?.cached_tokens
+                    reasoningTokens = usage.output_tokens_details?.reasoning_tokens
+                }
+
+            default:
+                break
+            }
+        }
+
+        // Build final response
+        let toolCalls = accumulatedToolCalls.map { callId, data in
+            ToolCall(id: callId, name: data.name, arguments: data.arguments)
+        }
+
+        let completionResponse = CompletionResponse(
+            content: accumulatedContent.isEmpty ? nil : accumulatedContent,
+            refusal: accumulatedRefusal.isEmpty ? nil : accumulatedRefusal,
+            toolCalls: toolCalls,
+            stopReason: toolCalls.isEmpty ? .endTurn : .toolUse,
+            usage: Usage(
+                inputTokens: inputTokens,
+                outputTokens: outputTokens,
+                cachedTokens: cachedTokens,
+                reasoningTokens: reasoningTokens
+            )
+        )
+
+        continuation.yield(.done(completionResponse))
+        continuation.finish()
     }
 
     // MARK: - Capabilities

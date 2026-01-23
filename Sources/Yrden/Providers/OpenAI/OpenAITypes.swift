@@ -28,6 +28,8 @@ struct OpenAIRequest: Encodable {
     let response_format: OpenAIResponseFormat?
     let stream: Bool?
     let stream_options: OpenAIStreamOptions?
+    /// Reasoning effort for GPT-5 models: "none", "minimal", "low", "medium", "high", "xhigh"
+    let reasoning_effort: String?
 
     enum CodingKeys: String, CodingKey {
         case model
@@ -41,6 +43,7 @@ struct OpenAIRequest: Encodable {
         case response_format
         case stream
         case stream_options
+        case reasoning_effort
     }
 }
 

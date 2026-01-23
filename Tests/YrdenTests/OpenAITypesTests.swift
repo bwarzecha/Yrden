@@ -386,7 +386,8 @@ struct OpenAIRequestTests {
             tool_choice: nil,
             response_format: nil,
             stream: nil,
-            stream_options: nil
+            stream_options: nil,
+            reasoning_effort: nil
         )
 
         let data = try JSONEncoder().encode(request)
@@ -422,7 +423,8 @@ struct OpenAIRequestTests {
             tool_choice: .auto,
             response_format: nil,
             stream: false,
-            stream_options: nil
+            stream_options: nil,
+            reasoning_effort: nil
         )
 
         let data = try JSONEncoder().encode(request)
@@ -451,7 +453,8 @@ struct OpenAIRequestTests {
             tool_choice: nil,
             response_format: nil,
             stream: true,
-            stream_options: OpenAIStreamOptions(include_usage: true)
+            stream_options: OpenAIStreamOptions(include_usage: true),
+            reasoning_effort: nil
         )
 
         let data = try JSONEncoder().encode(request)
@@ -486,7 +489,8 @@ struct OpenAIRequestTests {
             tool_choice: nil,
             response_format: .jsonSchema(name: "sentiment_analysis", schema: schema, strict: true),
             stream: nil,
-            stream_options: nil
+            stream_options: nil,
+            reasoning_effort: nil
         )
 
         let data = try JSONEncoder().encode(request)

@@ -987,7 +987,7 @@ struct SchemaConstraintTests {
         )
     }
 
-    @Test("@Guide with .options constraint")
+    @Test("@Guide with .options constraint generates enum")
     func guideWithOptionsConstraint() {
         assertMacroExpansion(
             """
@@ -1005,7 +1005,7 @@ struct SchemaConstraintTests {
                     [
                         "type": "object",
                         "properties": [
-                            "order": ["type": "string", "description": "Sort order. Must be one of: asc, desc"]
+                            "order": ["type": "string", "description": "Sort order", "enum": ["asc", "desc"]]
                         ],
                         "required": ["order"],
                         "additionalProperties": false

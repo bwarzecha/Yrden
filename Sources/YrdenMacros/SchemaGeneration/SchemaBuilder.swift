@@ -172,14 +172,26 @@ struct SchemaBuilder {
         description: String? = nil,
         constraints: [ParsedConstraint] = []
     ) -> String {
-        let fullDescription = buildFullDescription(description: description, constraints: constraints)
+        // Build description text (excludes .options since we use enum for that)
+        let descriptionOnlyConstraints = constraints.filter {
+            if case .options = $0 { return false }
+            return true
+        }
+        let fullDescription = buildFullDescription(description: description, constraints: descriptionOnlyConstraints)
+
+        // Extract enum values from .options constraint
+        let enumValues: [String]? = constraints.compactMap { constraint -> [String]? in
+            if case .options(let opts) = constraint { return opts }
+            return nil
+        }.first
 
         switch type {
         case .primitive(let primitive):
-            if let desc = fullDescription {
-                return "[\"type\": \"\(primitive.jsonSchemaType)\", \"description\": \"\(escapeString(desc))\"]"
-            }
-            return "[\"type\": \"\(primitive.jsonSchemaType)\"]"
+            return buildPrimitiveSchema(
+                type: primitive.jsonSchemaType,
+                description: fullDescription,
+                enumValues: enumValues
+            )
 
         case .array(let elementType):
             let itemsSchema = buildTypeSchema(elementType)
@@ -201,5 +213,25 @@ struct SchemaBuilder {
             // Fall back to referencing as a schema type
             return "\(typeName).jsonSchema"
         }
+    }
+
+    /// Builds schema for primitive types with optional description and enum.
+    private static func buildPrimitiveSchema(
+        type: String,
+        description: String?,
+        enumValues: [String]?
+    ) -> String {
+        var parts: [String] = ["\"type\": \"\(type)\""]
+
+        if let desc = description {
+            parts.append("\"description\": \"\(escapeString(desc))\"")
+        }
+
+        if let values = enumValues {
+            let enumArray = values.map { "\"\($0)\"" }.joined(separator: ", ")
+            parts.append("\"enum\": [\(enumArray)]")
+        }
+
+        return "[\(parts.joined(separator: ", "))]"
     }
 }
