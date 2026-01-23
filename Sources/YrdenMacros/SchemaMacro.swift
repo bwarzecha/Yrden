@@ -11,11 +11,18 @@ public struct SchemaMacro: MemberMacro, ExtensionMacro {
         in context: some MacroExpansionContext
     ) throws -> [DeclSyntax] {
 
+        // Parse description from @Schema(description: "...")
+        let schemaDescription = extractDescription(from: node)
+
         // Handle struct declarations
         if let structDecl = declaration.as(StructDeclSyntax.self) {
             let typeName = structDecl.name.text
             let properties = TypeParser.parseStructMembers(from: structDecl)
-            let schemaCode = SchemaBuilder.buildStructSchema(typeName: typeName, properties: properties)
+            let schemaCode = SchemaBuilder.buildStructSchema(
+                typeName: typeName,
+                properties: properties,
+                description: schemaDescription
+            )
 
             return [DeclSyntax(stringLiteral: schemaCode)]
         }
@@ -39,7 +46,8 @@ public struct SchemaMacro: MemberMacro, ExtensionMacro {
             let schemaCode = SchemaBuilder.buildEnumSchema(
                 typeName: typeName,
                 rawType: rawType,
-                cases: cases
+                cases: cases,
+                description: schemaDescription
             )
 
             return [DeclSyntax(stringLiteral: schemaCode)]
@@ -59,6 +67,26 @@ public struct SchemaMacro: MemberMacro, ExtensionMacro {
     ) throws -> [ExtensionDeclSyntax] {
         let extensionDecl = try ExtensionDeclSyntax("extension \(type.trimmed): SchemaType {}")
         return [extensionDecl]
+    }
+
+    // MARK: - Attribute Parsing
+
+    /// Extracts the description parameter from @Schema(description: "...").
+    private static func extractDescription(from node: AttributeSyntax) -> String? {
+        guard case let .argumentList(arguments) = node.arguments else {
+            return nil
+        }
+
+        for argument in arguments {
+            if argument.label?.text == "description",
+               let stringLiteral = argument.expression.as(StringLiteralExprSyntax.self),
+               let segment = stringLiteral.segments.first,
+               case let .stringSegment(stringSegment) = segment {
+                return stringSegment.content.text
+            }
+        }
+
+        return nil
     }
 
     // MARK: - Enum Helpers

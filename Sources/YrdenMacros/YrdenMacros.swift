@@ -5,5 +5,6 @@ import SwiftSyntaxMacros
 struct YrdenMacrosPlugin: CompilerPlugin {
     let providingMacros: [Macro.Type] = [
         SchemaMacro.self,
+        GuideMacro.self,
     ]
 }

@@ -7,18 +7,34 @@ struct SchemaBuilder {
     /// - Parameters:
     ///   - typeName: Name of the struct
     ///   - properties: Parsed properties of the struct
+    ///   - description: Optional type-level description
     /// - Returns: Swift source code string for the jsonSchema computed property
-    static func buildStructSchema(typeName: String, properties: [ParsedProperty]) -> String {
+    static func buildStructSchema(
+        typeName: String,
+        properties: [ParsedProperty],
+        description: String? = nil
+    ) -> String {
         let propertiesCode = buildPropertiesDict(properties)
         let requiredCode = buildRequiredArray(properties)
+
+        var schemaEntries = [
+            "\"type\": \"object\"",
+        ]
+
+        if let desc = description {
+            schemaEntries.append("\"description\": \"\(escapeString(desc))\"")
+        }
+
+        schemaEntries.append("\"properties\": \(propertiesCode)")
+        schemaEntries.append("\"required\": \(requiredCode)")
+        schemaEntries.append("\"additionalProperties\": false")
+
+        let schemaContent = schemaEntries.joined(separator: ",\n            ")
 
         return """
         static var jsonSchema: JSONValue {
             [
-                "type": "object",
-                "properties": \(propertiesCode),
-                "required": \(requiredCode),
-                "additionalProperties": false
+                \(schemaContent)
             ]
         }
         """
@@ -29,11 +45,13 @@ struct SchemaBuilder {
     ///   - typeName: Name of the enum
     ///   - rawType: The raw type ("String" or "Int")
     ///   - cases: Array of (caseName, rawValue) tuples
+    ///   - description: Optional type-level description
     /// - Returns: Swift source code string for the jsonSchema computed property
     static func buildEnumSchema(
         typeName: String,
         rawType: String,
-        cases: [(name: String, rawValue: String?)]
+        cases: [(name: String, rawValue: String?)],
+        description: String? = nil
     ) -> String {
         let jsonType = rawType == "Int" ? "integer" : "string"
 
@@ -69,17 +87,35 @@ struct SchemaBuilder {
             enumValues = "[\(values.joined(separator: ", "))]"
         }
 
+        var schemaEntries = [
+            "\"type\": \"\(jsonType)\"",
+        ]
+
+        if let desc = description {
+            schemaEntries.append("\"description\": \"\(escapeString(desc))\"")
+        }
+
+        schemaEntries.append("\"enum\": \(enumValues)")
+
+        let schemaContent = schemaEntries.joined(separator: ",\n            ")
+
         return """
         static var jsonSchema: JSONValue {
             [
-                "type": "\(jsonType)",
-                "enum": \(enumValues)
+                \(schemaContent)
             ]
         }
         """
     }
 
     // MARK: - Private Helpers
+
+    /// Escapes special characters in strings for Swift string literals.
+    private static func escapeString(_ str: String) -> String {
+        str.replacingOccurrences(of: "\\", with: "\\\\")
+           .replacingOccurrences(of: "\"", with: "\\\"")
+           .replacingOccurrences(of: "\n", with: "\\n")
+    }
 
     /// Builds the "properties" dictionary code.
     private static func buildPropertiesDict(_ properties: [ParsedProperty]) -> String {
@@ -88,11 +124,33 @@ struct SchemaBuilder {
         }
 
         let entries = properties.map { property -> String in
-            let schemaCode = buildTypeSchema(property.type)
+            let schemaCode = buildTypeSchema(
+                property.type,
+                description: property.description,
+                constraints: property.constraints
+            )
             return "\"\(property.name)\": \(schemaCode)"
         }
 
         return "[\n                \(entries.joined(separator: ",\n                "))\n            ]"
+    }
+
+    /// Combines description and constraints into a single description string.
+    private static func buildFullDescription(
+        description: String?,
+        constraints: [ParsedConstraint]
+    ) -> String? {
+        var parts: [String] = []
+
+        if let desc = description, !desc.isEmpty {
+            parts.append(desc)
+        }
+
+        for constraint in constraints {
+            parts.append(constraint.descriptionText)
+        }
+
+        return parts.isEmpty ? nil : parts.joined(separator: ". ")
     }
 
     /// Builds the "required" array code.
@@ -109,21 +167,34 @@ struct SchemaBuilder {
     }
 
     /// Builds the schema code for a single type.
-    private static func buildTypeSchema(_ type: ParsedType) -> String {
+    private static func buildTypeSchema(
+        _ type: ParsedType,
+        description: String? = nil,
+        constraints: [ParsedConstraint] = []
+    ) -> String {
+        let fullDescription = buildFullDescription(description: description, constraints: constraints)
+
         switch type {
         case .primitive(let primitive):
+            if let desc = fullDescription {
+                return "[\"type\": \"\(primitive.jsonSchemaType)\", \"description\": \"\(escapeString(desc))\"]"
+            }
             return "[\"type\": \"\(primitive.jsonSchemaType)\"]"
 
         case .array(let elementType):
             let itemsSchema = buildTypeSchema(elementType)
+            if let desc = fullDescription {
+                return "[\"type\": \"array\", \"description\": \"\(escapeString(desc))\", \"items\": \(itemsSchema)]"
+            }
             return "[\"type\": \"array\", \"items\": \(itemsSchema)]"
 
         case .optional(let wrappedType):
             // Optional types have the same schema as their wrapped type
-            return buildTypeSchema(wrappedType)
+            return buildTypeSchema(wrappedType, description: description, constraints: constraints)
 
         case .schemaType(let typeName):
             // Reference another @Schema type's jsonSchema
+            // Note: Can't add description to referenced schemas inline
             return "\(typeName).jsonSchema"
 
         case .unknown(let typeName):
