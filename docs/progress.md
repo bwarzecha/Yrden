@@ -40,6 +40,118 @@ The `export $(cat .env | grep -v '^#' | xargs)` pattern:
 
 ---
 
+## Session: 2026-01-23
+
+### Completed
+
+#### @Schema and @Guide Macros
+
+Implemented compile-time JSON Schema generation from Swift types using Swift macros.
+
+**New Files:**
+
+| File | Description |
+|------|-------------|
+| `Sources/YrdenMacros/SchemaMacro.swift` | Main macro implementation for structs and enums |
+| `Sources/YrdenMacros/GuideMacro.swift` | Property-level description/constraint marker |
+| `Sources/YrdenMacros/SchemaGeneration/TypeParser.swift` | Parses Swift types to schema representation |
+| `Sources/YrdenMacros/SchemaGeneration/SchemaBuilder.swift` | Generates Swift code for JSON Schema literals |
+
+**Supported Types:**
+
+| Swift Type | JSON Schema |
+|------------|-------------|
+| `String` | `{"type": "string"}` |
+| `Int` | `{"type": "integer"}` |
+| `Double` | `{"type": "number"}` |
+| `Bool` | `{"type": "boolean"}` |
+| `[T]` | `{"type": "array", "items": ...}` |
+| `T?` | Same type, omitted from `required` |
+| `@Schema struct` | Nested object reference |
+| `enum: String` | `{"type": "string", "enum": [...]}` |
+| `enum: Int` | `{"type": "integer", "enum": [...]}` |
+
+**@Guide Constraints:**
+
+```swift
+@Guide(description: "Max results", .range(1...100))      // "Must be between 1 and 100"
+@Guide(description: "Score", .rangeDouble(0.0...1.0))    // "Must be between 0.0 and 1.0"
+@Guide(description: "Page", .minimum(1))                  // "Must be at least 1"
+@Guide(description: "Count", .maximum(50))                // "Must be at most 50"
+@Guide(description: "Tags", .count(1...10))               // "Must have between 1 and 10 items"
+@Guide(description: "Items", .exactCount(5))              // "Must have exactly 5 items"
+@Guide(description: "Sort", .options(["a", "b"]))         // Generates "enum": ["a", "b"]
+@Guide(description: "Pattern", .pattern("^[a-z]+$"))      // "Must match pattern: ^[a-z]+$"
+```
+
+Note: `.options()` generates JSON Schema `enum`, all other constraints generate description text since most providers don't support JSON Schema validation keywords.
+
+**Tests:** 63 tests covering all schema generation scenarios
+
+---
+
+#### Typed Structured Output API
+
+Implemented PydanticAI-style typed API that returns decoded Swift types directly.
+
+**New Types:**
+
+| Type | Description |
+|------|-------------|
+| `TypedResponse<T>` | Wraps decoded data with usage, stopReason, rawJSON |
+| `StructuredOutputError` | Comprehensive error enum for all failure modes |
+| `RetryingHTTPClient` | Configurable retry logic with exponential backoff |
+
+**Model Extension Methods:**
+
+```swift
+// OpenAI - native structured output
+let result = try await model.generate(prompt, as: PersonInfo.self)
+print(result.data.name)  // Already typed!
+
+// Anthropic - tool-based extraction
+let result = try await model.generateWithTool(
+    prompt,
+    as: PersonInfo.self,
+    toolName: "extract_person"
+)
+
+// Streaming variants
+for try await event in model.generateStream(prompt, as: PersonInfo.self) { ... }
+for try await event in model.generateStreamWithTool(prompt, as: PersonInfo.self, toolName: "extract") { ... }
+
+// Lower-level extraction
+let typed = try model.extractAndDecode(from: response, as: PersonInfo.self, expectToolCall: false)
+```
+
+**StructuredOutputError Cases:**
+
+| Error | Description |
+|-------|-------------|
+| `.modelRefused(reason)` | Model declined (safety, policy) |
+| `.emptyResponse` | No content or tool calls |
+| `.unexpectedTextResponse(content)` | Expected tool call, got text |
+| `.unexpectedToolCall(toolName)` | Expected text, got tool call |
+| `.decodingFailed(json, error)` | JSON didn't match schema |
+| `.incompleteResponse(partialJSON)` | Response truncated (max tokens) |
+
+**Tests:** 33 unit tests + 32 integration tests
+
+---
+
+#### Examples
+
+Added runnable example targets:
+
+```bash
+swift run BasicSchema        # Schema generation demo (no API keys)
+swift run StructuredOutput   # Typed API demo (requires API keys)
+```
+
+**Test Count:** 402 tests (all passing)
+
+---
+
 ## Session: 2026-01-22 (Part 10)
 
 ### Completed
@@ -580,36 +692,40 @@ Created environment variable support for integration tests:
 
 ## Next Steps
 
-### Immediate (Next Session)
+### Immediate
 
-1. **Structured Outputs**
-   - ❌ Not yet implemented for either provider
-   - Anthropic: Tool use or structured outputs beta API
-   - OpenAI: `response_format` with `json_schema` and `strict: true`
-   - Add to both providers for parity
+1. **Agent Loop**
+   - Iterable execution with `.iter()` / `.next()`
+   - Tool execution in the loop
+   - `ToolRejection` for retry signaling
+   - Result validators
 
-2. **Provider Variants**
-   - `AzureOpenAIProvider` - Different auth (api-key header), URL structure
-   - `LocalProvider` (Ollama) - Same OpenAI format, no auth
-
-3. **Edge Cases** (lower priority)
-   - Rate limiting (actual 429 with retry-after) - hard to test reliably
-   - Content filtering - hard to trigger intentionally
+2. **Tool Protocol**
+   - `Tool` protocol with typed arguments
+   - Tool execution with context injection
+   - Tool result handling
 
 ### Medium-term
 
-4. **OpenRouter Provider**
-   - Extends OpenAI format with extra metadata
-   - Multi-model access through single API
+3. **Provider Variants**
+   - `AzureOpenAIProvider` - Different auth, URL structure
+   - `LocalProvider` (Ollama) - OpenAI-compatible, no auth
+   - `OpenRouterProvider` - Multi-model aggregator
 
-5. **@Schema Macro**
-   - JSON Schema generation from Swift types
-   - `@Guide` for constraints
+4. **Runtime Constraint Validation**
+   - Validate decoded data against @Guide constraints
+   - Auto-retry with feedback on constraint violations
 
-6. **Tool Protocol**
-   - `Tool` protocol with typed arguments
-   - `TypedTool` with `SchemaType` arguments
-   - Tool execution in agent loop
+5. **MCP Integration**
+   - Model Context Protocol client
+   - Dynamic tool discovery from external servers
+
+### Completed ✅
+
+- ~~@Schema Macro~~ - JSON Schema generation from Swift types
+- ~~@Guide constraints~~ - Descriptions and validation hints
+- ~~Structured Outputs~~ - OpenAI native + Anthropic tool-based
+- ~~Typed API~~ - generate(), generateWithTool(), TypedResponse<T>
 
 ---
 
@@ -618,60 +734,71 @@ Created environment variable support for integration tests:
 ```
 Yrden/
 ├── CLAUDE.md                           # Project instructions
+├── README.md                           # ✅ Updated documentation
 ├── Package.swift
 ├── docs/
-│   ├── llm-provider-design.md          # ✅ Design document
-│   ├── research-jsonvalue.md           # ✅ JSONValue research
-│   ├── test-strategy-jsonvalue.md      # ✅ JSONValue test plan
-│   └── progress.md                     # ✅ This file
+│   ├── llm-provider-design.md          # Design document
+│   ├── research-jsonvalue.md           # JSONValue research
+│   ├── test-strategy-jsonvalue.md      # JSONValue test plan
+│   └── progress.md                     # This file
+├── Examples/
+│   ├── BasicSchema/main.swift          # ✅ Schema generation demo
+│   └── StructuredOutput/main.swift     # ✅ Typed API demo
 ├── Sources/
 │   ├── Yrden/
-│   │   ├── Yrden.swift                 # SchemaType protocol, @Schema macro decl
-│   │   ├── JSONValue.swift             # ✅ JSONValue enum (Sendable, Codable)
-│   │   ├── Message.swift               # ✅ Message, ContentPart
-│   │   ├── Tool.swift                  # ✅ ToolDefinition, ToolCall, ToolOutput
-│   │   ├── Completion.swift            # ✅ Request/Response/Config types
-│   │   ├── Streaming.swift             # ✅ StreamEvent
-│   │   ├── Model.swift                 # ✅ Model protocol, ModelCapabilities
-│   │   ├── Provider.swift              # ✅ Provider protocol
-│   │   ├── LLMError.swift              # ✅ Typed error enum
+│   │   ├── Yrden.swift                 # SchemaType protocol, macro declarations
+│   │   ├── JSONValue.swift             # JSONValue enum (Sendable, Codable)
+│   │   ├── Message.swift               # Message, ContentPart
+│   │   ├── Tool.swift                  # ToolDefinition, ToolCall, ToolOutput
+│   │   ├── Completion.swift            # Request/Response/Config types
+│   │   ├── Streaming.swift             # StreamEvent
+│   │   ├── Model.swift                 # Model protocol, ModelCapabilities
+│   │   ├── Provider.swift              # Provider protocol
+│   │   ├── LLMError.swift              # Typed error enum
+│   │   ├── Model+StructuredOutput.swift # ✅ generate(), generateWithTool()
+│   │   ├── StructuredOutput.swift      # ✅ TypedResponse<T>
+│   │   ├── StructuredOutputError.swift # ✅ Error enum
+│   │   ├── Retry.swift                 # ✅ RetryingHTTPClient
 │   │   └── Providers/
-│   │       ├── Anthropic/              # ✅ Anthropic provider
-│   │       │   ├── AnthropicProvider.swift   # API key auth
-│   │       │   ├── AnthropicTypes.swift      # Wire format types
-│   │       │   └── AnthropicModel.swift      # Model implementation
-│   │       └── OpenAI/                 # ✅ OpenAI provider
-│   │           ├── OpenAIProvider.swift      # Bearer token auth
-│   │           ├── OpenAITypes.swift         # Wire format types
-│   │           └── OpenAIModel.swift         # Model implementation
+│   │       ├── Anthropic/
+│   │       │   ├── AnthropicProvider.swift
+│   │       │   ├── AnthropicTypes.swift
+│   │       │   └── AnthropicModel.swift
+│   │       └── OpenAI/
+│   │           ├── OpenAIProvider.swift
+│   │           ├── OpenAITypes.swift
+│   │           ├── OpenAIModel.swift
+│   │           └── OpenAIResponsesTypes.swift  # ✅ Responses API types
 │   └── YrdenMacros/
 │       ├── YrdenMacros.swift           # Plugin entry point
-│       └── SchemaMacro.swift           # Macro implementation (stub)
+│       ├── SchemaMacro.swift           # ✅ @Schema macro implementation
+│       ├── GuideMacro.swift            # ✅ @Guide macro implementation
+│       └── SchemaGeneration/
+│           ├── TypeParser.swift        # ✅ Type parsing
+│           └── SchemaBuilder.swift     # ✅ Schema code generation
 ├── Tests/
 │   ├── YrdenTests/
-│   │   ├── YrdenTests.swift            # Basic tests
-│   │   ├── TestConfig.swift            # ✅ API key loading
-│   │   ├── ToolTests.swift             # ✅ Tool type tests
-│   │   ├── MessageTests.swift          # ✅ Message type tests
-│   │   ├── LLMErrorTests.swift         # ✅ Error tests
-│   │   ├── CompletionTests.swift       # ✅ Completion type tests
-│   │   ├── StreamingTests.swift        # ✅ StreamEvent tests
-│   │   ├── ModelTests.swift            # ✅ Model/Capabilities tests
-│   │   ├── AnthropicTypesTests.swift   # ✅ Anthropic wire format tests
-│   │   ├── OpenAITypesTests.swift      # ✅ OpenAI wire format tests
-│   │   ├── Integration/                # ✅ Integration tests (real API)
+│   │   ├── TestConfig.swift            # API key loading
+│   │   ├── ToolTests.swift
+│   │   ├── MessageTests.swift
+│   │   ├── LLMErrorTests.swift
+│   │   ├── CompletionTests.swift
+│   │   ├── StreamingTests.swift
+│   │   ├── ModelTests.swift
+│   │   ├── AnthropicTypesTests.swift
+│   │   ├── OpenAITypesTests.swift
+│   │   ├── StructuredOutputTests.swift # ✅ Typed API unit tests
+│   │   ├── Integration/
 │   │   │   ├── AnthropicIntegrationTests.swift
-│   │   │   └── OpenAIIntegrationTests.swift
-│   │   └── JSONValue/                  # ✅ JSONValue tests
-│   │       ├── JSONValuePrimitiveTests.swift
-│   │       ├── JSONValueObjectTests.swift
-│   │       ├── JSONValueArrayTests.swift
-│   │       ├── JSONValueEqualityTests.swift
-│   │       └── JSONValueE2ETests.swift
+│   │   │   ├── OpenAIIntegrationTests.swift
+│   │   │   ├── SchemaIntegrationTests.swift      # ✅ @Schema with real APIs
+│   │   │   └── TypedOutputIntegrationTests.swift # ✅ Typed API with real APIs
+│   │   └── JSONValue/
+│   │       └── ... (JSONValue tests)
 │   └── YrdenMacrosTests/
-│       └── YrdenMacrosTests.swift      # Macro tests
-├── .env.template                       # ✅ API key template
-└── .gitignore                          # ✅ Updated for .env
+│       └── YrdenMacrosTests.swift      # ✅ 35+ macro expansion tests
+├── .env.template
+└── .gitignore
 ```
 
 ---
