@@ -1,5 +1,208 @@
 # Development Progress
 
+## Running Tests
+
+### Quick Reference
+
+```bash
+# Run all tests (unit tests only - no API keys needed)
+swift test
+
+# Run tests with API keys from .env file
+export $(cat .env | grep -v '^#' | xargs) && swift test
+
+# Run specific test filter
+export $(cat .env | grep -v '^#' | xargs) && swift test --filter "OpenAI"
+
+# Run expensive tests (o1, etc.)
+export $(cat .env | grep -v '^#' | xargs) RUN_EXPENSIVE_TESTS=1 && swift test --filter "o1_"
+
+# List available OpenAI models
+export $(cat .env | grep -v '^#' | xargs) && swift test --filter "listAllModels"
+```
+
+### Environment Variables
+
+Create a `.env` file in the project root (see `.env.template`):
+
+```bash
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+# Optional
+RUN_EXPENSIVE_TESTS=1
+```
+
+The `export $(cat .env | grep -v '^#' | xargs)` pattern:
+1. Reads .env file
+2. Filters out comment lines (starting with #)
+3. Exports all key=value pairs to the environment
+4. Runs the following command with those variables
+
+---
+
+## Session: 2026-01-22 (Part 10)
+
+### Completed
+
+#### GPT-5.2 and Newer Models Support
+
+Tested and added support for the newest OpenAI models discovered through model listing:
+- **GPT-5 family**: gpt-5, gpt-5-mini, gpt-5-nano, gpt-5-pro, gpt-5.1, gpt-5.2
+- **o3 family**: o3, o3-mini, o3-pro, o3-deep-research
+- **GPT-4.1 family**: gpt-4.1, gpt-4.1-mini, gpt-4.1-nano
+
+**Key API Changes for Newer Models:**
+
+| Parameter | Old Models (GPT-4, GPT-3.5) | New Models (GPT-5.x, o3, o1, GPT-4.1) |
+|-----------|----------------------------|----------------------------------------|
+| Max tokens | `max_tokens` | `max_completion_tokens` |
+| Temperature | Supported | o3/o1: NOT supported, GPT-5: supported |
+| System messages | Supported | o3/o1: NOT supported, GPT-5: supported |
+
+**Updated Files:**
+- [OpenAITypes.swift](../Sources/Yrden/Providers/OpenAI/OpenAITypes.swift) - Added `max_completion_tokens` parameter
+- [OpenAIModel.swift](../Sources/Yrden/Providers/OpenAI/OpenAIModel.swift) - Auto-detect which parameter to use based on model name
+- [Model.swift](../Sources/Yrden/Model.swift) - Added `.gpt5` capability preset (400K context)
+
+**Test Results:**
+- GPT-5.2 completion: ✅ Working
+- GPT-5.2 streaming: ✅ Working
+- o3-mini reasoning: ✅ Working (uses more tokens for reasoning)
+
+#### Structured Output Implementation (OpenAI)
+
+Wired up `outputSchema` to OpenAI's `response_format` with `json_schema`. This enables type-safe JSON responses that conform to a specified schema.
+
+**How it works:**
+```swift
+let schema: JSONValue = [
+    "type": "object",
+    "properties": [
+        "sentiment": ["type": "string", "enum": ["positive", "negative", "neutral"]],
+        "confidence": ["type": "number"]
+    ],
+    "required": ["sentiment", "confidence"],
+    "additionalProperties": false
+]
+
+let request = CompletionRequest(
+    messages: [.user("Analyze: 'I love this!'")],
+    outputSchema: schema
+)
+
+let response = try await model.complete(request)
+// response.content is guaranteed to be valid JSON matching the schema
+```
+
+**Updated Files:**
+- [OpenAIModel.swift](../Sources/Yrden/Providers/OpenAI/OpenAIModel.swift) - Converts `outputSchema` to `response_format: json_schema`
+
+**Tests Added:**
+- `structuredOutput_sentimentAnalysis()` - Complex schema with enum, number, array
+- `structuredOutput_dataExtraction()` - Extract structured data from text
+- `structuredOutput_streaming()` - Structured output works with streaming
+- `encode_structuredOutputRequest()` - Unit test for wire format
+
+**Note:** Anthropic's structured output is in beta and not yet implemented.
+
+**Learnings for Future Schema Development:**
+
+1. **`additionalProperties: false` is required** for OpenAI's strict mode. Without it, the model may add extra fields.
+
+2. **JSONValue has separate `.int` and `.double` cases**, not a unified `.number`. When parsing responses, handle both:
+   ```swift
+   switch value {
+   case .int(let i): // handle integer
+   case .double(let d): // handle decimal
+   }
+   ```
+
+3. **Dictionary subscript returns optional** - `obj["key"]` returns `JSONValue?`, must unwrap before pattern matching:
+   ```swift
+   // Wrong: case .string(let s) = obj["key"]
+   // Right:
+   guard let value = obj["key"], case .string(let s) = value else { ... }
+   ```
+
+4. **"integer" in schema may return as double** - JSON doesn't distinguish int/double, so `"type": "integer"` might come back as `.double(32.0)` not `.int(32)`. Handle both.
+
+5. **Streaming works with structured output** - Accumulate deltas, parse complete JSON at end. The model streams valid JSON fragments.
+
+6. **Schema name is arbitrary** - We use `"response"` but any valid identifier works. OpenAI uses it for logging/debugging.
+
+7. **`strict: true` enforces exact compliance** - Model will only output valid JSON matching the schema. No need for fallback parsing.
+
+**Test Count:** 294 tests (all passing)
+
+---
+
+## Session: 2026-01-22 (Part 9)
+
+### Completed
+
+#### OpenAI Provider Implementation
+
+Implemented `OpenAIProvider` and `OpenAIModel` as the second provider, validating the Model/Provider architecture works across different API formats.
+
+**New Files:**
+
+| File | Lines | Description |
+|------|-------|-------------|
+| [OpenAIProvider.swift](../Sources/Yrden/Providers/OpenAI/OpenAIProvider.swift) | ~110 | Bearer token auth, model listing |
+| [OpenAITypes.swift](../Sources/Yrden/Providers/OpenAI/OpenAITypes.swift) | ~350 | Wire format types (internal) |
+| [OpenAIModel.swift](../Sources/Yrden/Providers/OpenAI/OpenAIModel.swift) | ~430 | Model protocol implementation |
+
+**Key Differences from Anthropic:**
+
+| Aspect | Anthropic | OpenAI |
+|--------|-----------|--------|
+| Auth header | `x-api-key` | `Authorization: Bearer` |
+| System message | Extracted to `system` field | In messages array (`role: system`) |
+| Tool results | Content block in user message | Separate message (`role: tool`) |
+| Images | `source.data` with base64 | Data URL format |
+| Stream end | `message_stop` event | `data: [DONE]` |
+| Stop reasons | `end_turn`, `tool_use` | `stop`, `tool_calls` |
+
+**Capability Detection:**
+
+Models are auto-detected by name prefix:
+- `gpt-4o*`, `gpt-4-turbo*` → Full capabilities
+- `o1*` → No temperature, no tools, no vision, no system messages
+- `o3*` → No temperature, has tools/vision, no system messages
+
+**Tests:**
+
+| File | Tests | Coverage |
+|------|-------|----------|
+| [OpenAITypesTests.swift](../Tests/YrdenTests/OpenAITypesTests.swift) | 39 | Content parts, messages, requests, responses, streaming |
+| [OpenAIIntegrationTests.swift](../Tests/YrdenTests/Integration/OpenAIIntegrationTests.swift) | 21 | Real API: completion, streaming, tools, vision, unicode, errors |
+
+**Integration Test Coverage:**
+- Simple completion with system messages
+- Temperature and max_tokens config
+- Streaming (basic, long response)
+- Tool calling (single, multi-turn, multiple tools, streaming)
+- Multi-turn conversation context
+- Vision/images
+- Unicode/emoji handling
+- Error handling (invalid API key, invalid model)
+- Model listing
+- o1 capability validation (temperature, tools, system message restrictions)
+
+**Test Counts:** 286 tests total (284 passing, 2 skipped)
+
+**Expensive Test Pattern:**
+
+Tests requiring special API access (o1 models) are gated:
+```swift
+@Test(.enabled(if: ProcessInfo.processInfo.environment["RUN_EXPENSIVE_TESTS"] != nil))
+func o1_simpleCompletion() async throws { ... }
+```
+
+Run with: `RUN_EXPENSIVE_TESTS=1 swift test --filter o1_`
+
+---
+
 ## Session: 2026-01-22 (Part 8)
 
 ### Completed
@@ -379,15 +582,15 @@ Created environment variable support for integration tests:
 
 ### Immediate (Next Session)
 
-1. **OpenAI Model**
-   - Validates abstraction works across providers
-   - Different capabilities (test o1 handling)
-   - `OpenAIProvider` and `OpenAIChatModel`
-   - Integration tests with real API
+1. **Structured Outputs**
+   - ❌ Not yet implemented for either provider
+   - Anthropic: Tool use or structured outputs beta API
+   - OpenAI: `response_format` with `json_schema` and `strict: true`
+   - Add to both providers for parity
 
-2. **Anthropic Remaining Gaps**
-   - ❌ **Structured outputs** - Not yet implemented (type exists but not wired to API)
-   - All other features comprehensively tested ✅
+2. **Provider Variants**
+   - `AzureOpenAIProvider` - Different auth (api-key header), URL structure
+   - `LocalProvider` (Ollama) - Same OpenAI format, no auth
 
 3. **Edge Cases** (lower priority)
    - Rate limiting (actual 429 with retry-after) - hard to test reliably
@@ -395,9 +598,9 @@ Created environment variable support for integration tests:
 
 ### Medium-term
 
-4. **Provider Variants**
-   - `AzureOpenAIProvider`
-   - `LocalProvider` (Ollama)
+4. **OpenRouter Provider**
+   - Extends OpenAI format with extra metadata
+   - Multi-model access through single API
 
 5. **@Schema Macro**
    - JSON Schema generation from Swift types
@@ -433,10 +636,14 @@ Yrden/
 │   │   ├── Provider.swift              # ✅ Provider protocol
 │   │   ├── LLMError.swift              # ✅ Typed error enum
 │   │   └── Providers/
-│   │       └── Anthropic/              # ✅ Anthropic provider
-│   │           ├── AnthropicProvider.swift   # API key auth
-│   │           ├── AnthropicTypes.swift      # Wire format types
-│   │           └── AnthropicModel.swift      # Model implementation
+│   │       ├── Anthropic/              # ✅ Anthropic provider
+│   │       │   ├── AnthropicProvider.swift   # API key auth
+│   │       │   ├── AnthropicTypes.swift      # Wire format types
+│   │       │   └── AnthropicModel.swift      # Model implementation
+│   │       └── OpenAI/                 # ✅ OpenAI provider
+│   │           ├── OpenAIProvider.swift      # Bearer token auth
+│   │           ├── OpenAITypes.swift         # Wire format types
+│   │           └── OpenAIModel.swift         # Model implementation
 │   └── YrdenMacros/
 │       ├── YrdenMacros.swift           # Plugin entry point
 │       └── SchemaMacro.swift           # Macro implementation (stub)
@@ -451,8 +658,10 @@ Yrden/
 │   │   ├── StreamingTests.swift        # ✅ StreamEvent tests
 │   │   ├── ModelTests.swift            # ✅ Model/Capabilities tests
 │   │   ├── AnthropicTypesTests.swift   # ✅ Anthropic wire format tests
+│   │   ├── OpenAITypesTests.swift      # ✅ OpenAI wire format tests
 │   │   ├── Integration/                # ✅ Integration tests (real API)
-│   │   │   └── AnthropicIntegrationTests.swift
+│   │   │   ├── AnthropicIntegrationTests.swift
+│   │   │   └── OpenAIIntegrationTests.swift
 │   │   └── JSONValue/                  # ✅ JSONValue tests
 │   │       ├── JSONValuePrimitiveTests.swift
 │   │       ├── JSONValueObjectTests.swift
@@ -493,3 +702,6 @@ Yrden/
 | 2026-01-22 | listModels() returns ModelInfo | Rich metadata for discovery; provider-specific details in `metadata: JSONValue?` |
 | 2026-01-22 | listModels() → AsyncThrowingStream | Lazy pagination for large catalogs; early exit support; caller decides caching |
 | 2026-01-22 | CachedModelList actor | Opt-in caching with TTL; keeps Provider stateless and Sendable |
+| 2026-01-22 | OpenAI same patterns as Anthropic | Validates Model/Provider split; same public types, different wire format |
+| 2026-01-22 | Capability detection by model name | Simple prefix matching (gpt-4o, o1, o3); avoids API call to check capabilities |
+| 2026-01-22 | o1 tests gated behind RUN_EXPENSIVE_TESTS | o1 models may require special access; validation tests run without API call |

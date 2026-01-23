@@ -16,6 +16,79 @@ Build a production-grade Swift library that brings PydanticAI's capabilities to 
 
 ---
 
+## Development Quick Reference
+
+### Running Tests with API Keys
+
+```bash
+# Load .env and run all tests
+export $(cat .env | grep -v '^#' | xargs) && swift test
+
+# Run specific provider tests
+export $(cat .env | grep -v '^#' | xargs) && swift test --filter "OpenAI"
+export $(cat .env | grep -v '^#' | xargs) && swift test --filter "Anthropic"
+
+# Run expensive tests (o1 models, etc.)
+export $(cat .env | grep -v '^#' | xargs) RUN_EXPENSIVE_TESTS=1 && swift test
+
+# List OpenAI models
+export $(cat .env | grep -v '^#' | xargs) && swift test --filter "listAllModels"
+```
+
+### Environment File (.env)
+
+```bash
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### JSONValue Gotchas
+
+When working with `JSONValue` (our JSON type for schemas and LLM responses):
+
+```swift
+// JSONValue cases: .null, .bool, .int, .double, .string, .array, .object
+
+// ❌ Wrong: Dictionary subscript returns optional
+guard case .string(let s) = obj["key"] else { ... }
+
+// ✅ Right: Unwrap first, then pattern match
+guard let value = obj["key"], case .string(let s) = value else { ... }
+
+// ❌ Wrong: Assuming "integer" schema returns .int
+guard case .int(let n) = obj["age"] else { ... }
+
+// ✅ Right: Handle both int and double (JSON doesn't distinguish)
+let age: Int
+switch obj["age"] {
+case .int(let i)?: age = i
+case .double(let d)?: age = Int(d)
+default: throw Error("not a number")
+}
+```
+
+### Structured Output (OpenAI)
+
+```swift
+let schema: JSONValue = [
+    "type": "object",
+    "properties": [
+        "name": ["type": "string"],
+        "score": ["type": "number"]
+    ],
+    "required": ["name", "score"],
+    "additionalProperties": false  // Required for strict mode!
+]
+
+let request = CompletionRequest(
+    messages: [.user("Extract info from: John scored 95")],
+    outputSchema: schema
+)
+// Response is guaranteed valid JSON matching schema
+```
+
+---
+
 ## Why Build This?
 
 ### The Gap in Swift Ecosystem

@@ -101,6 +101,17 @@ extension ModelCapabilities {
         maxContextTokens: 200_000
     )
 
+    /// Capabilities for GPT-5 family (gpt-5, gpt-5.1, gpt-5.2, gpt-5-mini, etc).
+    /// Full featured with 400K context window.
+    public static let gpt5 = ModelCapabilities(
+        supportsTemperature: true,
+        supportsTools: true,
+        supportsVision: true,
+        supportsStructuredOutput: true,
+        supportsSystemMessage: true,
+        maxContextTokens: 400_000
+    )
+
     /// Capabilities for GPT-4o and GPT-4o-mini.
     public static let gpt4o = ModelCapabilities(
         supportsTemperature: true,
