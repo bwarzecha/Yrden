@@ -57,6 +57,31 @@ Following PydanticAI's approach, we separate two concerns:
 
 The split avoids combinatorial explosion (N models × M backends) and centralizes capability handling per model family.
 
+### Model = API Format (Not the Underlying LLM)
+
+**Critical clarification:** A `Model` class represents an **API format**, not a specific LLM. The same underlying LLM (e.g., Claude 3.5 Sonnet) can be accessed via different Model classes depending on which API you're calling:
+
+| Backend | Model Class | Provider Class | API Format |
+|---------|-------------|----------------|------------|
+| Direct OpenAI | `OpenAIChatModel` | `OpenAIProvider` | OpenAI Chat Completions |
+| Azure OpenAI | `OpenAIChatModel` | `AzureProvider` | OpenAI Chat Completions |
+| OpenRouter | `OpenRouterModel` (extends OpenAI) | `OpenRouterProvider` | OpenAI-compatible + metadata |
+| Ollama | `OpenAIChatModel` | `OllamaProvider` | OpenAI-compatible |
+| Direct Anthropic | `AnthropicModel` | `AnthropicProvider` | Anthropic Messages API |
+| AWS Bedrock | `BedrockModel` | `BedrockProvider` | Bedrock Converse API |
+
+**Key insights:**
+
+1. **OpenRouter uses OpenAI format** - Even when calling Claude via OpenRouter, use `OpenRouterModel` (which extends `OpenAIChatModel`), not `AnthropicModel`.
+
+2. **Subclassing for variations** - `OpenRouterModel` extends `OpenAIChatModel` to add OpenRouter-specific features (app attribution, fallback models) while reusing the OpenAI format encoding.
+
+3. **Different API = Different Model class** - Bedrock wraps Claude in the Converse API format, so it needs `BedrockModel` even though the underlying LLM is the same as direct Anthropic.
+
+4. **Capabilities vary by access path** - The same LLM may have different capabilities exposed depending on the backend (e.g., Bedrock may not expose all Anthropic features).
+
+This follows [PydanticAI's architecture](https://ai.pydantic.dev/models/overview/) where Model classes like `OpenAIChatModel`, `AnthropicModel`, and `OpenRouterModel` represent API formats, and Provider classes handle authentication and connection.
+
 ---
 
 ## Requirements
