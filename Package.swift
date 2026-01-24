@@ -11,6 +11,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-syntax.git", from: "600.0.0"),
         .package(url: "https://github.com/awslabs/aws-sdk-swift.git", from: "1.0.0"),
+        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.10.0"),
     ],
     targets: [
         .target(
@@ -19,6 +20,7 @@ let package = Package(
                 "YrdenMacros",
                 .product(name: "AWSBedrockRuntime", package: "aws-sdk-swift"),
                 .product(name: "AWSBedrock", package: "aws-sdk-swift"),
+                .product(name: "MCP", package: "swift-sdk"),
             ]
         ),
         .macro(
@@ -52,6 +54,17 @@ let package = Package(
             name: "StructuredOutput",
             dependencies: ["Yrden"],
             path: "Examples/StructuredOutput"
+        ),
+        .executableTarget(
+            name: "MCPOAuthTest",
+            dependencies: ["Yrden"],
+            path: "Examples/MCPOAuthTest"
+        ),
+        .executableTarget(
+            name: "MCPOAuthApp",
+            dependencies: ["Yrden"],
+            path: "Examples/MCPOAuthApp",
+            exclude: ["Info.plist", "build-app.sh"]
         ),
     ]
 )
