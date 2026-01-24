@@ -393,21 +393,28 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             // Check if this is the output tool
             if call.name == outputToolName {
                 // Parse as output type
-                if let output = try await parseAndValidateOutput(
-                    json: call.arguments,
-                    context: buildContext(state: state).forToolCall(id: call.id, name: call.name)
-                ) {
-                    outputResult = output
-                    outputToolUsed = call.name
+                do {
+                    if let output = try await parseAndValidateOutput(
+                        json: call.arguments,
+                        context: buildContext(state: state).forToolCall(id: call.id, name: call.name)
+                    ) {
+                        outputResult = output
+                        outputToolUsed = call.name
 
-                    // Add success result for the output tool
-                    toolResults.append((call, .text("Output accepted")))
-                    continuation.yield(.toolResult(id: call.id, result: "Output accepted"))
+                        // Add success result for the output tool
+                        toolResults.append((call, .text("Output accepted")))
+                        continuation.yield(.toolResult(id: call.id, result: "Output accepted"))
 
-                    // If early end strategy, skip remaining tools
-                    if endStrategy == .early {
-                        break
+                        // If early end strategy, skip remaining tools
+                        if endStrategy == .early {
+                            break
+                        }
                     }
+                } catch let retry as ValidationRetry {
+                    // Validation failed - send feedback to model for retry
+                    let errorMsg = "Validation failed: \(retry.message)"
+                    toolResults.append((call, .error(errorMsg)))
+                    continuation.yield(.toolResult(id: call.id, result: "Error: \(errorMsg)"))
                 }
                 continue
             }
@@ -670,26 +677,38 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             // Check if this is the output tool
             if call.name == outputToolName {
                 // Parse as output type
-                if let output = try await parseAndValidateOutput(
-                    json: call.arguments,
-                    context: buildContext(state: state).forToolCall(id: call.id, name: call.name)
-                ) {
-                    outputResult = output
-                    outputToolUsed = call.name
+                do {
+                    if let output = try await parseAndValidateOutput(
+                        json: call.arguments,
+                        context: buildContext(state: state).forToolCall(id: call.id, name: call.name)
+                    ) {
+                        outputResult = output
+                        outputToolUsed = call.name
 
-                    // Add success result for the output tool
-                    toolResults.append((call, .text("Output accepted")))
+                        // Add success result for the output tool
+                        toolResults.append((call, .text("Output accepted")))
+                        let duration = ContinuousClock.now - startTime
+                        toolCallResults.append(ToolCallResult(
+                            call: call,
+                            result: .success("Output accepted"),
+                            duration: duration
+                        ))
+
+                        // If early end strategy, skip remaining tools
+                        if endStrategy == .early {
+                            break
+                        }
+                    }
+                } catch let retry as ValidationRetry {
+                    // Validation failed - send feedback to model for retry
+                    let errorMsg = "Validation failed: \(retry.message)"
+                    toolResults.append((call, .error(errorMsg)))
                     let duration = ContinuousClock.now - startTime
                     toolCallResults.append(ToolCallResult(
                         call: call,
-                        result: .success("Output accepted"),
+                        result: .retry(message: retry.message),
                         duration: duration
                     ))
-
-                    // If early end strategy, skip remaining tools
-                    if endStrategy == .early {
-                        break
-                    }
                 }
                 continue
             }
@@ -841,20 +860,25 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             // Check if this is the output tool
             if call.name == outputToolName {
                 // Parse as output type
-                if let output = try await parseAndValidateOutput(
-                    json: call.arguments,
-                    context: buildContext(state: state).forToolCall(id: call.id, name: call.name)
-                ) {
-                    outputResult = output
-                    outputToolUsed = call.name
+                do {
+                    if let output = try await parseAndValidateOutput(
+                        json: call.arguments,
+                        context: buildContext(state: state).forToolCall(id: call.id, name: call.name)
+                    ) {
+                        outputResult = output
+                        outputToolUsed = call.name
 
-                    // Add success result for the output tool
-                    toolResults.append((call, .text("Output accepted")))
+                        // Add success result for the output tool
+                        toolResults.append((call, .text("Output accepted")))
 
-                    // If early end strategy, skip remaining tools
-                    if endStrategy == .early {
-                        break
+                        // If early end strategy, skip remaining tools
+                        if endStrategy == .early {
+                            break
+                        }
                     }
+                } catch let retry as ValidationRetry {
+                    // Validation failed - send feedback to model for retry
+                    toolResults.append((call, .error("Validation failed: \(retry.message)")))
                 }
                 continue
             }

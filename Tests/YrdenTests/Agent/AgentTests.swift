@@ -351,3 +351,82 @@ struct AgentIntegrationTests {
         #expect(finalResult!.output.result == 8)
     }
 }
+
+// MARK: - Output Validator Types
+
+@Schema(description: "Report with sections")
+struct Report {
+    let title: String
+    let sections: [String]
+}
+
+// MARK: - Output Validator Tests
+
+@Suite("Agent - Output Validators", .serialized)
+struct AgentOutputValidatorTests {
+
+    @Test("Output validator can transform output")
+    func outputValidatorTransform() async throws {
+        let apiKey = TestConfig.anthropicAPIKey
+        let provider = AnthropicProvider(apiKey: apiKey)
+        let model = AnthropicModel(name: "claude-haiku-4-5-20251001", provider: provider)
+
+        // Validator that uppercases the output
+        let uppercaseValidator = OutputValidator<Void, String> { _, output in
+            return output.uppercased()
+        }
+
+        let agent = Agent<Void, String>(
+            model: model,
+            systemPrompt: "You are a helpful assistant. Respond with exactly one word.",
+            tools: [],
+            outputValidators: [uppercaseValidator],
+            maxIterations: 3
+        )
+
+        let result = try await agent.run("Say 'hello' and nothing else.", deps: ())
+
+        // Output should be uppercased by validator
+        #expect(result.output == result.output.uppercased())
+        #expect(result.output.contains("HELLO"))
+    }
+
+    @Test("Output validator can request retry with feedback")
+    func outputValidatorRetry() async throws {
+        let apiKey = TestConfig.anthropicAPIKey
+        let provider = AnthropicProvider(apiKey: apiKey)
+        let model = AnthropicModel(name: "claude-haiku-4-5-20251001", provider: provider)
+
+        // Validator that requires at least 2 sections
+        let sectionValidator = OutputValidator<Void, Report> { _, report in
+            if report.sections.count < 2 {
+                throw ValidationRetry("Report must have at least 2 sections. Please add more content.")
+            }
+            return report
+        }
+
+        let agent = Agent<Void, Report>(
+            model: model,
+            systemPrompt: """
+            You are a report writer. When asked to write a report:
+            1. Use the final_result tool to submit your report
+            2. The report must have a title and multiple sections
+            3. If validation fails, read the feedback and try again with more sections
+            """,
+            tools: [],
+            outputValidators: [sectionValidator],
+            maxIterations: 5,
+            outputToolName: "submit_report",
+            outputToolDescription: "Submit the completed report"
+        )
+
+        let result = try await agent.run(
+            "Write a brief report about Swift programming with at least 2 sections.",
+            deps: ()
+        )
+
+        // Should have gotten a valid result with required sections
+        #expect(result.output.sections.count >= 2)
+        #expect(!result.output.title.isEmpty)
+    }
+}

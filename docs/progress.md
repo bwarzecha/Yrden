@@ -208,7 +208,51 @@ for try await node in agent.iter("Analyze data", deps: myDeps) {
 
 **Tests:** 2 new iteration integration tests
 
-**Test Count:** 459 tests (all passing)
+#### Output Validators with Retry
+
+Implemented output validation with automatic retry when validators fail.
+
+**How It Works:**
+
+1. Validators are run after the model produces structured output
+2. Validators can transform output (e.g., normalize, enrich)
+3. Validators can throw `ValidationRetry` to request the model retry
+4. The retry message is sent as tool error feedback
+5. Model sees the feedback and tries again with corrected output
+
+**API:**
+
+```swift
+// Validator that transforms output
+let uppercaseValidator = OutputValidator<Void, String> { _, output in
+    return output.uppercased()
+}
+
+// Validator that requires specific conditions
+let sectionValidator = OutputValidator<Void, Report> { _, report in
+    if report.sections.count < 3 {
+        throw ValidationRetry("Report must have at least 3 sections")
+    }
+    return report
+}
+
+let agent = Agent<Void, Report>(
+    model: model,
+    outputValidators: [sectionValidator],
+    maxIterations: 5
+)
+```
+
+**Implementation Details:**
+
+- `ValidationRetry` error caught in all three processing methods (run, runStream, iter)
+- Error message sent back as tool result error
+- Model receives feedback and can retry with corrected output
+- Works with the existing agent loop iteration limit
+
+**Tests:** 2 new output validator tests
+
+**Test Count:** 461 tests (459 passing, 2 Bedrock flaky)
 
 ---
 
