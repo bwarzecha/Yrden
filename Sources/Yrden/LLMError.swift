@@ -76,6 +76,10 @@ public enum LLMError: Error, Sendable, Equatable, Hashable {
     ///
     /// Note: Uses String instead of Error for Equatable compliance.
     case decodingError(String)
+
+    /// Server-side error from the provider.
+    /// - Parameter message: Description of the server error.
+    case serverError(String)
 }
 
 // MARK: - LocalizedError
@@ -112,6 +116,9 @@ extension LLMError: LocalizedError {
 
         case .decodingError(let message):
             return "Decoding error: \(message)"
+
+        case .serverError(let message):
+            return "Server error: \(message)"
         }
     }
 }

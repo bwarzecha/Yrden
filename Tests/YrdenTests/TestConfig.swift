@@ -59,6 +59,37 @@ enum TestConfig {
     static var openAIAPIKey: String { requireAPIKey("OPENAI_API_KEY") }
     static var openRouterAPIKey: String { requireAPIKey("OPENROUTER_API_KEY") }
 
+    // MARK: - AWS Bedrock Configuration
+
+    /// AWS region for Bedrock (defaults to "us-east-1")
+    static var awsRegion: String {
+        apiKey("AWS_REGION") ?? apiKey("AWS_DEFAULT_REGION") ?? "us-east-1"
+    }
+
+    /// AWS access key ID (optional if using profile)
+    static var awsAccessKeyId: String? { apiKey("AWS_ACCESS_KEY_ID") }
+
+    /// AWS secret access key (optional if using profile)
+    static var awsSecretAccessKey: String? { apiKey("AWS_SECRET_ACCESS_KEY") }
+
+    /// AWS session token for temporary credentials (optional)
+    static var awsSessionToken: String? { apiKey("AWS_SESSION_TOKEN") }
+
+    /// AWS profile name (optional, used if no explicit credentials)
+    static var awsProfile: String { apiKey("AWS_PROFILE") ?? "default" }
+
+    /// Whether AWS credentials are available (either explicit or profile)
+    static var hasAWSCredentials: Bool {
+        // Either explicit credentials or profile-based
+        if let accessKey = awsAccessKeyId, let secretKey = awsSecretAccessKey,
+           !accessKey.isEmpty && !secretKey.isEmpty {
+            return true
+        }
+        // Profile-based: check if credentials file exists
+        let credentialsPath = ("~/.aws/credentials" as NSString).expandingTildeInPath
+        return FileManager.default.fileExists(atPath: credentialsPath)
+    }
+
     // MARK: - Check availability (for conditional test setup, not skipping)
 
     static var hasAnthropicAPIKey: Bool { apiKey("ANTHROPIC_API_KEY") != nil }

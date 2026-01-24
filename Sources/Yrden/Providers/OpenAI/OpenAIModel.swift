@@ -79,7 +79,7 @@ public struct OpenAIModel: Model, Sendable {
             } else {
                 let openAIRequest = try encodeRequest(request, stream: false)
                 let data = try await sendRequest(openAIRequest)
-                return try decodeResponse(data)
+                return try decodeResponse(data, stopSequences: request.config.stopSequences)
             }
         }
     }
@@ -97,7 +97,11 @@ public struct OpenAIModel: Model, Sendable {
                             try await streamResponsesRequest(responsesRequest, continuation: continuation)
                         } else {
                             let openAIRequest = try encodeRequest(request, stream: true)
-                            try await streamRequest(openAIRequest, continuation: continuation)
+                            try await streamRequest(
+                                openAIRequest,
+                                continuation: continuation,
+                                stopSequences: request.config.stopSequences
+                            )
                         }
                     }
                 } catch {
@@ -143,9 +147,13 @@ public struct OpenAIModel: Model, Sendable {
             return false
         }
 
+        // Check if request uses stop sequences - not supported by Responses API
+        let hasStopSequences = !(request.config.stopSequences?.isEmpty ?? true)
+
         // Use Responses API only for simple tool-calling scenarios (first turn)
         // Complex multi-turn with tool results should use Chat Completions
-        if hasToolResults || hasAssistantToolCalls {
+        // Stop sequences also require Chat Completions API
+        if hasToolResults || hasAssistantToolCalls || hasStopSequences {
             return false
         }
 
@@ -279,7 +287,7 @@ public struct OpenAIModel: Model, Sendable {
 
     // MARK: - Response Decoding
 
-    private func decodeResponse(_ data: Data) throws -> CompletionResponse {
+    private func decodeResponse(_ data: Data, stopSequences: [String]? = nil) throws -> CompletionResponse {
         let response = try JSONDecoder().decode(OpenAIResponse.self, from: data)
 
         guard let choice = response.choices.first else {
@@ -296,7 +304,11 @@ public struct OpenAIModel: Model, Sendable {
             )
         } ?? []
 
-        let stopReason = mapStopReason(choice.finish_reason)
+        let stopReason = mapStopReason(
+            choice.finish_reason,
+            content: content,
+            stopSequences: stopSequences
+        )
         let usage = Usage(
             inputTokens: response.usage?.prompt_tokens ?? 0,
             outputTokens: response.usage?.completion_tokens ?? 0
@@ -310,9 +322,19 @@ public struct OpenAIModel: Model, Sendable {
         )
     }
 
-    private func mapStopReason(_ reason: String?) -> StopReason {
+    private func mapStopReason(
+        _ reason: String?,
+        content: String? = nil,
+        stopSequences: [String]? = nil
+    ) -> StopReason {
         switch reason {
         case "stop":
+            // OpenAI returns "stop" for both natural end and stop sequence
+            // OpenAI removes the stop sequence from content, so we can't detect it by suffix
+            // If stop sequences were provided, assume it stopped due to one of them
+            if let stopSequences = stopSequences, !stopSequences.isEmpty {
+                return .stopSequence
+            }
             return .endTurn
         case "tool_calls":
             return .toolUse
@@ -392,7 +414,8 @@ public struct OpenAIModel: Model, Sendable {
 
     private func streamRequest(
         _ request: OpenAIRequest,
-        continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
+        continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation,
+        stopSequences: [String]? = nil
     ) async throws {
         var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("chat/completions"))
         urlRequest.httpMethod = "POST"
@@ -484,7 +507,11 @@ public struct OpenAIModel: Model, Sendable {
         let completionResponse = CompletionResponse(
             content: accumulatedContent.isEmpty ? nil : accumulatedContent,
             toolCalls: toolCalls,
-            stopReason: mapStopReason(lastFinishReason),
+            stopReason: mapStopReason(
+                lastFinishReason,
+                content: accumulatedContent.isEmpty ? nil : accumulatedContent,
+                stopSequences: stopSequences
+            ),
             usage: Usage(inputTokens: inputTokens, outputTokens: outputTokens)
         )
 
@@ -735,6 +762,8 @@ public struct OpenAIModel: Model, Sendable {
         var outputTokens = 0
         var cachedTokens: Int?
         var reasoningTokens: Int?
+        var responseStatus: String?
+        var incompleteReason: String?
 
         for try await line in bytes.lines {
             guard line.hasPrefix("data: ") else { continue }
@@ -798,11 +827,15 @@ public struct OpenAIModel: Model, Sendable {
                 }
 
             case "response.completed":
-                if let resp = event.response, let usage = resp.usage {
-                    inputTokens = usage.input_tokens
-                    outputTokens = usage.output_tokens
-                    cachedTokens = usage.input_tokens_details?.cached_tokens
-                    reasoningTokens = usage.output_tokens_details?.reasoning_tokens
+                if let resp = event.response {
+                    responseStatus = resp.status
+                    incompleteReason = resp.incomplete_details?.reason
+                    if let usage = resp.usage {
+                        inputTokens = usage.input_tokens
+                        outputTokens = usage.output_tokens
+                        cachedTokens = usage.input_tokens_details?.cached_tokens
+                        reasoningTokens = usage.output_tokens_details?.reasoning_tokens
+                    }
                 }
 
             default:
@@ -815,11 +848,27 @@ public struct OpenAIModel: Model, Sendable {
             ToolCall(id: callId, name: data.name, arguments: data.arguments)
         }
 
+        // Determine stop reason from response status and incomplete_details
+        let stopReason: StopReason
+        if !toolCalls.isEmpty {
+            stopReason = .toolUse
+        } else if responseStatus == "incomplete" {
+            if incompleteReason == "max_output_tokens" {
+                stopReason = .maxTokens
+            } else if incompleteReason == "content_filter" {
+                stopReason = .contentFiltered
+            } else {
+                stopReason = .endTurn
+            }
+        } else {
+            stopReason = .endTurn
+        }
+
         let completionResponse = CompletionResponse(
             content: accumulatedContent.isEmpty ? nil : accumulatedContent,
             refusal: accumulatedRefusal.isEmpty ? nil : accumulatedRefusal,
             toolCalls: toolCalls,
-            stopReason: toolCalls.isEmpty ? .endTurn : .toolUse,
+            stopReason: stopReason,
             usage: Usage(
                 inputTokens: inputTokens,
                 outputTokens: outputTokens,

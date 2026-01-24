@@ -10,11 +10,16 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-syntax.git", from: "600.0.0"),
+        .package(url: "https://github.com/awslabs/aws-sdk-swift.git", from: "1.0.0"),
     ],
     targets: [
         .target(
             name: "Yrden",
-            dependencies: ["YrdenMacros"]
+            dependencies: [
+                "YrdenMacros",
+                .product(name: "AWSBedrockRuntime", package: "aws-sdk-swift"),
+                .product(name: "AWSBedrock", package: "aws-sdk-swift"),
+            ]
         ),
         .macro(
             name: "YrdenMacros",
