@@ -121,7 +121,94 @@ print(result.output.result)  // 8
 
 **Tests:** 6 new tests (unit + integration)
 
-**Test Count:** 455 tests (all passing)
+#### Agent.runStream() Implementation
+
+Added streaming execution to the Agent with real-time event delivery.
+
+**New Types:**
+
+| Type | Description |
+|------|-------------|
+| `AgentStreamEvent<Output>` | Events emitted during streaming: contentDelta, toolCallStart/Delta/End, toolResult, usage, result |
+
+**API:**
+
+```swift
+for try await event in agent.runStream("Analyze data", deps: myDeps) {
+    switch event {
+    case .contentDelta(let text):
+        print(text, terminator: "")
+    case .toolCallStart(let name, _):
+        print("\n[Calling \(name)...]")
+    case .toolResult(let id, let result):
+        print("[Tool returned: \(result.prefix(50))...]")
+    case .result(let result):
+        print("\n\nFinal: \(result.output)")
+    default:
+        break
+    }
+}
+```
+
+**Implementation Details:**
+
+- Uses `model.stream()` internally instead of `model.complete()`
+- Forwards content deltas, tool call events to the stream
+- Yields tool results as they complete
+- Final `.result(AgentResult)` event signals completion
+- `nonisolated` method - stream creation doesn't require actor isolation
+
+**Tests:** 2 new streaming integration tests
+
+#### Agent.iter() Implementation
+
+Added iterable execution for fine-grained control over the agent loop.
+
+**API:**
+
+```swift
+for try await node in agent.iter("Analyze data", deps: myDeps) {
+    switch node {
+    case .userPrompt(let prompt):
+        print("Starting: \(prompt)")
+    case .modelRequest(let request):
+        print("Sending \(request.messages.count) messages")
+    case .modelResponse(let response):
+        print("Model: \(response.content ?? "")")
+    case .toolExecution(let calls):
+        for call in calls {
+            print("Executing: \(call.name)")
+            // Inspect/approve tool calls here
+        }
+    case .toolResults(let results):
+        print("Got \(results.count) results")
+    case .end(let result):
+        print("Done: \(result.output)")
+    }
+}
+```
+
+**Node Types (AgentNode enum):**
+
+| Node | Description |
+|------|-------------|
+| `.userPrompt(String)` | Initial user prompt |
+| `.modelRequest(CompletionRequest)` | About to send request to model |
+| `.modelResponse(CompletionResponse)` | Model responded |
+| `.toolExecution([ToolCall])` | About to execute tool calls |
+| `.toolResults([ToolCallResult])` | Tool execution completed with results and durations |
+| `.end(AgentResult)` | Run completed with final typed result |
+
+**Use Cases:**
+
+- **Observability**: Log/monitor each step of agent execution
+- **Human-in-the-loop**: Inspect tool calls before execution
+- **Debugging**: See exact request/response pairs
+- **Custom control flow**: Break out of loop early, inject messages
+
+**Tests:** 2 new iteration integration tests
+
+**Test Count:** 459 tests (all passing)
 
 ---
 

@@ -162,4 +162,192 @@ struct AgentIntegrationTests {
         #expect(result.output.lowercased().contains("hello"))
         #expect(result.requestCount == 1)
     }
+
+    @Test("Agent streams content deltas for String output")
+    func agentStreamingStringOutput() async throws {
+        let apiKey = TestConfig.anthropicAPIKey
+        let provider = AnthropicProvider(apiKey: apiKey)
+        let model = AnthropicModel(name: "claude-haiku-4-5-20251001", provider: provider)
+
+        let agent = Agent<Void, String>(
+            model: model,
+            systemPrompt: "You are a helpful assistant. Respond briefly.",
+            tools: [],
+            maxIterations: 3
+        )
+
+        var contentDeltas: [String] = []
+        var usageEvents: [Usage] = []
+        var finalResult: AgentResult<String>?
+
+        for try await event in agent.runStream("Say 'Hello World' and nothing else.", deps: ()) {
+            switch event {
+            case .contentDelta(let delta):
+                contentDeltas.append(delta)
+            case .usage(let usage):
+                usageEvents.append(usage)
+            case .result(let result):
+                finalResult = result
+            default:
+                break
+            }
+        }
+
+        // Should have received content deltas
+        #expect(!contentDeltas.isEmpty)
+
+        // Accumulated content should match final result
+        let accumulatedContent = contentDeltas.joined()
+        #expect(accumulatedContent.lowercased().contains("hello"))
+
+        // Should have received usage event
+        #expect(!usageEvents.isEmpty)
+
+        // Should have final result
+        #expect(finalResult != nil)
+        #expect(finalResult!.output.lowercased().contains("hello"))
+    }
+
+    @Test("Agent streams tool events during execution")
+    func agentStreamingWithTools() async throws {
+        let apiKey = TestConfig.anthropicAPIKey
+        let provider = AnthropicProvider(apiKey: apiKey)
+        let model = AnthropicModel(name: "claude-haiku-4-5-20251001", provider: provider)
+
+        let agent = Agent<Void, MathResult>(
+            model: model,
+            systemPrompt: """
+            You are a math assistant. When asked to calculate something:
+            1. Use the calculator tool to compute the result
+            2. Then use the final_result tool to return the answer
+            """,
+            tools: [AnyAgentTool(CalculatorTool())],
+            maxIterations: 5,
+            outputToolDescription: "Return the math result"
+        )
+
+        var toolCallStarts: [(name: String, id: String)] = []
+        var toolResults: [(id: String, result: String)] = []
+        var finalResult: AgentResult<MathResult>?
+
+        for try await event in agent.runStream(
+            "What is 5 + 3? Use the calculator tool first, then return the result.",
+            deps: ()
+        ) {
+            switch event {
+            case .toolCallStart(let name, let id):
+                toolCallStarts.append((name: name, id: id))
+            case .toolResult(let id, let result):
+                toolResults.append((id: id, result: result))
+            case .result(let result):
+                finalResult = result
+            default:
+                break
+            }
+        }
+
+        // Should have received tool call starts (calculator and/or final_result)
+        #expect(!toolCallStarts.isEmpty)
+
+        // Should have received tool results
+        #expect(!toolResults.isEmpty)
+
+        // Should have final result
+        #expect(finalResult != nil)
+        #expect(finalResult!.output.result == 8)
+    }
+
+    @Test("Agent.iter() yields nodes for each execution step")
+    func agentIterationBasic() async throws {
+        let apiKey = TestConfig.anthropicAPIKey
+        let provider = AnthropicProvider(apiKey: apiKey)
+        let model = AnthropicModel(name: "claude-haiku-4-5-20251001", provider: provider)
+
+        let agent = Agent<Void, String>(
+            model: model,
+            systemPrompt: "You are a helpful assistant. Respond briefly.",
+            tools: [],
+            maxIterations: 3
+        )
+
+        var nodes: [String] = []  // Track node types
+        var finalResult: AgentResult<String>?
+
+        for try await node in agent.iter("Say 'Hello' and nothing else.", deps: ()) {
+            switch node {
+            case .userPrompt:
+                nodes.append("userPrompt")
+            case .modelRequest:
+                nodes.append("modelRequest")
+            case .modelResponse:
+                nodes.append("modelResponse")
+            case .toolExecution:
+                nodes.append("toolExecution")
+            case .toolResults:
+                nodes.append("toolResults")
+            case .end(let result):
+                nodes.append("end")
+                finalResult = result
+            }
+        }
+
+        // Should have proper node sequence
+        #expect(nodes.contains("userPrompt"))
+        #expect(nodes.contains("modelRequest"))
+        #expect(nodes.contains("modelResponse"))
+        #expect(nodes.contains("end"))
+
+        // Should have final result
+        #expect(finalResult != nil)
+        #expect(finalResult!.output.lowercased().contains("hello"))
+    }
+
+    @Test("Agent.iter() yields tool execution nodes")
+    func agentIterationWithTools() async throws {
+        let apiKey = TestConfig.anthropicAPIKey
+        let provider = AnthropicProvider(apiKey: apiKey)
+        let model = AnthropicModel(name: "claude-haiku-4-5-20251001", provider: provider)
+
+        let agent = Agent<Void, MathResult>(
+            model: model,
+            systemPrompt: """
+            You are a math assistant. When asked to calculate something:
+            1. Use the calculator tool to compute the result
+            2. Then use the final_result tool to return the answer
+            """,
+            tools: [AnyAgentTool(CalculatorTool())],
+            maxIterations: 5,
+            outputToolDescription: "Return the math result"
+        )
+
+        var toolExecutionCalls: [[ToolCall]] = []
+        var toolResultsReceived: [[ToolCallResult]] = []
+        var finalResult: AgentResult<MathResult>?
+
+        for try await node in agent.iter(
+            "What is 5 + 3? Use the calculator tool first, then return the result.",
+            deps: ()
+        ) {
+            switch node {
+            case .toolExecution(let calls):
+                toolExecutionCalls.append(calls)
+            case .toolResults(let results):
+                toolResultsReceived.append(results)
+            case .end(let result):
+                finalResult = result
+            default:
+                break
+            }
+        }
+
+        // Should have executed tools
+        #expect(!toolExecutionCalls.isEmpty)
+
+        // Should have received tool results
+        #expect(!toolResultsReceived.isEmpty)
+
+        // Should have final result
+        #expect(finalResult != nil)
+        #expect(finalResult!.output.result == 8)
+    }
 }

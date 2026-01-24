@@ -81,6 +81,53 @@ public enum EndStrategy: String, Sendable, Codable, Equatable, Hashable {
     case exhaustive
 }
 
+// MARK: - AgentStreamEvent
+
+/// Events emitted during streaming agent execution.
+///
+/// These events provide real-time visibility into the agent loop,
+/// including model responses, tool execution, and final output.
+///
+/// ## Usage
+/// ```swift
+/// for try await event in agent.runStream("Analyze data", deps: myDeps) {
+///     switch event {
+///     case .contentDelta(let text):
+///         print(text, terminator: "")
+///     case .toolCallStart(let name, _):
+///         print("\n[Calling \(name)...]")
+///     case .toolResult(let id, let result):
+///         print("[Tool returned: \(result.prefix(50))...]")
+///     case .result(let result):
+///         print("\n\nFinal: \(result.output)")
+///     default:
+///         break
+///     }
+/// }
+/// ```
+public enum AgentStreamEvent<Output: SchemaType>: Sendable {
+    /// Text content delta from the model.
+    case contentDelta(String)
+
+    /// Tool call started.
+    case toolCallStart(name: String, id: String)
+
+    /// Tool call arguments delta.
+    case toolCallDelta(id: String, delta: String)
+
+    /// Tool call completed (ready to execute).
+    case toolCallEnd(id: String)
+
+    /// Tool execution result available.
+    case toolResult(id: String, result: String)
+
+    /// Usage update (tokens consumed so far).
+    case usage(Usage)
+
+    /// Final result (always last event on success).
+    case result(AgentResult<Output>)
+}
+
 // MARK: - AgentNode
 
 /// A node in the agent execution graph.
