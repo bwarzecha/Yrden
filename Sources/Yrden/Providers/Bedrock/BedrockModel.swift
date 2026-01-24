@@ -225,6 +225,34 @@ public struct BedrockModel: Model, @unchecked Sendable {
                 content: [.toolresult(toolResultBlock)],
                 role: .user
             )
+
+        case .toolResults(let results):
+            // Multiple tool results in a single user message
+            let blocks = results.map { entry -> BedrockRuntimeClientTypes.ContentBlock in
+                let content: String
+                let status: BedrockRuntimeClientTypes.ToolResultStatus?
+                switch entry.output {
+                case .text(let text):
+                    content = text
+                    status = nil
+                case .json(let json):
+                    content = (try? String(data: JSONEncoder().encode(json), encoding: .utf8)) ?? "{}"
+                    status = nil
+                case .error(let message):
+                    content = message
+                    status = .error
+                }
+                let toolResultBlock = BedrockRuntimeClientTypes.ToolResultBlock(
+                    content: [.text(content)],
+                    status: status,
+                    toolUseId: entry.id
+                )
+                return .toolresult(toolResultBlock)
+            }
+            return BedrockRuntimeClientTypes.Message(
+                content: blocks,
+                role: .user
+            )
         }
     }
 

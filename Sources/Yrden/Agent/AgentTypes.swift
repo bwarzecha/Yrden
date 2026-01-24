@@ -1,0 +1,316 @@
+/// Supporting types for agent execution.
+///
+/// This module contains:
+/// - `UsageLimits`: Constraints on agent resource consumption
+/// - `EndStrategy`: How to handle multiple tool calls
+/// - `AgentNode`: Steps in the agent execution graph
+/// - `AgentResult`: Final output of an agent run
+/// - `OutputValidator`: Validation/transformation of agent output
+
+import Foundation
+
+// MARK: - UsageLimits
+
+/// Limits on agent resource consumption.
+///
+/// Set limits to prevent runaway costs or infinite loops.
+/// When any limit is exceeded, the agent throws `AgentError.usageLimitExceeded`.
+///
+/// ## Example
+/// ```swift
+/// let limits = UsageLimits(
+///     maxTotalTokens: 10000,
+///     maxRequests: 5,
+///     maxToolCalls: 20
+/// )
+///
+/// let agent = Agent(
+///     model: claude,
+///     tools: [searchTool],
+///     usageLimits: limits
+/// )
+/// ```
+public struct UsageLimits: Sendable, Equatable, Hashable {
+    /// Maximum input tokens allowed.
+    public var maxInputTokens: Int?
+
+    /// Maximum output tokens allowed.
+    public var maxOutputTokens: Int?
+
+    /// Maximum total tokens (input + output) allowed.
+    public var maxTotalTokens: Int?
+
+    /// Maximum number of model requests (iterations).
+    public var maxRequests: Int?
+
+    /// Maximum number of tool calls.
+    public var maxToolCalls: Int?
+
+    public init(
+        maxInputTokens: Int? = nil,
+        maxOutputTokens: Int? = nil,
+        maxTotalTokens: Int? = nil,
+        maxRequests: Int? = nil,
+        maxToolCalls: Int? = nil
+    ) {
+        self.maxInputTokens = maxInputTokens
+        self.maxOutputTokens = maxOutputTokens
+        self.maxTotalTokens = maxTotalTokens
+        self.maxRequests = maxRequests
+        self.maxToolCalls = maxToolCalls
+    }
+
+    /// No limits.
+    public static let none = UsageLimits()
+}
+
+// MARK: - EndStrategy
+
+/// Strategy for handling tool calls when output is available.
+///
+/// When the LLM makes multiple tool calls in one response, and one of them
+/// produces the final output, this strategy determines what happens to
+/// the other tool calls.
+public enum EndStrategy: String, Sendable, Codable, Equatable, Hashable {
+    /// Stop as soon as final output is available.
+    /// Other pending tool calls are ignored.
+    case early
+
+    /// Execute all tool calls, even after output is found.
+    /// Useful when side effects matter.
+    case exhaustive
+}
+
+// MARK: - AgentNode
+
+/// A node in the agent execution graph.
+///
+/// Used for iteration over agent execution. Each node represents
+/// a step that the agent will take or has taken.
+///
+/// ## Iteration Example
+/// ```swift
+/// for try await node in agent.iter("Query data", deps: myDeps) {
+///     switch node {
+///     case .userPrompt(let prompt):
+///         print("Starting with: \(prompt)")
+///     case .modelRequest(let request):
+///         print("Sending \(request.messages.count) messages to model")
+///     case .modelResponse(let response):
+///         print("Model responded: \(response.content ?? "no content")")
+///     case .toolExecution(let calls):
+///         print("Executing \(calls.count) tools")
+///     case .toolResults(let results):
+///         print("Got \(results.count) tool results")
+///     case .end(let result):
+///         print("Done: \(result.output)")
+///     }
+/// }
+/// ```
+public enum AgentNode<Deps: Sendable, Output: SchemaType>: Sendable {
+    /// Initial user prompt.
+    case userPrompt(String)
+
+    /// About to send request to model.
+    case modelRequest(CompletionRequest)
+
+    /// Model responded.
+    case modelResponse(CompletionResponse)
+
+    /// About to execute tool calls.
+    case toolExecution([ToolCall])
+
+    /// Tool execution completed.
+    case toolResults([ToolCallResult])
+
+    /// Run completed with final output.
+    case end(AgentResult<Output>)
+}
+
+// MARK: - ToolCallResult
+
+/// Result of a single tool call execution.
+public struct ToolCallResult: Sendable {
+    /// The original tool call.
+    public let call: ToolCall
+
+    /// Result of execution.
+    public let result: AnyToolResult
+
+    /// Duration of execution.
+    public let duration: Duration
+
+    public init(call: ToolCall, result: AnyToolResult, duration: Duration) {
+        self.call = call
+        self.result = result
+        self.duration = duration
+    }
+}
+
+// MARK: - AgentResult
+
+/// Final result of an agent run.
+///
+/// Contains the typed output plus metadata about the run.
+public struct AgentResult<Output: SchemaType>: Sendable {
+    /// The typed output.
+    public let output: Output
+
+    /// Total token usage for the run.
+    public let usage: Usage
+
+    /// All messages in the conversation.
+    public let messages: [Message]
+
+    /// Name of tool that produced output (nil if from text).
+    public let outputToolName: String?
+
+    /// Unique identifier for this run.
+    public let runID: String
+
+    /// Number of model requests made.
+    public let requestCount: Int
+
+    /// Number of tool calls executed.
+    public let toolCallCount: Int
+
+    public init(
+        output: Output,
+        usage: Usage,
+        messages: [Message],
+        outputToolName: String? = nil,
+        runID: String,
+        requestCount: Int,
+        toolCallCount: Int
+    ) {
+        self.output = output
+        self.usage = usage
+        self.messages = messages
+        self.outputToolName = outputToolName
+        self.runID = runID
+        self.requestCount = requestCount
+        self.toolCallCount = toolCallCount
+    }
+}
+
+// MARK: - OutputValidator
+
+/// Validates and optionally transforms agent output.
+///
+/// Output validators run after the LLM produces structured output
+/// but before returning to the caller. They can:
+/// - Validate the output and throw `ValidationRetry` to ask the LLM to retry
+/// - Transform the output (e.g., normalize, enrich)
+/// - Log or audit the output
+///
+/// ## Example
+/// ```swift
+/// let validator = OutputValidator<MyDeps, Report> { context, report in
+///     guard report.sections.count >= 3 else {
+///         throw ValidationRetry("Report must have at least 3 sections")
+///     }
+///     return report
+/// }
+///
+/// let agent = Agent(
+///     model: claude,
+///     outputValidators: [validator]
+/// )
+/// ```
+public struct OutputValidator<Deps: Sendable, Output: SchemaType>: Sendable {
+    private let _validate: @Sendable (AgentContext<Deps>, Output) async throws -> Output
+
+    public init(
+        _ validate: @escaping @Sendable (AgentContext<Deps>, Output) async throws -> Output
+    ) {
+        self._validate = validate
+    }
+
+    /// Validate and optionally transform the output.
+    public func validate(
+        context: AgentContext<Deps>,
+        output: Output
+    ) async throws -> Output {
+        try await _validate(context, output)
+    }
+}
+
+// MARK: - ValidationRetry
+
+/// Throw from an output validator to request retry.
+///
+/// The message is sent back to the LLM to help it correct its output.
+public struct ValidationRetry: Error, Sendable {
+    /// Message to send to the LLM.
+    public let message: String
+
+    public init(_ message: String) {
+        self.message = message
+    }
+}
+
+extension ValidationRetry: LocalizedError {
+    public var errorDescription: String? {
+        "Validation retry requested: \(message)"
+    }
+}
+
+// MARK: - Pending Approvals
+
+/// Collection of deferred tool calls awaiting resolution.
+///
+/// When tools return `.deferred`, the agent pauses and provides
+/// this information for external resolution.
+public struct PendingApprovals: Sendable {
+    /// Tools awaiting human approval.
+    public let approvals: [DeferredToolCall]
+
+    /// Tools awaiting external results.
+    public let external: [DeferredToolCall]
+
+    /// All pending deferrals.
+    public var all: [DeferredToolCall] {
+        approvals + external
+    }
+
+    /// Whether there are any pending items.
+    public var isEmpty: Bool {
+        approvals.isEmpty && external.isEmpty
+    }
+
+    public init(approvals: [DeferredToolCall] = [], external: [DeferredToolCall] = []) {
+        self.approvals = approvals
+        self.external = external
+    }
+}
+
+// MARK: - Resolved Tool
+
+/// A resolved deferred tool call.
+public struct ResolvedTool: Sendable {
+    /// ID of the deferred call (must match DeferredToolCall.id).
+    public let id: String
+
+    /// Resolution result.
+    public let resolution: Resolution
+
+    public init(id: String, resolution: Resolution) {
+        self.id = id
+        self.resolution = resolution
+    }
+
+    /// Resolution outcomes.
+    public enum Resolution: Sendable {
+        /// Tool was approved and should proceed.
+        case approved
+
+        /// Tool was denied.
+        case denied(reason: String)
+
+        /// External operation completed with result.
+        case completed(result: String)
+
+        /// External operation failed.
+        case failed(error: String)
+    }
+}

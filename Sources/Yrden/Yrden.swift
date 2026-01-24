@@ -71,3 +71,12 @@ public enum SchemaConstraint: Sendable {
     /// String must match this regex pattern.
     case pattern(String)
 }
+
+// MARK: - Built-in SchemaType Conformances
+
+/// String conforms to SchemaType for simple text output.
+extension String: SchemaType {
+    public static var jsonSchema: JSONValue {
+        ["type": "string"]
+    }
+}

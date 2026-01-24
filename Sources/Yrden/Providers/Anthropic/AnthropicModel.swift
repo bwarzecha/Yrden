@@ -149,6 +149,25 @@ public struct AnthropicModel: Model, Sendable {
                 role: "user",
                 content: [.toolResult(toolUseId: toolCallId, content: content, isError: nil)]
             )
+
+        case .toolResults(let results):
+            let blocks = results.map { entry -> AnthropicContentBlock in
+                let content: String
+                let isError: Bool
+                switch entry.output {
+                case .text(let text):
+                    content = text
+                    isError = false
+                case .json(let json):
+                    content = (try? String(data: JSONEncoder().encode(json), encoding: .utf8)) ?? "{}"
+                    isError = false
+                case .error(let message):
+                    content = message
+                    isError = true
+                }
+                return .toolResult(toolUseId: entry.id, content: content, isError: isError)
+            }
+            return AnthropicMessage(role: "user", content: blocks)
         }
     }
 

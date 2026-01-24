@@ -87,6 +87,32 @@ extension ContentPart: Codable {
     }
 }
 
+// MARK: - ToolResultEntry
+
+/// A single tool result entry for multi-tool responses.
+public struct ToolResultEntry: Sendable, Codable, Equatable, Hashable {
+    /// ID of the ToolCall this responds to.
+    public let id: String
+
+    /// Output of the tool execution.
+    public let output: ToolOutput
+
+    public init(id: String, output: ToolOutput) {
+        self.id = id
+        self.output = output
+    }
+
+    /// Convenience for text output.
+    public static func text(id: String, _ text: String) -> ToolResultEntry {
+        ToolResultEntry(id: id, output: .text(text))
+    }
+
+    /// Convenience for error output.
+    public static func error(id: String, _ message: String) -> ToolResultEntry {
+        ToolResultEntry(id: id, output: .error(message))
+    }
+}
+
 // MARK: - Message
 
 /// A single message in a conversation.
@@ -129,6 +155,10 @@ public enum Message: Sendable, Equatable, Hashable {
     ///   - toolCallId: ID of the ToolCall this responds to
     ///   - content: String representation of the tool output
     case toolResult(toolCallId: String, content: String)
+
+    /// Results of executing multiple tools, sent back to the LLM.
+    /// Used when the LLM requested multiple tool calls in a single response.
+    case toolResults([ToolResultEntry])
 }
 
 // MARK: - Message Convenience
@@ -161,6 +191,11 @@ extension Message {
     public static func assistant(_ content: String) -> Message {
         .assistant(content, toolCalls: [])
     }
+
+    /// Creates an assistant message with only tool calls (no text content).
+    public static func assistantToolCalls(_ toolCalls: [ToolCall]) -> Message {
+        .assistant("", toolCalls: toolCalls)
+    }
 }
 
 // MARK: - Message Codable
@@ -171,6 +206,7 @@ extension Message: Codable {
         case content
         case toolCalls
         case toolCallId
+        case results
     }
 
     private enum Role: String, Codable {
@@ -178,6 +214,7 @@ extension Message: Codable {
         case user
         case assistant
         case toolResult = "tool_result"
+        case toolResults = "tool_results"
     }
 
     public init(from decoder: Decoder) throws {
@@ -199,6 +236,9 @@ extension Message: Codable {
             let toolCallId = try container.decode(String.self, forKey: .toolCallId)
             let content = try container.decode(String.self, forKey: .content)
             self = .toolResult(toolCallId: toolCallId, content: content)
+        case .toolResults:
+            let results = try container.decode([ToolResultEntry].self, forKey: .results)
+            self = .toolResults(results)
         }
     }
 
@@ -222,6 +262,9 @@ extension Message: Codable {
             try container.encode(Role.toolResult, forKey: .role)
             try container.encode(toolCallId, forKey: .toolCallId)
             try container.encode(content, forKey: .content)
+        case .toolResults(let results):
+            try container.encode(Role.toolResults, forKey: .role)
+            try container.encode(results, forKey: .results)
         }
     }
 }

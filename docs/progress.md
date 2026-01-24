@@ -40,7 +40,129 @@ The `export $(cat .env | grep -v '^#' | xargs)` pattern:
 
 ---
 
-## Session: 2026-01-23
+## Session: 2026-01-23 (Part 3)
+
+### Completed
+
+#### Agent Core Implementation
+
+Implemented the core Agent system inspired by PydanticAI with typed output, tool execution loop, and dependency injection.
+
+**New Files:**
+
+| File | Description |
+|------|-------------|
+| `Sources/Yrden/Agent/Agent.swift` | Main `Agent<Deps, Output>` actor with `run()` method |
+| `Sources/Yrden/Agent/AgentContext.swift` | Rich context passed to tools during execution |
+| `Sources/Yrden/Agent/AgentTool.swift` | `AgentTool` protocol, `ToolResult` enum, `AnyAgentTool` wrapper |
+| `Sources/Yrden/Agent/AgentError.swift` | Agent-specific errors (maxIterationsReached, usageLimitExceeded, etc.) |
+| `Sources/Yrden/Agent/AgentTypes.swift` | Supporting types: UsageLimits, EndStrategy, AgentResult, OutputValidator |
+| `Tests/YrdenTests/Agent/AgentTests.swift` | Unit and integration tests |
+
+**Core Types:**
+
+| Type | Description |
+|------|-------------|
+| `Agent<Deps, Output>` | Actor that orchestrates tool use and produces typed output |
+| `AgentContext<Deps>` | Context passed to tools with deps, model, usage, messages |
+| `AgentTool` | Protocol for tools with typed `Args: SchemaType` and `Output: Sendable` |
+| `ToolResult<T>` | `.success(T)`, `.retry(message:)`, `.failure(Error)`, `.deferred(DeferredToolCall)` |
+| `AnyAgentTool<Deps>` | Type-erased wrapper for heterogeneous tool collections |
+| `UsageLimits` | Token, request, and tool call limits |
+| `EndStrategy` | `.early` (stop at first output) vs `.exhaustive` (run all tools) |
+| `OutputValidator` | Post-validation with retry capability |
+
+**Key Design Decisions:**
+
+| Decision | Rationale |
+|----------|-----------|
+| Output tool for structured types | Anthropic/OpenAI require object schemas for tool input; using a tool ensures schema compliance |
+| Text response for String output | When `Output == String`, no output tool is created; model responds with text directly |
+| `AnyAgentTool` type erasure | Enables heterogeneous `[AnyAgentTool<Deps>]` collections while preserving type safety |
+| `ToolResult` with retry | Tools can signal "try again" to the LLM with feedback message |
+| `DeferredToolCall` foundation | Prepares for human-in-the-loop approval patterns |
+
+**Message.swift Changes:**
+
+- Added `ToolResultEntry` struct for multi-tool responses
+- Added `.toolResults([ToolResultEntry])` case to Message enum
+- Updated all providers (Anthropic, OpenAI, Bedrock) to handle new case
+
+**Usage:**
+
+```swift
+// Define a tool
+struct CalculatorTool: AgentTool {
+    @Schema struct Args { let expression: String }
+
+    var name: String { "calculator" }
+    var description: String { "Evaluate a mathematical expression" }
+
+    func call(context: AgentContext<Void>, arguments: Args) async throws -> ToolResult<String> {
+        // ... evaluate expression ...
+        return .success(result)
+    }
+}
+
+// Create agent with typed output
+@Schema struct MathResult { let expression: String; let result: Int }
+
+let agent = Agent<Void, MathResult>(
+    model: model,
+    systemPrompt: "You are a math assistant.",
+    tools: [AnyAgentTool(CalculatorTool())],
+    maxIterations: 5
+)
+
+// Run and get typed result
+let result = try await agent.run("What is 5 + 3?", deps: ())
+print(result.output.result)  // 8
+```
+
+**Tests:** 6 new tests (unit + integration)
+
+**Test Count:** 455 tests (all passing)
+
+---
+
+## Session: 2026-01-23 (Part 2)
+
+### Completed
+
+#### AWS Bedrock Provider Planning
+
+Created comprehensive implementation plan for AWS Bedrock support: [bedrock-implementation-plan.md](bedrock-implementation-plan.md)
+
+**Key Decisions:**
+
+| Decision | Rationale |
+|----------|-----------|
+| Use AWS SDK for Swift | SigV4 signing is complex; SDK handles credentials, refresh, retries |
+| Tool forcing for structured output | Bedrock has NO native JSON mode |
+| Test with Claude + Amazon Nova | Validates cross-model family compatibility |
+| `BedrockProvider` + `BedrockModel` | Follows existing architecture pattern |
+
+**Bedrock Converse API Differences:**
+
+| Aspect | Anthropic Direct | Bedrock Converse |
+|--------|------------------|------------------|
+| Auth | API key | AWS Signature V4 |
+| System message | String | Array of content blocks |
+| Tool schema | `input_schema` | `toolSpec.inputSchema.json` |
+| Streaming | Same endpoint | Different endpoint (`/converseStream`) |
+| Structured output | Native (beta) | Not supported |
+
+**Implementation Phases:**
+1. Provider setup + credentials
+2. Basic completion (Claude + Nova)
+3. Streaming
+4. Tools & structured output
+5. Advanced features (inference profiles, vision)
+6. Testing & documentation
+
+---
+
+## Session: 2026-01-23 (Part 1)
 
 ### Completed
 
@@ -694,29 +816,30 @@ Created environment variable support for integration tests:
 
 ### Immediate
 
-1. **Agent Loop**
-   - Iterable execution with `.iter()` / `.next()`
-   - Tool execution in the loop
-   - `ToolRejection` for retry signaling
-   - Result validators
+1. **Agent Loop (continued)**
+   - `Agent.runStream()` - Streaming events during execution
+   - `Agent.iter()` - Iterable execution with `AgentNode` yielding
+   - Deferred tool resolution (human-in-the-loop)
+   - Output validators with retry
 
-2. **Tool Protocol**
-   - `Tool` protocol with typed arguments
-   - Tool execution with context injection
-   - Tool result handling
+2. **AWS Bedrock Provider** (PLANNED - see [bedrock-implementation-plan.md](bedrock-implementation-plan.md))
+   - `BedrockProvider` with AWS Signature V4 (via AWS SDK for Swift)
+   - `BedrockModel` implementing Converse API format
+   - Testing with Claude + Amazon Nova models
+   - Tool forcing for structured output (no native JSON mode)
 
 ### Medium-term
 
-3. **Provider Variants**
+4. **Provider Variants**
    - `AzureOpenAIProvider` - Different auth, URL structure
    - `LocalProvider` (Ollama) - OpenAI-compatible, no auth
    - `OpenRouterProvider` - Multi-model aggregator
 
-4. **Runtime Constraint Validation**
+5. **Runtime Constraint Validation**
    - Validate decoded data against @Guide constraints
    - Auto-retry with feedback on constraint violations
 
-5. **MCP Integration**
+6. **MCP Integration**
    - Model Context Protocol client
    - Dynamic tool discovery from external servers
 
@@ -726,6 +849,7 @@ Created environment variable support for integration tests:
 - ~~@Guide constraints~~ - Descriptions and validation hints
 - ~~Structured Outputs~~ - OpenAI native + Anthropic tool-based
 - ~~Typed API~~ - generate(), generateWithTool(), TypedResponse<T>
+- ~~Agent Core~~ - Agent<Deps, Output> with run(), tools, typed output
 
 ---
 
@@ -738,6 +862,7 @@ Yrden/
 ├── Package.swift
 ├── docs/
 │   ├── llm-provider-design.md          # Design document
+│   ├── bedrock-implementation-plan.md  # 📋 AWS Bedrock plan
 │   ├── research-jsonvalue.md           # JSONValue research
 │   ├── test-strategy-jsonvalue.md      # JSONValue test plan
 │   └── progress.md                     # This file
@@ -759,6 +884,12 @@ Yrden/
 │   │   ├── StructuredOutput.swift      # ✅ TypedResponse<T>
 │   │   ├── StructuredOutputError.swift # ✅ Error enum
 │   │   ├── Retry.swift                 # ✅ RetryingHTTPClient
+│   │   ├── Agent/                      # ✅ Agent system
+│   │   │   ├── Agent.swift             # Main Agent<Deps, Output> actor
+│   │   │   ├── AgentContext.swift      # Context passed to tools
+│   │   │   ├── AgentTool.swift         # Tool protocol + AnyAgentTool
+│   │   │   ├── AgentError.swift        # Agent-specific errors
+│   │   │   └── AgentTypes.swift        # UsageLimits, EndStrategy, etc.
 │   │   └── Providers/
 │   │       ├── Anthropic/
 │   │       │   ├── AnthropicProvider.swift
@@ -793,6 +924,8 @@ Yrden/
 │   │   │   ├── OpenAIIntegrationTests.swift
 │   │   │   ├── SchemaIntegrationTests.swift      # ✅ @Schema with real APIs
 │   │   │   └── TypedOutputIntegrationTests.swift # ✅ Typed API with real APIs
+│   │   ├── Agent/
+│   │   │   └── AgentTests.swift                  # ✅ Agent unit + integration tests
 │   │   └── JSONValue/
 │   │       └── ... (JSONValue tests)
 │   └── YrdenMacrosTests/
@@ -832,3 +965,11 @@ Yrden/
 | 2026-01-22 | OpenAI same patterns as Anthropic | Validates Model/Provider split; same public types, different wire format |
 | 2026-01-22 | Capability detection by model name | Simple prefix matching (gpt-4o, o1, o3); avoids API call to check capabilities |
 | 2026-01-22 | o1 tests gated behind RUN_EXPENSIVE_TESTS | o1 models may require special access; validation tests run without API call |
+| 2026-01-23 | Bedrock uses AWS SDK for Swift | SigV4 manual implementation error-prone; SDK handles credentials/refresh |
+| 2026-01-23 | Bedrock structured output via tool forcing | Converse API has no native JSON mode; same pattern as Anthropic tool-based |
+| 2026-01-23 | Test Bedrock with Claude + Nova | Cross-model family testing ensures API compatibility |
+| 2026-01-23 | Agent uses output tool for structured types | Providers require object schemas for tools; String output uses text response |
+| 2026-01-23 | AnyAgentTool type erasure | Enables heterogeneous tool collections while preserving type safety internally |
+| 2026-01-23 | String: SchemaType extension | Allows Agent<Deps, String> to work without output tool (text response) |
+| 2026-01-23 | ToolResult enum with retry case | Tools can signal LLM to retry with feedback; cleaner than throwing |
+| 2026-01-23 | Agent as actor | Thread-safe state management for tool execution loop |

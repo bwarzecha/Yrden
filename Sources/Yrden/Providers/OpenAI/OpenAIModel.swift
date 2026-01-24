@@ -170,8 +170,8 @@ public struct OpenAIModel: Model, Sendable {
             ? request.tools?.map { convertTool($0) }
             : nil
 
-        // Convert messages
-        let openAIMessages = try request.messages.map { try convertMessage($0) }
+        // Convert messages (expanding toolResults into individual messages)
+        let openAIMessages = try request.messages.flatMap { try convertMessages($0) }
 
         let maxTokens = request.config.maxTokens ?? defaultMaxTokens
 
@@ -258,6 +258,36 @@ public struct OpenAIModel: Model, Sendable {
                 content: .text(content),
                 tool_call_id: toolCallId
             )
+
+        case .toolResults:
+            // Handled by convertMessages
+            throw LLMError.invalidRequest("toolResults should use convertMessages")
+        }
+    }
+
+    /// Convert a message to OpenAI format, expanding toolResults into multiple messages.
+    private func convertMessages(_ message: Message) throws -> [OpenAIMessage] {
+        switch message {
+        case .toolResults(let results):
+            // OpenAI uses separate tool messages for each result
+            return results.map { entry in
+                let content: String
+                switch entry.output {
+                case .text(let text):
+                    content = text
+                case .json(let json):
+                    content = (try? String(data: JSONEncoder().encode(json), encoding: .utf8)) ?? "{}"
+                case .error(let message):
+                    content = "Error: \(message)"
+                }
+                return OpenAIMessage(
+                    role: "tool",
+                    content: .text(content),
+                    tool_call_id: entry.id
+                )
+            }
+        default:
+            return [try convertMessage(message)]
         }
     }
 
@@ -600,6 +630,10 @@ public struct OpenAIModel: Model, Sendable {
 
             case .toolResult(let toolCallId, let content):
                 return .functionCallOutput(callId: toolCallId, output: content)
+
+            case .toolResults:
+                // This shouldn't happen for Responses API - it should use Chat Completions
+                return nil
             }
         }
 
