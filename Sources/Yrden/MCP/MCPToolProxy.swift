@@ -123,25 +123,13 @@ struct MCPToolProxy: Sendable {
     /// - Parameter argumentsJSON: JSON-encoded arguments string
     /// - Returns: Tool result
     func call(argumentsJSON: String) async throws -> AnyToolResult {
-        // Parse arguments from JSON string to MCP Value dictionary
+        // Parse arguments using shared helper
         let arguments: [String: Value]?
-
-        if argumentsJSON.isEmpty || argumentsJSON == "{}" {
-            arguments = nil
-        } else {
-            guard let data = argumentsJSON.data(using: .utf8) else {
-                return .failure(ToolExecutionError.argumentParsing("Invalid UTF-8 in arguments"))
-            }
-
-            do {
-                let jsonValue = try JSONDecoder().decode(JSONValue.self, from: data)
-                guard case .object(let obj) = jsonValue else {
-                    return .failure(ToolExecutionError.argumentParsing("Arguments must be a JSON object"))
-                }
-                arguments = obj.asMCPValue
-            } catch {
-                return .failure(ToolExecutionError.argumentParsing(error.localizedDescription))
-            }
+        switch parseMCPArguments(argumentsJSON) {
+        case .success(let args):
+            arguments = args
+        case .error(let error):
+            return .failure(error)
         }
 
         // Route through coordinator

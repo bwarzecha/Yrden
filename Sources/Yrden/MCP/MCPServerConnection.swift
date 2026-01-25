@@ -471,6 +471,10 @@ public actor MCPServerConnection {
     ///
     /// - Returns: Array of type-erased agent tools
     /// - Throws: If tool discovery fails
+    ///
+    /// - Note: Deprecated. Use `MCPCoordinator` and `MCPToolProxy` instead
+    ///   for proper connection lifecycle management.
+    @available(*, deprecated, message: "Use MCPCoordinator with MCPToolProxy instead")
     public func discoverTools<Deps: Sendable>() async throws -> [AnyAgentTool<Deps>] {
         let mcpTools = try await listTools()
         return mcpTools.map { tool in

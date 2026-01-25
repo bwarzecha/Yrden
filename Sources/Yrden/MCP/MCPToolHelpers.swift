@@ -351,3 +351,51 @@ public func formatMCPToolResult(_ content: [MCP.Tool.Content], isError: Bool?) -
 
     return result
 }
+
+// MARK: - Argument Parsing
+
+/// Result of parsing MCP tool arguments.
+public enum MCPArgumentsResult: Sendable {
+    case success([String: MCP.Value]?)
+    case error(ToolExecutionError)
+}
+
+/// Parse JSON arguments string to MCP Value dictionary.
+///
+/// Used by both MCPTool and MCPToolProxy to convert LLM-provided
+/// JSON arguments to the format expected by MCP tools.
+///
+/// ## Example
+/// ```swift
+/// switch parseMCPArguments(argumentsJSON) {
+/// case .success(let args):
+///     // Use args with MCP client
+/// case .error(let error):
+///     return .failure(error)
+/// }
+/// ```
+///
+/// - Parameter argumentsJSON: JSON string from LLM
+/// - Returns: Parsed arguments or error
+public func parseMCPArguments(_ argumentsJSON: String) -> MCPArgumentsResult {
+    // Empty or empty object means no arguments
+    if argumentsJSON.isEmpty || argumentsJSON == "{}" {
+        return .success(nil)
+    }
+
+    // Validate UTF-8
+    guard let data = argumentsJSON.data(using: .utf8) else {
+        return .error(ToolExecutionError.argumentParsing("Invalid UTF-8 in arguments"))
+    }
+
+    // Parse as JSON
+    do {
+        let jsonValue = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard case .object(let obj) = jsonValue else {
+            return .error(ToolExecutionError.argumentParsing("Arguments must be a JSON object"))
+        }
+        return .success(obj.asMCPValue)
+    } catch {
+        return .error(ToolExecutionError.argumentParsing(error.localizedDescription))
+    }
+}
