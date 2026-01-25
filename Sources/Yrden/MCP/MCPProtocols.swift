@@ -192,7 +192,7 @@ struct CoordinatorConfiguration: Sendable {
     /// Timeout for tool calls.
     var toolTimeout: Duration
 
-    /// Timeout for initial connection.
+    /// Timeout for initial connection (used in startAllAndWait).
     var connectionTimeout: Duration
 
     /// Timeout for OAuth flows.
@@ -204,19 +204,27 @@ struct CoordinatorConfiguration: Sendable {
     /// Interval for health checks (nil disables).
     var healthCheckInterval: Duration?
 
+    /// Polling interval for checking connection state.
+    var pollingInterval: Duration
+
     init(
         toolTimeout: Duration = .seconds(30),
         connectionTimeout: Duration = .seconds(10),
         oauthTimeout: Duration = .seconds(120),
         reconnectPolicy: ReconnectPolicy = .exponentialBackoff(maxAttempts: 5, baseDelay: 1.0),
-        healthCheckInterval: Duration? = .seconds(30)
+        healthCheckInterval: Duration? = .seconds(30),
+        pollingInterval: Duration = .milliseconds(100)
     ) {
         self.toolTimeout = toolTimeout
         self.connectionTimeout = connectionTimeout
         self.oauthTimeout = oauthTimeout
         self.reconnectPolicy = reconnectPolicy
         self.healthCheckInterval = healthCheckInterval
+        self.pollingInterval = pollingInterval
     }
+
+    /// Default configuration.
+    static var `default`: CoordinatorConfiguration { .init() }
 }
 
 /// Policy for reconnecting after failure.

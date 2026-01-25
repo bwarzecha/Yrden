@@ -23,6 +23,7 @@ actor ProtocolMCPCoordinator: MCPCoordinatorProtocol {
     // MARK: - Properties
 
     private let connectionFactory: ServerConnectionFactory
+    private let configuration: CoordinatorConfiguration
 
     // MARK: - State
 
@@ -36,8 +37,12 @@ actor ProtocolMCPCoordinator: MCPCoordinatorProtocol {
 
     // MARK: - Initialization
 
-    init(connectionFactory: ServerConnectionFactory) {
+    init(
+        connectionFactory: ServerConnectionFactory,
+        configuration: CoordinatorConfiguration = .default
+    ) {
         self.connectionFactory = connectionFactory
+        self.configuration = configuration
 
         var continuation: AsyncStream<CoordinatorEvent>.Continuation!
         self.events = AsyncStream { continuation = $0 }
@@ -69,12 +74,15 @@ actor ProtocolMCPCoordinator: MCPCoordinatorProtocol {
         var connected: [String] = []
         var failed: [StartResult.FailedServer] = []
 
+        // Calculate max iterations from configuration
+        let pollingInterval = configuration.pollingInterval
+        let maxIterations = Int(configuration.connectionTimeout / pollingInterval)
+
         for spec in specs {
             guard let connection = connections[spec.id] else { continue }
 
             // Poll until terminal state
             var iterations = 0
-            let maxIterations = 100 // 10 seconds max
             while iterations < maxIterations {
                 let state = await connection.state
                 if state.isTerminal {
@@ -90,7 +98,7 @@ actor ProtocolMCPCoordinator: MCPCoordinatorProtocol {
                     }
                     break
                 }
-                try? await Task.sleep(for: .milliseconds(100))
+                try? await Task.sleep(for: pollingInterval)
                 iterations += 1
             }
 
