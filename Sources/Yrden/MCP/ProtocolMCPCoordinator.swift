@@ -187,13 +187,7 @@ actor ProtocolMCPCoordinator: MCPCoordinatorProtocol {
 
             for (id, connection) in connections {
                 let state = await connection.state
-                let toolNames: [String]
-                if case .connected(_, let names) = state {
-                    toolNames = names
-                } else {
-                    toolNames = []
-                }
-                servers[id] = ServerSnapshot(id: id, state: state, toolNames: toolNames)
+                servers[id] = ServerSnapshot(id: id, state: state, tools: state.tools)
             }
 
             return CoordinatorSnapshot(servers: servers)

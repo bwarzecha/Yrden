@@ -84,7 +84,10 @@ public actor MockServerConnection: ServerConnectionProtocol {
         switch behavior {
         case .succeed(let toolNames):
             transition(to: .connecting)
-            transition(to: .connected(toolCount: toolNames.count, toolNames: toolNames))
+            let tools = toolNames.map { name in
+                ToolInfo(MCP.Tool(name: name, description: nil, inputSchema: ["type": "object"]))
+            }
+            transition(to: .connected(tools: tools))
 
         case .fail(let message):
             transition(to: .connecting)

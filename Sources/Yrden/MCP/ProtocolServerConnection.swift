@@ -34,7 +34,7 @@ actor ProtocolServerConnection: ServerConnectionProtocol {
     // MARK: - Internal State
 
     private var client: MCPClientProtocol?
-    private var toolNames: [String] = []
+    private var tools: [ToolInfo] = []
 
     // MARK: - Initialization
 
@@ -62,9 +62,9 @@ actor ProtocolServerConnection: ServerConnectionProtocol {
 
             // List tools to verify connection works
             let result = try await newClient.listTools()
-            toolNames = result.tools.map(\.name)
+            tools = result.tools.map { ToolInfo($0) }
 
-            transition(to: .connected(toolCount: toolNames.count, toolNames: toolNames))
+            transition(to: .connected(tools: tools))
 
         } catch {
             let message = error.localizedDescription
@@ -81,7 +81,7 @@ actor ProtocolServerConnection: ServerConnectionProtocol {
 
         await client?.disconnect()
         client = nil
-        toolNames = []
+        tools = []
         transition(to: .disconnected)
     }
 

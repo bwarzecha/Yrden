@@ -75,8 +75,8 @@ final class MCPManagerTests: XCTestCase {
 
     func testAllToolsReturnsToolsFromAllServers() async throws {
         await mockCoordinator.setSnapshot(MCPTestFixtures.makeSnapshot(servers: [
-            "server1": .connected(toolCount: 2, toolNames: ["tool1", "tool2"]),
-            "server2": .connected(toolCount: 1, toolNames: ["tool3"])
+            "server1": MCPTestFixtures.makeConnectedState(toolNames: ["tool1", "tool2"]),
+            "server2": MCPTestFixtures.makeConnectedState(toolNames: ["tool3"])
         ]))
 
         let manager = makeManager()
@@ -89,8 +89,8 @@ final class MCPManagerTests: XCTestCase {
 
     func testToolsFromServerReturnsOnlyThatServersTools() async throws {
         await mockCoordinator.setSnapshot(MCPTestFixtures.makeSnapshot(servers: [
-            "server1": .connected(toolCount: 2, toolNames: ["tool1", "tool2"]),
-            "server2": .connected(toolCount: 1, toolNames: ["tool3"])
+            "server1": MCPTestFixtures.makeConnectedState(toolNames: ["tool1", "tool2"]),
+            "server2": MCPTestFixtures.makeConnectedState(toolNames: ["tool3"])
         ]))
 
         let manager = makeManager()
@@ -155,7 +155,7 @@ final class MCPManagerTests: XCTestCase {
 
     func testServerStatusReturnsAllStates() async throws {
         await mockCoordinator.setSnapshot(MCPTestFixtures.makeSnapshot(servers: [
-            "server1": .connected(toolCount: 1, toolNames: ["tool1"]),
+            "server1": MCPTestFixtures.makeConnectedState(toolNames: ["tool1"]),
             "server2": .failed(message: "Error", retryCount: 1),
             "server3": .connecting
         ]))
@@ -176,9 +176,9 @@ final class MCPManagerTests: XCTestCase {
 
     func testConnectedServersFiltersToConnectedOnly() async throws {
         await mockCoordinator.setSnapshot(MCPTestFixtures.makeSnapshot(servers: [
-            "server1": .connected(toolCount: 1, toolNames: []),
+            "server1": MCPTestFixtures.makeConnectedState(toolNames: []),
             "server2": .failed(message: "Error", retryCount: 0),
-            "server3": .connected(toolCount: 2, toolNames: [])
+            "server3": MCPTestFixtures.makeConnectedState(toolNames: [])
         ]))
 
         let manager = makeManager()
@@ -224,7 +224,7 @@ final class MCPManagerTests: XCTestCase {
         let event = MCPEvent.stateChanged(
             serverID: "server1",
             from: .connecting,
-            to: .connected(toolCount: 1, toolNames: ["tool1"])
+            to: MCPTestFixtures.makeConnectedState(toolNames: ["tool1"])
         )
 
         let coordinator = mockCoordinator!

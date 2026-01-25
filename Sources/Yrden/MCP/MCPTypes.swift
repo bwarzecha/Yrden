@@ -34,7 +34,7 @@ public enum ConnectionState: Sendable {
     case authenticating(progress: AuthProgress)
 
     /// Successfully connected with discovered tools.
-    case connected(toolCount: Int, toolNames: [String])
+    case connected(tools: [ToolInfo])
 
     /// Connection failed.
     case failed(message: String, retryCount: Int)
@@ -64,6 +64,24 @@ public enum ConnectionState: Sendable {
         default: return false
         }
     }
+
+    /// Number of available tools (when connected).
+    public var toolCount: Int {
+        if case .connected(let tools) = self { return tools.count }
+        return 0
+    }
+
+    /// Names of available tools (when connected).
+    public var toolNames: [String] {
+        if case .connected(let tools) = self { return tools.map(\.name) }
+        return []
+    }
+
+    /// Full tool info (when connected).
+    public var tools: [ToolInfo] {
+        if case .connected(let tools) = self { return tools }
+        return []
+    }
 }
 
 // Explicit Equatable to handle complex associated values
@@ -76,8 +94,8 @@ extension ConnectionState: Equatable {
             return true
         case (.authenticating(let lp), .authenticating(let rp)):
             return lp == rp
-        case (.connected(let lc, let ln), .connected(let rc, let rn)):
-            return lc == rc && ln == rn
+        case (.connected(let lt), .connected(let rt)):
+            return lt == rt
         case (.failed(let lm, let lr), .failed(let rm, let rr)):
             return lm == rm && lr == rr
         case (.reconnecting(let la, let lm, let lt), .reconnecting(let ra, let rm, let rt)):
@@ -179,16 +197,19 @@ public struct CoordinatorSnapshot: Sendable, Equatable {
 public struct ServerSnapshot: Sendable, Equatable {
     public let id: String
     public let state: ConnectionState
-    public let toolNames: [String]
+    public let tools: [ToolInfo]
 
-    public init(id: String, state: ConnectionState, toolNames: [String] = []) {
+    public init(id: String, state: ConnectionState, tools: [ToolInfo] = []) {
         self.id = id
         self.state = state
-        self.toolNames = toolNames
+        self.tools = tools
     }
 
+    /// Tool names (for backward compatibility).
+    public var toolNames: [String] { tools.map(\.name) }
+
     /// Number of available tools.
-    public var toolCount: Int { toolNames.count }
+    public var toolCount: Int { tools.count }
 }
 
 /// Result of starting all servers.

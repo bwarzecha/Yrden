@@ -27,12 +27,17 @@ import MCP
 ///     }
 /// }
 /// ```
-public struct ToolInfo: Identifiable, Sendable {
+public struct ToolInfo: Identifiable, Sendable, Equatable {
     /// Unique identifier (tool name).
     public let id: String
 
     /// The underlying MCP tool.
     public let tool: MCP.Tool
+
+    // Equatable based on tool name (unique within a server)
+    public static func == (lhs: ToolInfo, rhs: ToolInfo) -> Bool {
+        lhs.id == rhs.id
+    }
 
     /// Create a ToolInfo wrapper.
     ///

@@ -179,13 +179,13 @@ extension ConnectionState {
         file: StaticString = #file,
         line: UInt = #line
     ) {
-        guard case .connected(let toolCount, _) = self else {
+        guard case .connected = self else {
             XCTFail("Expected connected state, got \(self)", file: file, line: line)
             return
         }
 
         if let expectedCount = expectedCount {
-            XCTAssertEqual(toolCount, expectedCount, "Tool count mismatch", file: file, line: line)
+            XCTAssertEqual(self.toolCount, expectedCount, "Tool count mismatch", file: file, line: line)
         }
     }
 

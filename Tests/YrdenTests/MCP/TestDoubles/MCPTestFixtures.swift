@@ -32,6 +32,16 @@ public enum MCPTestFixtures {
         names.map { makeMCPTool(name: $0) }
     }
 
+    /// Create a ToolInfo for testing.
+    public static func makeToolInfo(name: String, description: String = "Test tool") -> ToolInfo {
+        ToolInfo(makeMCPTool(name: name, description: description))
+    }
+
+    /// Create multiple ToolInfo instances from names.
+    public static func makeToolInfos(_ names: [String]) -> [ToolInfo] {
+        names.map { makeToolInfo(name: $0) }
+    }
+
     // MARK: - Server Spec
 
     /// Create a stdio ServerSpec for testing.
@@ -71,7 +81,7 @@ public enum MCPTestFixtures {
 
     /// Create a connected state with tool names.
     public static func makeConnectedState(toolNames: [String] = ["tool1", "tool2"]) -> ConnectionState {
-        .connected(toolCount: toolNames.count, toolNames: toolNames)
+        .connected(tools: makeToolInfos(toolNames))
     }
 
     /// Create a failed state.
@@ -90,8 +100,9 @@ public enum MCPTestFixtures {
         state: ConnectionState? = nil,
         toolNames: [String] = []
     ) -> ServerSnapshot {
-        let actualState = state ?? makeConnectedState(toolNames: toolNames)
-        return ServerSnapshot(id: id, state: actualState, toolNames: toolNames)
+        let tools = makeToolInfos(toolNames)
+        let actualState = state ?? .connected(tools: tools)
+        return ServerSnapshot(id: id, state: actualState, tools: tools)
     }
 
     /// Create a CoordinatorSnapshot with connected servers.
@@ -110,13 +121,7 @@ public enum MCPTestFixtures {
     ) -> CoordinatorSnapshot {
         var serverSnapshots: [String: ServerSnapshot] = [:]
         for (id, state) in servers {
-            let toolNames: [String]
-            if case .connected(_, let names) = state {
-                toolNames = names
-            } else {
-                toolNames = []
-            }
-            serverSnapshots[id] = ServerSnapshot(id: id, state: state, toolNames: toolNames)
+            serverSnapshots[id] = ServerSnapshot(id: id, state: state, tools: state.tools)
         }
         return CoordinatorSnapshot(servers: serverSnapshots)
     }

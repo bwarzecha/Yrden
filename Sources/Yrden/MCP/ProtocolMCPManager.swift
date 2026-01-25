@@ -285,10 +285,10 @@ final class ProtocolMCPManager: ObservableObject {
         case .authenticating(let progress):
             view.status = .authenticating(progress.description)
 
-        case .connected(let count, let names):
+        case .connected(let tools):
             view.status = .connected
-            view.toolCount = count
-            updateAvailableTools(serverID: id, toolNames: names)
+            view.toolCount = tools.count
+            updateAvailableTools(serverID: id, tools: tools)
 
         case .failed(let message, _):
             view.status = .failed(message: message)
@@ -307,30 +307,23 @@ final class ProtocolMCPManager: ObservableObject {
         servers[id] = view
     }
 
-    private func updateAvailableTools(serverID: String, toolNames: [String]) {
+    private func updateAvailableTools(serverID: String, tools: [ToolInfo]) {
         // Remove old tools for this server
         removeToolsForServer(serverID: serverID)
 
-        // Add new tools (we don't have full tool info here, just names)
-        // The actual tool definitions will come from the snapshot
-        Task {
-            let snapshot = await coordinator.snapshot
-            if let serverSnapshot = snapshot.servers[serverID] {
-                for name in serverSnapshot.toolNames {
-                    // Create minimal tool entry - full schema would need additional lookup
-                    let entry = ToolEntry(
-                        serverID: serverID,
-                        name: name,
-                        description: "Tool from \(serverID)",
-                        definition: ToolDefinition(
-                            name: name,
-                            description: "",
-                            inputSchema: ["type": "object"]
-                        )
-                    )
-                    availableTools[entry.id] = entry
-                }
-            }
+        // Add new tools with full metadata from ToolInfo
+        for toolInfo in tools {
+            let entry = ToolEntry(
+                serverID: serverID,
+                name: toolInfo.name,
+                description: toolInfo.description ?? "",
+                definition: ToolDefinition(
+                    name: toolInfo.name,
+                    description: toolInfo.description ?? "",
+                    inputSchema: JSONValue(mcpValue: toolInfo.inputSchema)
+                )
+            )
+            availableTools[entry.id] = entry
         }
     }
 
