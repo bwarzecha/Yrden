@@ -163,15 +163,7 @@ final class ProtocolMCPManager: ObservableObject {
     ///
     /// - Returns: Array of type-erased agent tools
     func allTools() -> [AnyAgentTool<Void>] {
-        availableTools.values.map { entry in
-            MCPToolProxy(
-                serverID: entry.serverID,
-                name: entry.name,
-                description: entry.description,
-                inputSchema: entry.definition.inputSchema,
-                coordinator: coordinator
-            ).asAnyAgentTool()
-        }
+        availableTools.values.map { makeToolProxy(from: $0) }
     }
 
     /// Get tools filtered by predicate.
@@ -181,15 +173,18 @@ final class ProtocolMCPManager: ObservableObject {
     func tools(matching predicate: (ToolEntry) -> Bool) -> [AnyAgentTool<Void>] {
         availableTools.values
             .filter(predicate)
-            .map { entry in
-                MCPToolProxy(
-                    serverID: entry.serverID,
-                    name: entry.name,
-                    description: entry.description,
-                    inputSchema: entry.definition.inputSchema,
-                    coordinator: coordinator
-                ).asAnyAgentTool()
-            }
+            .map { makeToolProxy(from: $0) }
+    }
+
+    /// Create a tool proxy from a tool entry.
+    private func makeToolProxy(from entry: ToolEntry) -> AnyAgentTool<Void> {
+        MCPToolProxy(
+            serverID: entry.serverID,
+            name: entry.name,
+            description: entry.description,
+            inputSchema: entry.definition.inputSchema,
+            coordinator: coordinator
+        ).asAnyAgentTool()
     }
 
     /// Get tools for a specific mode.
