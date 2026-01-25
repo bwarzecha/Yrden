@@ -134,6 +134,56 @@ public actor MCPServerConnection {
         return connection
     }
 
+    /// Connect to a local MCP server via stdio with a single command string.
+    ///
+    /// Parses the command string and spawns a subprocess. This is the simplest
+    /// way to connect to a local MCP server.
+    ///
+    /// ## Example
+    /// ```swift
+    /// // Simple command
+    /// let server = try await MCPServerConnection.stdio("uvx mcp-server-fetch")
+    ///
+    /// // Command with arguments
+    /// let server = try await MCPServerConnection.stdio(
+    ///     "npx -y @modelcontextprotocol/server-filesystem /tmp"
+    /// )
+    ///
+    /// // With environment variables (KEY=VALUE per line)
+    /// let server = try await MCPServerConnection.stdio(
+    ///     "npx mcp-server-github",
+    ///     environment: "GITHUB_TOKEN=ghp_xxx"
+    /// )
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - commandLine: Full command line (e.g., "uvx mcp-server-fetch")
+    ///   - environment: Environment variables as "KEY=VALUE" lines
+    ///   - id: Optional server ID (defaults to first word of command)
+    ///   - name: Optional display name (defaults to full command)
+    ///   - logCallback: Optional callback for logging subprocess events
+    /// - Returns: Connected server instance
+    /// - Throws: If connection fails or command is empty
+    public static func stdio(
+        _ commandLine: String,
+        environment: String? = nil,
+        id: String? = nil,
+        name: String? = nil,
+        logCallback: (@Sendable (String) -> Void)? = nil
+    ) async throws -> MCPServerConnection {
+        let (command, arguments) = parseCommandLine(commandLine)
+        let env = parseEnvironment(environment)
+
+        return try await stdio(
+            command: command,
+            arguments: arguments,
+            environment: env,
+            id: id ?? command,
+            name: name ?? commandLine,
+            logCallback: logCallback
+        )
+    }
+
     /// Connect to a remote MCP server via HTTP.
     ///
     /// Uses Server-Sent Events for real-time communication.
@@ -547,6 +597,56 @@ public actor MCPServerConnection {
     public var supportsPrompts: Bool {
         serverCapabilities?.prompts != nil
     }
+}
+
+// MARK: - Command Line Parsing Utilities
+
+/// Parse a command line string into command and arguments.
+///
+/// Handles simple space-separated arguments. For complex quoting,
+/// pass arguments as an array to `MCPServerConnection.stdio(command:arguments:)`.
+///
+/// - Parameter commandLine: Full command line (e.g., "npx -y @modelcontextprotocol/server-filesystem /tmp")
+/// - Returns: Tuple of (command, arguments)
+public func parseCommandLine(_ commandLine: String) -> (command: String, arguments: [String]) {
+    let parts = commandLine
+        .trimmingCharacters(in: .whitespaces)
+        .components(separatedBy: .whitespaces)
+        .filter { !$0.isEmpty }
+
+    guard let command = parts.first else {
+        return ("", [])
+    }
+
+    return (command, Array(parts.dropFirst()))
+}
+
+/// Parse environment variables from a string.
+///
+/// Expects "KEY=VALUE" format, one per line.
+///
+/// - Parameter environment: Environment string (e.g., "API_KEY=xxx\nDEBUG=1")
+/// - Returns: Dictionary of environment variables, or nil if input is nil/empty
+public func parseEnvironment(_ environment: String?) -> [String: String]? {
+    guard let env = environment?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !env.isEmpty else {
+        return nil
+    }
+
+    var result: [String: String] = [:]
+    for line in env.components(separatedBy: .newlines) {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { continue }
+
+        let parts = trimmed.components(separatedBy: "=")
+        guard parts.count >= 2 else { continue }
+
+        let key = parts[0].trimmingCharacters(in: .whitespaces)
+        let value = parts.dropFirst().joined(separator: "=")
+        result[key] = value
+    }
+
+    return result.isEmpty ? nil : result
 }
 
 // MARK: - SubprocessStdioTransport

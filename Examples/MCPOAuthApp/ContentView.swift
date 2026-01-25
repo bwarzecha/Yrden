@@ -388,56 +388,18 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Parameter Extraction
+// MARK: - Parameter Extraction (uses library utility)
 
-struct ParameterInfo {
-    let name: String
-    let type: String
-    let description: String?
-    let required: Bool
+// Type alias for backwards compatibility with existing UI code
+typealias ParameterInfo = MCPParameterInfo
+
+extension MCPParameterInfo {
+    // Backwards compatibility property
+    var required: Bool { isRequired }
 }
 
-func extractParameters(from schema: Value) -> [ParameterInfo] {
-    guard case .object(let obj) = schema,
-          case .object(let properties)? = obj["properties"] else {
-        return []
-    }
-
-    var requiredFields: Set<String> = []
-    if case .array(let required)? = obj["required"] {
-        for item in required {
-            if case .string(let name) = item {
-                requiredFields.insert(name)
-            }
-        }
-    }
-
-    var params: [ParameterInfo] = []
-    for (name, value) in properties {
-        guard case .object(let propObj) = value else { continue }
-
-        var type = "string"
-        if case .string(let t)? = propObj["type"] {
-            type = t
-        }
-
-        var description: String? = nil
-        if case .string(let d)? = propObj["description"] {
-            description = d
-        }
-
-        params.append(ParameterInfo(
-            name: name,
-            type: type,
-            description: description,
-            required: requiredFields.contains(name)
-        ))
-    }
-
-    return params.sorted { a, b in
-        if a.required != b.required { return a.required }
-        return a.name < b.name
-    }
+func extractParameters(from schema: Value) -> [MCPParameterInfo] {
+    extractMCPParameters(from: schema)
 }
 
 // MARK: - Value Extension

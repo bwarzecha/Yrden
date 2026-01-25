@@ -155,17 +155,15 @@ struct MCPToolTests {
 
     @Test("MCPToolError.executionFailed formats correctly")
     func executionFailedErrorFormat() {
-        let underlying = NSError(domain: "test", code: 1, userInfo: [
-            NSLocalizedDescriptionKey: "Connection refused"
-        ])
         let error = MCPToolError.executionFailed(
             name: "write_file",
             server: "filesystem-server",
-            underlying: underlying
+            message: "Connection refused"
         )
 
         #expect(error.localizedDescription.contains("write_file"))
         #expect(error.localizedDescription.contains("filesystem-server"))
+        #expect(error.localizedDescription.contains("Connection refused"))
     }
 
     @Test("MCPToolError.serverDisconnected formats correctly")

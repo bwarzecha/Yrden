@@ -279,6 +279,31 @@ public struct AnyAgentTool<Deps: Sendable>: Sendable {
     ) async throws -> AnyToolResult {
         try await _call(context, argumentsJSON)
     }
+
+    /// Create a type-erased tool from components.
+    ///
+    /// This initializer is useful for creating tools from external sources
+    /// like MCP servers where the schema is already defined.
+    ///
+    /// - Parameters:
+    ///   - name: Tool name
+    ///   - description: Tool description
+    ///   - definition: Tool definition with schema
+    ///   - maxRetries: Maximum retry attempts (default: 1)
+    ///   - call: Execution closure that takes context and JSON arguments
+    public init(
+        name: String,
+        description: String,
+        definition: ToolDefinition,
+        maxRetries: Int = 1,
+        call: @escaping @Sendable (AgentContext<Deps>, String) async throws -> AnyToolResult
+    ) {
+        self.name = name
+        self.description = description
+        self.maxRetries = maxRetries
+        self.definition = definition
+        self._call = call
+    }
 }
 
 // MARK: - AnyToolResult
@@ -374,5 +399,59 @@ private struct AnyEncodable: Encodable {
 
     func encode(to encoder: Encoder) throws {
         try _encode(encoder)
+    }
+}
+
+// MARK: - Deps Lifting
+
+extension AnyAgentTool where Deps == Void {
+    /// Lift a Void-deps tool to work with any deps type.
+    ///
+    /// This is useful for mixing MCP tools (which use Void deps) with
+    /// local tools that require specific dependencies.
+    ///
+    /// ## Example
+    /// ```swift
+    /// // MCP tools use Void deps
+    /// let mcpTools: [AnyAgentTool<Void>] = manager.allTools()
+    ///
+    /// // Local tools use custom deps
+    /// let localTools: [AnyAgentTool<MyDeps>] = [myTool.erased()]
+    ///
+    /// // Lift MCP tools to match
+    /// let allTools: [AnyAgentTool<MyDeps>] = mcpTools.lifted() + localTools
+    /// ```
+    ///
+    /// - Returns: Tool that ignores deps and works with any deps type
+    public func lifted<D: Sendable>() -> AnyAgentTool<D> {
+        AnyAgentTool<D>(
+            name: name,
+            description: description,
+            definition: definition,
+            maxRetries: maxRetries
+        ) { context, args in
+            // Create a void context passing through the context metadata
+            let voidContext = AgentContext<Void>(
+                deps: (),
+                model: context.model,
+                usage: context.usage,
+                retries: context.retries,
+                toolCallID: context.toolCallID,
+                toolName: context.toolName,
+                runStep: context.runStep,
+                runID: context.runID,
+                messages: context.messages
+            )
+            return try await self.call(context: voidContext, argumentsJSON: args)
+        }
+    }
+}
+
+extension Array where Element == AnyAgentTool<Void> {
+    /// Lift all Void-deps tools to work with any deps type.
+    ///
+    /// - Returns: Array of tools that work with the specified deps type
+    public func lifted<D: Sendable>() -> [AnyAgentTool<D>] {
+        map { $0.lifted() }
     }
 }

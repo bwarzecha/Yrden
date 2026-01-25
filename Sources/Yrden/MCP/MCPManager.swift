@@ -43,6 +43,11 @@ import MCP
 ///
 /// Provides a unified interface for working with tools, resources, and prompts
 /// from multiple MCP servers.
+///
+/// - Note: For most use cases, prefer using `mcpConnect()` directly with individual servers.
+///   This manager is available for complex multi-server scenarios but may be deprecated
+///   in future versions.
+@available(*, deprecated, message: "Use mcpConnect() for simple use cases. MCPManager may be removed in future versions.")
 public actor MCPManager {
     /// Connected servers by ID.
     private var servers: [String: MCPServerConnection] = [:]

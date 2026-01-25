@@ -326,6 +326,98 @@ public enum MCPOAuthProgress: Sendable {
     case failed(Error)
 }
 
+// MARK: - Simple OAuth Delegate
+
+/// A simple closure-based OAuth delegate.
+///
+/// Use this when you just need to open a URL in the browser and don't need
+/// custom handling for re-authentication or progress updates.
+///
+/// ## Example
+/// ```swift
+/// let delegate = SimpleOAuthDelegate { url in
+///     NSWorkspace.shared.open(url)  // macOS
+///     // or: UIApplication.shared.open(url)  // iOS
+/// }
+///
+/// let server = try await MCPServerConnection.autoAuth(
+///     url: serverURL,
+///     delegate: delegate
+/// )
+/// ```
+///
+/// @unchecked Sendable is safe here because:
+/// - All stored closures are marked `@Sendable`
+/// - All properties are `let` (immutable after init)
+/// - The class is final (no subclass can break invariants)
+public final class SimpleOAuthDelegate: MCPOAuthDelegate, @unchecked Sendable {
+    private let openURL: @Sendable (URL) async throws -> Void
+    private let onProgress: (@Sendable (MCPOAuthProgress) -> Void)?
+
+    /// Create a simple OAuth delegate.
+    ///
+    /// - Parameters:
+    ///   - openURL: Closure to open the authorization URL in a browser
+    ///   - onProgress: Optional closure to receive progress updates
+    public init(
+        openURL: @escaping @Sendable (URL) async throws -> Void,
+        onProgress: (@Sendable (MCPOAuthProgress) -> Void)? = nil
+    ) {
+        self.openURL = openURL
+        self.onProgress = onProgress
+    }
+
+    public func openAuthorizationURL(_ url: URL) async throws {
+        try await openURL(url)
+    }
+
+    public func promptReauthentication(for serverID: String, reason: String) async -> Bool {
+        // Default: always approve re-authentication
+        true
+    }
+
+    public func authenticationProgress(_ state: MCPOAuthProgress) {
+        onProgress?(state)
+    }
+}
+
+#if canImport(AppKit)
+import AppKit
+
+extension SimpleOAuthDelegate {
+    /// Create a delegate that opens URLs using NSWorkspace (macOS).
+    ///
+    /// ## Example
+    /// ```swift
+    /// let delegate = SimpleOAuthDelegate.macOS()
+    /// let delegate = SimpleOAuthDelegate.macOS { state in print("Progress: \(state)") }
+    /// ```
+    public static func macOS() -> SimpleOAuthDelegate {
+        SimpleOAuthDelegate(
+            openURL: openURLWithWorkspace(_:),
+            onProgress: nil
+        )
+    }
+
+    /// Create a delegate that opens URLs using NSWorkspace with progress callback.
+    public static func macOS(
+        onProgress: @escaping @Sendable (MCPOAuthProgress) -> Void
+    ) -> SimpleOAuthDelegate {
+        SimpleOAuthDelegate(
+            openURL: openURLWithWorkspace(_:),
+            onProgress: onProgress
+        )
+    }
+
+    @Sendable
+    private static func openURLWithWorkspace(_ url: URL) async throws {
+        _ = await MainActor.run {
+            NSWorkspace.shared.open(url)
+        }
+    }
+}
+#endif
+
 // MARK: - OAuth Coordinator
 
 /// Coordinates the full OAuth flow with UI integration.
@@ -347,7 +439,6 @@ public actor MCPOAuthCoordinator {
     ///
     /// - Returns: OAuth tokens
     public func authorize() async throws -> MCPOAuthTokens {
-        print("[Coordinator] authorize() starting")
         await delegate?.authenticationProgress(.openingBrowser)
 
         let authURL = await flow.buildAuthorizationURL()
@@ -357,23 +448,18 @@ public actor MCPOAuthCoordinator {
 
         await delegate?.authenticationProgress(.waitingForUser)
 
-        print("[Coordinator] Waiting for callback continuation")
         // Wait for callback
         let callbackURL = try await withCheckedThrowingContinuation { continuation in
             self.pendingCallback = continuation
-            print("[Coordinator] Continuation stored, waiting...")
         }
-        print("[Coordinator] Got callback URL, exchanging code")
 
         await delegate?.authenticationProgress(.exchangingCode)
 
         // Handle callback
         let tokens = try await flow.handleCallback(url: callbackURL)
-        print("[Coordinator] Got tokens, completing")
 
         await delegate?.authenticationProgress(.complete)
 
-        print("[Coordinator] authorize() returning tokens")
         return tokens
     }
 
@@ -383,10 +469,8 @@ public actor MCPOAuthCoordinator {
     ///
     /// - Parameter url: Callback URL
     public func receiveCallback(url: URL) {
-        print("[Coordinator] receiveCallback() called, pendingCallback=\(pendingCallback != nil)")
         pendingCallback?.resume(returning: url)
         pendingCallback = nil
-        print("[Coordinator] receiveCallback() done")
     }
 
     /// Cancel the in-progress flow.

@@ -64,6 +64,140 @@ public struct UsageLimits: Sendable, Equatable, Hashable {
     public static let none = UsageLimits()
 }
 
+// MARK: - RetryPolicy
+
+/// Configuration for retrying failed LLM requests.
+///
+/// Use this to handle transient network errors, rate limits, and server errors
+/// with exponential backoff.
+///
+/// ## Example
+/// ```swift
+/// let policy = RetryPolicy(
+///     maxAttempts: 3,
+///     initialDelay: .milliseconds(100),
+///     maxDelay: .seconds(5),
+///     backoffMultiplier: 2.0,
+///     jitter: 0.1
+/// )
+///
+/// let agent = Agent(
+///     model: claude,
+///     retryPolicy: policy
+/// )
+/// ```
+public struct RetryPolicy: Sendable, Equatable {
+    /// Maximum number of attempts (including initial).
+    public var maxAttempts: Int
+
+    /// Initial delay between attempts.
+    public var initialDelay: Duration
+
+    /// Maximum delay between attempts (caps exponential growth).
+    public var maxDelay: Duration
+
+    /// Multiplier for exponential backoff.
+    public var backoffMultiplier: Double
+
+    /// Random jitter as fraction of delay (0.0 to 1.0).
+    /// Helps prevent thundering herd.
+    public var jitter: Double
+
+    /// Errors that should trigger a retry.
+    /// By default, retries on rate limits and transient server errors.
+    public var retryableErrors: Set<RetryableErrorKind>
+
+    public init(
+        maxAttempts: Int = 3,
+        initialDelay: Duration = .milliseconds(100),
+        maxDelay: Duration = .seconds(30),
+        backoffMultiplier: Double = 2.0,
+        jitter: Double = 0.1,
+        retryableErrors: Set<RetryableErrorKind> = [.rateLimited, .serverError, .networkError]
+    ) {
+        self.maxAttempts = maxAttempts
+        self.initialDelay = initialDelay
+        self.maxDelay = maxDelay
+        self.backoffMultiplier = backoffMultiplier
+        self.jitter = jitter
+        self.retryableErrors = retryableErrors
+    }
+
+    /// No retries - fail immediately on any error.
+    public static let none = RetryPolicy(maxAttempts: 1, retryableErrors: [])
+
+    /// Default policy: 3 attempts with exponential backoff.
+    public static let `default` = RetryPolicy()
+
+    /// Aggressive retry for high-availability: 5 attempts with longer waits.
+    public static let aggressive = RetryPolicy(
+        maxAttempts: 5,
+        initialDelay: .milliseconds(200),
+        maxDelay: .seconds(60),
+        backoffMultiplier: 2.5,
+        jitter: 0.2
+    )
+
+    /// Calculate delay for a given attempt number (0-indexed).
+    public func delay(forAttempt attempt: Int) -> Duration {
+        guard attempt > 0 else { return .zero }
+
+        // Calculate exponential delay using Duration arithmetic
+        let multiplier = pow(backoffMultiplier, Double(attempt - 1))
+
+        // Convert initial delay to nanoseconds for calculation
+        let components = initialDelay.components
+        let baseNanos = Double(components.seconds) * 1_000_000_000.0 +
+                        Double(components.attoseconds) / 1_000_000_000.0
+        var delayNanos = baseNanos * multiplier
+
+        // Cap at maxDelay
+        let maxComponents = maxDelay.components
+        let maxNanos = Double(maxComponents.seconds) * 1_000_000_000.0 +
+                       Double(maxComponents.attoseconds) / 1_000_000_000.0
+        delayNanos = min(delayNanos, maxNanos)
+
+        // Add jitter
+        if jitter > 0 {
+            let jitterRange = delayNanos * jitter
+            let jitterValue = Double.random(in: -jitterRange...jitterRange)
+            delayNanos = max(0, delayNanos + jitterValue)
+        }
+
+        return .nanoseconds(Int64(delayNanos))
+    }
+
+    /// Check if an error should trigger a retry.
+    public func shouldRetry(_ error: Error) -> Bool {
+        guard let llmError = error as? LLMError else {
+            return false
+        }
+
+        switch llmError {
+        case .rateLimited:
+            return retryableErrors.contains(.rateLimited)
+        case .serverError:
+            return retryableErrors.contains(.serverError)
+        case .networkError:
+            return retryableErrors.contains(.networkError)
+        default:
+            return false
+        }
+    }
+}
+
+/// Types of errors that can trigger retries.
+public enum RetryableErrorKind: String, Sendable, Hashable, CaseIterable {
+    /// Rate limit exceeded (429).
+    case rateLimited
+
+    /// Server error (5xx).
+    case serverError
+
+    /// Network connectivity issue.
+    case networkError
+}
+
 // MARK: - EndStrategy
 
 /// Strategy for handling tool calls when output is available.
@@ -359,5 +493,92 @@ public struct ResolvedTool: Sendable {
 
         /// External operation failed.
         case failed(error: String)
+    }
+}
+
+// MARK: - PausedAgentRun
+
+/// State captured when an agent pauses due to deferred tools.
+///
+/// This struct contains all information needed to resume execution
+/// after deferred tool calls are resolved by an external process.
+///
+/// ## Human-in-the-Loop Pattern
+/// ```swift
+/// do {
+///     let result = try await agent.run("Execute risky operation", deps: myDeps)
+/// } catch let error as AgentError {
+///     if case .hasDeferredTools(let paused) = error {
+///         // Present to user for approval
+///         print("Tools need approval:")
+///         for pending in paused.pendingCalls {
+///             print("- \(pending.toolCall.name): \(pending.deferral.reason)")
+///         }
+///
+///         // Get user decisions
+///         let resolutions = await getUserApprovals(paused.pendingCalls)
+///
+///         // Resume with resolutions
+///         let result = try await agent.resume(paused: paused, resolutions: resolutions, deps: myDeps)
+///     }
+/// }
+/// ```
+public struct PausedAgentRun: Sendable {
+    /// Unique identifier for this run.
+    public let runID: String
+
+    /// Conversation messages up to the point of deferral.
+    public let messages: [Message]
+
+    /// Accumulated token usage.
+    public let usage: Usage
+
+    /// Number of model requests made so far.
+    public let requestCount: Int
+
+    /// Number of tool calls executed so far.
+    public let toolCallCount: Int
+
+    /// Pending tool calls that need resolution.
+    public let pendingCalls: [PendingToolCall]
+
+    public init(
+        runID: String,
+        messages: [Message],
+        usage: Usage,
+        requestCount: Int,
+        toolCallCount: Int,
+        pendingCalls: [PendingToolCall]
+    ) {
+        self.runID = runID
+        self.messages = messages
+        self.usage = usage
+        self.requestCount = requestCount
+        self.toolCallCount = toolCallCount
+        self.pendingCalls = pendingCalls
+    }
+
+    /// Get all deferred calls (for display purposes).
+    public var deferrals: [DeferredToolCall] {
+        pendingCalls.map { $0.deferral }
+    }
+}
+
+// MARK: - PendingToolCall
+
+/// A tool call that is pending resolution.
+///
+/// Pairs the original LLM tool call with the deferral information
+/// returned by the tool.
+public struct PendingToolCall: Sendable {
+    /// The original tool call from the LLM.
+    public let toolCall: ToolCall
+
+    /// Deferral information from the tool.
+    public let deferral: DeferredToolCall
+
+    public init(toolCall: ToolCall, deferral: DeferredToolCall) {
+        self.toolCall = toolCall
+        self.deferral = deferral
     }
 }

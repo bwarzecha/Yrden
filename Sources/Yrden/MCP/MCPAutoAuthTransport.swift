@@ -18,6 +18,11 @@ import MCP
 
 /// Thread-safe token holder for requestModifier access.
 /// Used to inject auth tokens into httpTransport requests.
+///
+/// @unchecked Sendable is safe here because:
+/// - All access to mutable state (`_token`) is protected by NSLock
+/// - NSLock provides proper memory barriers for thread safety
+/// - The class is final (no subclass can break invariants)
 private final class TokenHolder: @unchecked Sendable {
     private let lock = NSLock()
     private var _token: String?

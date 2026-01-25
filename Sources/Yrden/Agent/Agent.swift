@@ -65,6 +65,12 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
     /// Description for the output tool.
     public let outputToolDescription: String
 
+    /// Retry policy for transient LLM errors.
+    public let retryPolicy: RetryPolicy
+
+    /// Default timeout for tool execution.
+    public let toolTimeout: Duration?
+
     public init(
         model: any Model,
         systemPrompt: String = "",
@@ -74,7 +80,9 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         usageLimits: UsageLimits = .none,
         endStrategy: EndStrategy = .early,
         outputToolName: String = "final_result",
-        outputToolDescription: String = "Provide the final result"
+        outputToolDescription: String = "Provide the final result",
+        retryPolicy: RetryPolicy = .none,
+        toolTimeout: Duration? = nil
     ) {
         self.model = model
         self.systemPrompt = systemPrompt
@@ -85,6 +93,8 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         self.endStrategy = endStrategy
         self.outputToolName = outputToolName
         self.outputToolDescription = outputToolDescription
+        self.retryPolicy = retryPolicy
+        self.toolTimeout = toolTimeout
     }
 
     // MARK: - Run
@@ -102,96 +112,15 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         deps: Deps,
         messageHistory: [Message] = []
     ) async throws -> AgentResult<Output> {
-        let runID = UUID().uuidString
-        var state = RunState(
-            runID: runID,
+        var messages = messageHistory
+        messages.append(.user(prompt))
+
+        return try await runLoop(
+            prompt: prompt,
+            initialMessages: messages,
             deps: deps,
-            messages: messageHistory,
-            usage: Usage(inputTokens: 0, outputTokens: 0)
+            observer: NoOpLoopObserver<Deps, Output>()
         )
-
-        // Add user message
-        state.messages.append(.user(prompt))
-
-        // Main agent loop
-        while state.requestCount < maxIterations {
-            // Check for cancellation
-            try Task.checkCancellation()
-
-            // Check usage limits
-            try checkUsageLimits(state: state)
-
-            // Build request
-            let request = buildRequest(state: state)
-
-            // Send to model
-            let response = try await model.complete(request)
-            state.requestCount += 1
-            state.usage = accumulateUsage(current: state.usage, new: response.usage)
-
-            // Add assistant message
-            state.messages.append(.fromResponse(response))
-
-            // Check for refusal
-            if let refusal = response.refusal {
-                throw AgentError.unexpectedModelBehavior("Model refused: \(refusal)")
-            }
-
-            // Handle response based on stop reason
-            switch response.stopReason {
-            case .endTurn, .stopSequence:
-                // Try to extract output from text
-                if let output = try await extractTextOutput(
-                    response: response,
-                    context: buildContext(state: state)
-                ) {
-                    return AgentResult(
-                        output: output,
-                        usage: state.usage,
-                        messages: state.messages,
-                        outputToolName: nil,
-                        runID: runID,
-                        requestCount: state.requestCount,
-                        toolCallCount: state.toolCallCount
-                    )
-                }
-
-                // If we have tool calls, process them
-                if !response.toolCalls.isEmpty {
-                    let result = try await processToolCalls(
-                        response: response,
-                        state: &state
-                    )
-                    if let output = result {
-                        return output
-                    }
-                    // Continue loop with tool results
-                    continue
-                }
-
-                // No output and no tools - unexpected
-                throw AgentError.unexpectedModelBehavior("Model ended without output or tool calls")
-
-            case .toolUse:
-                // Process tool calls
-                let result = try await processToolCalls(
-                    response: response,
-                    state: &state
-                )
-                if let output = result {
-                    return output
-                }
-                // Continue loop with tool results
-
-            case .maxTokens:
-                throw AgentError.unexpectedModelBehavior("Response truncated due to max tokens")
-
-            case .contentFiltered:
-                throw AgentError.unexpectedModelBehavior("Response was content filtered")
-            }
-        }
-
-        throw AgentError.maxIterationsReached(maxIterations)
     }
 
     // MARK: - Run Stream
@@ -274,68 +203,37 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             // Add assistant message
             state.messages.append(.fromResponse(response))
 
-            // Check for refusal
-            if let refusal = response.refusal {
-                throw AgentError.unexpectedModelBehavior("Model refused: \(refusal)")
+            // Handle response with streaming callback for tool results
+            let action = try await handleModelResponse(
+                response: response,
+                state: &state
+            ) { call, toolResult, _ in
+                continuation.yield(.toolResult(id: call.id, result: self.formatToolResult(toolResult)))
             }
 
-            // Handle response based on stop reason
-            switch response.stopReason {
-            case .endTurn, .stopSequence:
-                // Try to extract output from text
-                if let output = try await extractTextOutput(
-                    response: response,
-                    context: buildContext(state: state)
-                ) {
-                    return AgentResult(
-                        output: output,
-                        usage: state.usage,
-                        messages: state.messages,
-                        outputToolName: nil,
-                        runID: runID,
-                        requestCount: state.requestCount,
-                        toolCallCount: state.toolCallCount
-                    )
-                }
-
-                // If we have tool calls, process them
-                if !response.toolCalls.isEmpty {
-                    let result = try await processToolCallsStreaming(
-                        response: response,
-                        state: &state,
-                        continuation: continuation
-                    )
-                    if let output = result {
-                        return output
-                    }
-                    // Continue loop with tool results
-                    continue
-                }
-
-                // No output and no tools - unexpected
-                throw AgentError.unexpectedModelBehavior("Model ended without output or tool calls")
-
-            case .toolUse:
-                // Process tool calls
-                let result = try await processToolCallsStreaming(
-                    response: response,
-                    state: &state,
-                    continuation: continuation
-                )
-                if let output = result {
-                    return output
-                }
-                // Continue loop with tool results
-
-            case .maxTokens:
-                throw AgentError.unexpectedModelBehavior("Response truncated due to max tokens")
-
-            case .contentFiltered:
-                throw AgentError.unexpectedModelBehavior("Response was content filtered")
+            switch action {
+            case .returnOutput(let output, let outputToolUsed):
+                return state.makeResult(output: output, outputToolUsed: outputToolUsed)
+            case .continueLoop:
+                continue
             }
         }
 
         throw AgentError.maxIterationsReached(maxIterations)
+    }
+
+    /// Format a tool result for streaming output.
+    private nonisolated func formatToolResult(_ result: AnyToolResult) -> String {
+        switch result {
+        case .success(let value):
+            return value
+        case .retry(let message):
+            return "Error: \(message)"
+        case .failure(let error):
+            return "Error: \(error.localizedDescription)"
+        case .deferred(let deferral):
+            return "Deferred: \(deferral.reason)"
+        }
     }
 
     /// Stream model response and forward events to continuation.
@@ -374,113 +272,6 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         }
 
         return finalResponse
-    }
-
-    /// Process tool calls with streaming events.
-    private func processToolCallsStreaming(
-        response: CompletionResponse,
-        state: inout RunState,
-        continuation: AsyncThrowingStream<AgentStreamEvent<Output>, Error>.Continuation
-    ) async throws -> AgentResult<Output>? {
-        var toolResults: [(ToolCall, ToolOutput)] = []
-        var outputResult: Output?
-        var outputToolUsed: String?
-        var deferredCalls: [DeferredToolCall] = []
-
-        for call in response.toolCalls {
-            state.toolCallCount += 1
-
-            // Check if this is the output tool
-            if call.name == outputToolName {
-                // Parse as output type
-                do {
-                    if let output = try await parseAndValidateOutput(
-                        json: call.arguments,
-                        context: buildContext(state: state).forToolCall(id: call.id, name: call.name)
-                    ) {
-                        outputResult = output
-                        outputToolUsed = call.name
-
-                        // Add success result for the output tool
-                        toolResults.append((call, .text("Output accepted")))
-                        continuation.yield(.toolResult(id: call.id, result: "Output accepted"))
-
-                        // If early end strategy, skip remaining tools
-                        if endStrategy == .early {
-                            break
-                        }
-                    }
-                } catch let retry as ValidationRetry {
-                    // Validation failed - send feedback to model for retry
-                    let errorMsg = "Validation failed: \(retry.message)"
-                    toolResults.append((call, .error(errorMsg)))
-                    continuation.yield(.toolResult(id: call.id, result: "Error: \(errorMsg)"))
-                }
-                continue
-            }
-
-            // Find the tool
-            guard let tool = tools.first(where: { $0.name == call.name }) else {
-                let errorMsg = "Tool not found: \(call.name)"
-                toolResults.append((call, .error(errorMsg)))
-                continuation.yield(.toolResult(id: call.id, result: "Error: \(errorMsg)"))
-                continue
-            }
-
-            // Execute tool with retries
-            let result = try await executeToolWithRetries(
-                tool: tool,
-                call: call,
-                state: state
-            )
-
-            switch result {
-            case .success(let value):
-                toolResults.append((call, .text(value)))
-                continuation.yield(.toolResult(id: call.id, result: value))
-
-            case .retry(let message):
-                // Max retries exceeded
-                let errorMsg = "Tool failed after retries: \(message)"
-                toolResults.append((call, .error(errorMsg)))
-                continuation.yield(.toolResult(id: call.id, result: "Error: \(errorMsg)"))
-
-            case .failure(let error):
-                toolResults.append((call, .error(error.localizedDescription)))
-                continuation.yield(.toolResult(id: call.id, result: "Error: \(error.localizedDescription)"))
-
-            case .deferred(let deferral):
-                deferredCalls.append(deferral)
-                toolResults.append((call, .error("Tool deferred: \(deferral.reason)")))
-                continuation.yield(.toolResult(id: call.id, result: "Deferred: \(deferral.reason)"))
-            }
-        }
-
-        // Check for deferred tools
-        if !deferredCalls.isEmpty {
-            state.pendingApprovals.append(contentsOf: deferredCalls)
-            throw AgentError.hasDeferredTools(state.pendingApprovals)
-        }
-
-        // Add tool results to messages
-        if !toolResults.isEmpty {
-            state.messages.append(.fromToolResults(toolResults))
-        }
-
-        // Return output if found
-        if let output = outputResult {
-            return AgentResult(
-                output: output,
-                usage: state.usage,
-                messages: state.messages,
-                outputToolName: outputToolUsed,
-                runID: state.runID,
-                requestCount: state.requestCount,
-                toolCallCount: state.toolCallCount
-            )
-        }
-
-        return nil
     }
 
     // MARK: - Iteration
@@ -550,241 +341,174 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         messageHistory: [Message],
         continuation: AsyncThrowingStream<AgentNode<Deps, Output>, Error>.Continuation
     ) async throws {
-        let runID = UUID().uuidString
-        var state = RunState(
-            runID: runID,
+        var messages = messageHistory
+        messages.append(.user(prompt))
+
+        let observer = IteratingLoopObserver<Deps, Output>(continuation: continuation)
+        _ = try await runLoop(
+            prompt: prompt,
+            initialMessages: messages,
             deps: deps,
-            messages: messageHistory,
-            usage: Usage(inputTokens: 0, outputTokens: 0)
+            observer: observer
         )
-
-        // Add user message
-        state.messages.append(.user(prompt))
-
-        // Yield user prompt node
-        continuation.yield(.userPrompt(prompt))
-
-        // Main agent loop
-        while state.requestCount < maxIterations {
-            // Check for cancellation
-            try Task.checkCancellation()
-
-            // Check usage limits
-            try checkUsageLimits(state: state)
-
-            // Build request
-            let request = buildRequest(state: state)
-
-            // Yield model request node
-            continuation.yield(.modelRequest(request))
-
-            // Send to model
-            let response = try await model.complete(request)
-            state.requestCount += 1
-            state.usage = accumulateUsage(current: state.usage, new: response.usage)
-
-            // Yield model response node
-            continuation.yield(.modelResponse(response))
-
-            // Add assistant message
-            state.messages.append(.fromResponse(response))
-
-            // Check for refusal
-            if let refusal = response.refusal {
-                throw AgentError.unexpectedModelBehavior("Model refused: \(refusal)")
-            }
-
-            // Handle response based on stop reason
-            switch response.stopReason {
-            case .endTurn, .stopSequence:
-                // Try to extract output from text
-                if let output = try await extractTextOutput(
-                    response: response,
-                    context: buildContext(state: state)
-                ) {
-                    let result = AgentResult(
-                        output: output,
-                        usage: state.usage,
-                        messages: state.messages,
-                        outputToolName: nil,
-                        runID: runID,
-                        requestCount: state.requestCount,
-                        toolCallCount: state.toolCallCount
-                    )
-                    continuation.yield(.end(result))
-                    return
-                }
-
-                // If we have tool calls, process them
-                if !response.toolCalls.isEmpty {
-                    if let result = try await processToolCallsWithNodes(
-                        response: response,
-                        state: &state,
-                        continuation: continuation
-                    ) {
-                        continuation.yield(.end(result))
-                        return
-                    }
-                    // Continue loop with tool results
-                    continue
-                }
-
-                // No output and no tools - unexpected
-                throw AgentError.unexpectedModelBehavior("Model ended without output or tool calls")
-
-            case .toolUse:
-                // Process tool calls
-                if let result = try await processToolCallsWithNodes(
-                    response: response,
-                    state: &state,
-                    continuation: continuation
-                ) {
-                    continuation.yield(.end(result))
-                    return
-                }
-                // Continue loop with tool results
-
-            case .maxTokens:
-                throw AgentError.unexpectedModelBehavior("Response truncated due to max tokens")
-
-            case .contentFiltered:
-                throw AgentError.unexpectedModelBehavior("Response was content filtered")
-            }
-        }
-
-        throw AgentError.maxIterationsReached(maxIterations)
     }
 
-    /// Process tool calls and yield iteration nodes.
-    private func processToolCallsWithNodes(
-        response: CompletionResponse,
-        state: inout RunState,
-        continuation: AsyncThrowingStream<AgentNode<Deps, Output>, Error>.Continuation
-    ) async throws -> AgentResult<Output>? {
-        // Yield tool execution node
-        continuation.yield(.toolExecution(response.toolCalls))
+    // MARK: - Resume After Deferral
 
+    /// Resume a paused agent run after deferred tools are resolved.
+    ///
+    /// When an agent run throws `AgentError.hasDeferredTools`, you can:
+    /// 1. Present the pending tools to the user for approval
+    /// 2. Collect resolutions for each pending tool
+    /// 3. Call this method to continue execution
+    ///
+    /// ## Example
+    /// ```swift
+    /// do {
+    ///     let result = try await agent.run("Delete important files", deps: myDeps)
+    /// } catch let error as AgentError {
+    ///     if case .hasDeferredTools(let paused) = error {
+    ///         // Get user approval
+    ///         var resolutions: [ResolvedTool] = []
+    ///         for pending in paused.pendingCalls {
+    ///             let approved = await askUser("Allow \(pending.toolCall.name)?")
+    ///             resolutions.append(ResolvedTool(
+    ///                 id: pending.deferral.id,
+    ///                 resolution: approved ? .approved : .denied(reason: "User rejected")
+    ///             ))
+    ///         }
+    ///
+    ///         // Continue execution
+    ///         let result = try await agent.resume(
+    ///             paused: paused,
+    ///             resolutions: resolutions,
+    ///             deps: myDeps
+    ///         )
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - paused: The paused run state from `AgentError.hasDeferredTools`
+    ///   - resolutions: Resolution for each pending tool (by deferral ID)
+    ///   - deps: Dependencies to pass to tools (for approved tool execution)
+    /// - Returns: Final result with typed output and metadata
+    /// - Throws: `AgentError` for agent-level failures, `LLMError` for provider failures
+    public func resume(
+        paused: PausedAgentRun,
+        resolutions: [ResolvedTool],
+        deps: Deps
+    ) async throws -> AgentResult<Output> {
+        // Build resolution lookup by deferral ID
+        let resolutionMap = Dictionary(uniqueKeysWithValues: resolutions.map { ($0.id, $0.resolution) })
+
+        // Process each pending call with its resolution
         var toolResults: [(ToolCall, ToolOutput)] = []
-        var toolCallResults: [ToolCallResult] = []
-        var outputResult: Output?
-        var outputToolUsed: String?
-        var deferredCalls: [DeferredToolCall] = []
 
-        for call in response.toolCalls {
-            state.toolCallCount += 1
-            let startTime = ContinuousClock.now
-
-            // Check if this is the output tool
-            if call.name == outputToolName {
-                // Parse as output type
-                do {
-                    if let output = try await parseAndValidateOutput(
-                        json: call.arguments,
-                        context: buildContext(state: state).forToolCall(id: call.id, name: call.name)
-                    ) {
-                        outputResult = output
-                        outputToolUsed = call.name
-
-                        // Add success result for the output tool
-                        toolResults.append((call, .text("Output accepted")))
-                        let duration = ContinuousClock.now - startTime
-                        toolCallResults.append(ToolCallResult(
-                            call: call,
-                            result: .success("Output accepted"),
-                            duration: duration
-                        ))
-
-                        // If early end strategy, skip remaining tools
-                        if endStrategy == .early {
-                            break
-                        }
-                    }
-                } catch let retry as ValidationRetry {
-                    // Validation failed - send feedback to model for retry
-                    let errorMsg = "Validation failed: \(retry.message)"
-                    toolResults.append((call, .error(errorMsg)))
-                    let duration = ContinuousClock.now - startTime
-                    toolCallResults.append(ToolCallResult(
-                        call: call,
-                        result: .retry(message: retry.message),
-                        duration: duration
-                    ))
-                }
-                continue
-            }
-
-            // Find the tool
-            guard let tool = tools.first(where: { $0.name == call.name }) else {
-                let errorMsg = "Tool not found: \(call.name)"
-                toolResults.append((call, .error(errorMsg)))
-                let duration = ContinuousClock.now - startTime
-                toolCallResults.append(ToolCallResult(
-                    call: call,
-                    result: .failure(ToolExecutionError.toolNotFound(call.name)),
-                    duration: duration
+        for pending in paused.pendingCalls {
+            guard let resolution = resolutionMap[pending.deferral.id] else {
+                // No resolution provided - treat as denied
+                toolResults.append((
+                    pending.toolCall,
+                    .error("No resolution provided for deferred tool")
                 ))
                 continue
             }
 
-            // Execute tool with retries
-            let result = try await executeToolWithRetries(
-                tool: tool,
-                call: call,
-                state: state
-            )
+            switch resolution {
+            case .approved:
+                // Execute the tool now
+                guard let tool = tools.first(where: { $0.name == pending.toolCall.name }) else {
+                    toolResults.append((pending.toolCall, .error("Tool not found: \(pending.toolCall.name)")))
+                    continue
+                }
 
-            let duration = ContinuousClock.now - startTime
+                // Build context for execution
+                let context = AgentContext(
+                    deps: deps,
+                    model: model,
+                    usage: paused.usage,
+                    retries: 0,
+                    toolCallID: pending.toolCall.id,
+                    toolName: pending.toolCall.name,
+                    runStep: paused.requestCount,
+                    runID: paused.runID,
+                    messages: paused.messages
+                )
 
-            switch result {
-            case .success(let value):
-                toolResults.append((call, .text(value)))
-                toolCallResults.append(ToolCallResult(call: call, result: result, duration: duration))
+                do {
+                    let result = try await tool.call(context: context, argumentsJSON: pending.toolCall.arguments)
+                    switch result {
+                    case .success(let value):
+                        toolResults.append((pending.toolCall, .text(value)))
+                    case .retry(let message):
+                        toolResults.append((pending.toolCall, .error("Tool requested retry: \(message)")))
+                    case .failure(let error):
+                        toolResults.append((pending.toolCall, .error(error.localizedDescription)))
+                    case .deferred(let newDeferral):
+                        // Tool deferred again - this is unusual but handle it
+                        throw AgentError.hasDeferredTools(PausedAgentRun(
+                            runID: paused.runID,
+                            messages: paused.messages,
+                            usage: paused.usage,
+                            requestCount: paused.requestCount,
+                            toolCallCount: paused.toolCallCount,
+                            pendingCalls: [PendingToolCall(toolCall: pending.toolCall, deferral: newDeferral)]
+                        ))
+                    }
+                } catch {
+                    if error is AgentError {
+                        throw error
+                    }
+                    toolResults.append((pending.toolCall, .error(error.localizedDescription)))
+                }
 
-            case .retry(let message):
-                // Max retries exceeded
-                let errorMsg = "Tool failed after retries: \(message)"
-                toolResults.append((call, .error(errorMsg)))
-                toolCallResults.append(ToolCallResult(call: call, result: result, duration: duration))
+            case .denied(let reason):
+                toolResults.append((pending.toolCall, .error("Tool denied: \(reason)")))
 
-            case .failure(let error):
-                toolResults.append((call, .error(error.localizedDescription)))
-                toolCallResults.append(ToolCallResult(call: call, result: result, duration: duration))
+            case .completed(let result):
+                // Use the provided result directly
+                toolResults.append((pending.toolCall, .text(result)))
 
-            case .deferred(let deferral):
-                deferredCalls.append(deferral)
-                toolResults.append((call, .error("Tool deferred: \(deferral.reason)")))
-                toolCallResults.append(ToolCallResult(call: call, result: result, duration: duration))
+            case .failed(let errorMsg):
+                toolResults.append((pending.toolCall, .error("External operation failed: \(errorMsg)")))
             }
         }
 
-        // Yield tool results node
-        continuation.yield(.toolResults(toolCallResults))
-
-        // Check for deferred tools
-        if !deferredCalls.isEmpty {
-            state.pendingApprovals.append(contentsOf: deferredCalls)
-            throw AgentError.hasDeferredTools(state.pendingApprovals)
-        }
+        // Build state to continue from
+        var state = RunState(
+            runID: paused.runID,
+            deps: deps,
+            messages: paused.messages,
+            usage: paused.usage,
+            requestCount: paused.requestCount,
+            toolCallCount: paused.toolCallCount
+        )
 
         // Add tool results to messages
-        if !toolResults.isEmpty {
-            state.messages.append(.fromToolResults(toolResults))
+        state.messages.append(.fromToolResults(toolResults))
+
+        // Continue the agent loop
+        while state.requestCount < maxIterations {
+            try Task.checkCancellation()
+            try checkUsageLimits(state: state)
+
+            let request = buildRequest(state: state)
+            let response = try await completeWithRetry(request: request)
+            state.requestCount += 1
+            state.usage = accumulateUsage(current: state.usage, new: response.usage)
+            state.messages.append(.fromResponse(response))
+
+            // Handle response
+            switch try await handleModelResponse(response: response, state: &state) {
+            case .returnOutput(let output, let outputToolUsed):
+                return state.makeResult(output: output, outputToolUsed: outputToolUsed)
+            case .continueLoop:
+                continue
+            }
         }
 
-        // Return output if found
-        if let output = outputResult {
-            return AgentResult(
-                output: output,
-                usage: state.usage,
-                messages: state.messages,
-                outputToolName: outputToolUsed,
-                runID: state.runID,
-                requestCount: state.requestCount,
-                toolCallCount: state.toolCallCount
-            )
-        }
-
-        return nil
+        throw AgentError.maxIterationsReached(maxIterations)
     }
 
     // MARK: - Private State
@@ -796,7 +520,189 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         var usage: Usage
         var requestCount: Int = 0
         var toolCallCount: Int = 0
-        var pendingApprovals: [DeferredToolCall] = []
+        var pendingCalls: [PendingToolCall] = []
+
+        /// Build an AgentResult from current state with the given output.
+        func makeResult(output: Output, outputToolUsed: String?) -> AgentResult<Output> {
+            AgentResult(
+                output: output,
+                usage: usage,
+                messages: messages,
+                outputToolName: outputToolUsed,
+                runID: runID,
+                requestCount: requestCount,
+                toolCallCount: toolCallCount
+            )
+        }
+    }
+
+    /// Action to take after processing a model response.
+    private enum ResponseAction {
+        case returnOutput(Output, outputToolUsed: String?)
+        case continueLoop
+    }
+
+    // MARK: - Unified Loop
+
+    /// Core agent loop shared by run() and iter().
+    ///
+    /// This consolidates the main loop logic, with the observer receiving events
+    /// at appropriate points. Different execution modes provide different observers.
+    ///
+    /// - Parameters:
+    ///   - prompt: User prompt (for observer notification)
+    ///   - initialMessages: Messages to start with (including user prompt)
+    ///   - deps: Dependencies for tool execution
+    ///   - observer: Observer to notify of loop events
+    /// - Returns: Final agent result
+    /// - Throws: Agent or LLM errors
+    private func runLoop<Observer: AgentLoopObserver>(
+        prompt: String,
+        initialMessages: [Message],
+        deps: Deps,
+        observer: Observer
+    ) async throws -> AgentResult<Output> where Observer.Deps == Deps, Observer.Output == Output {
+        let runID = UUID().uuidString
+        var state = RunState(
+            runID: runID,
+            deps: deps,
+            messages: initialMessages,
+            usage: Usage(inputTokens: 0, outputTokens: 0)
+        )
+
+        // Notify observer of loop start
+        observer.onLoopStart(prompt: prompt)
+
+        // Collect tool results for observer callback
+        var toolResults: [ToolCallResult] = []
+
+        // Main agent loop
+        while state.requestCount < maxIterations {
+            // Check for cancellation
+            try Task.checkCancellation()
+
+            // Check usage limits
+            try checkUsageLimits(state: state)
+
+            // Build and notify
+            let request = buildRequest(state: state)
+            observer.onBeforeModelCall(request: request)
+
+            // Send to model with retry
+            let response = try await completeWithRetry(request: request)
+            state.requestCount += 1
+            state.usage = accumulateUsage(current: state.usage, new: response.usage)
+
+            // Notify of response
+            observer.onModelResponse(response: response, usage: state.usage)
+
+            // Add assistant message
+            state.messages.append(.fromResponse(response))
+
+            // Handle response with observer callbacks
+            toolResults.removeAll()
+            let action = try await handleModelResponse(
+                response: response,
+                state: &state,
+                onToolComplete: { call, result, duration in
+                    let tcr = ToolCallResult(call: call, result: result, duration: duration)
+                    toolResults.append(tcr)
+                    observer.onToolComplete(call: call, result: result, duration: duration)
+                },
+                beforeToolProcessing: { calls in
+                    observer.onBeforeToolProcessing(calls: calls)
+                },
+                afterToolProcessing: {
+                    observer.onAfterToolProcessing(results: toolResults)
+                }
+            )
+
+            switch action {
+            case .returnOutput(let output, let outputToolUsed):
+                let result = state.makeResult(output: output, outputToolUsed: outputToolUsed)
+                observer.onEnd(result: result)
+                return result
+            case .continueLoop:
+                continue
+            }
+        }
+
+        throw AgentError.maxIterationsReached(maxIterations)
+    }
+
+    // MARK: - Response Handling
+
+    /// Handle model response - checks for errors and processes based on stop reason.
+    ///
+    /// This consolidates the stop reason switch logic used across all execution modes.
+    /// Returns an action telling the caller what to do next.
+    ///
+    /// - Parameters:
+    ///   - response: The model response to process
+    ///   - state: Current run state (mutated)
+    ///   - onToolComplete: Called after each tool completes (for streaming/iteration)
+    ///   - beforeToolProcessing: Called before tool processing starts (for iteration nodes)
+    ///   - afterToolProcessing: Called after tool processing completes (for iteration nodes)
+    private func handleModelResponse(
+        response: CompletionResponse,
+        state: inout RunState,
+        onToolComplete: ((ToolCall, AnyToolResult, Duration) -> Void)? = nil,
+        beforeToolProcessing: (([ToolCall]) -> Void)? = nil,
+        afterToolProcessing: (() -> Void)? = nil
+    ) async throws -> ResponseAction {
+        // Check for refusal
+        if let refusal = response.refusal {
+            throw AgentError.unexpectedModelBehavior("Model refused: \(refusal)")
+        }
+
+        // Handle based on stop reason
+        switch response.stopReason {
+        case .endTurn, .stopSequence:
+            // Try to extract output from text
+            if let output = try await extractTextOutput(
+                response: response,
+                context: buildContext(state: state)
+            ) {
+                return .returnOutput(output, outputToolUsed: nil)
+            }
+
+            // If we have tool calls, process them
+            if !response.toolCalls.isEmpty {
+                beforeToolProcessing?(response.toolCalls)
+                let result = try await processToolCalls(
+                    response: response,
+                    state: &state,
+                    onToolComplete: onToolComplete
+                )
+                afterToolProcessing?()
+                if let output = result.output {
+                    return .returnOutput(output, outputToolUsed: result.outputToolUsed)
+                }
+                return .continueLoop
+            }
+
+            // No output and no tools - unexpected
+            throw AgentError.unexpectedModelBehavior("Model ended without output or tool calls")
+
+        case .toolUse:
+            beforeToolProcessing?(response.toolCalls)
+            let result = try await processToolCalls(
+                response: response,
+                state: &state,
+                onToolComplete: onToolComplete
+            )
+            afterToolProcessing?()
+            if let output = result.output {
+                return .returnOutput(output, outputToolUsed: result.outputToolUsed)
+            }
+            return .continueLoop
+
+        case .maxTokens:
+            throw AgentError.unexpectedModelBehavior("Response truncated due to max tokens")
+
+        case .contentFiltered:
+            throw AgentError.unexpectedModelBehavior("Response was content filtered")
+        }
     }
 
     // MARK: - Request Building
@@ -845,78 +751,127 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
 
     // MARK: - Tool Processing
 
+    /// Result of processing tool calls.
+    private struct ToolProcessingResult {
+        let output: Output?
+        let outputToolUsed: String?
+        let pendingCalls: [PendingToolCall]
+    }
+
+    /// Tool execution engine - handles retry and timeout logic.
+    private var toolEngine: ToolExecutionEngine<Deps> {
+        ToolExecutionEngine(tools: tools, timeout: toolTimeout)
+    }
+
+    /// Unified tool call processor with optional observation callback.
+    ///
+    /// - Parameters:
+    ///   - response: The model response containing tool calls
+    ///   - state: Current run state (mutated to update toolCallCount and messages)
+    ///   - onToolComplete: Optional callback invoked after each tool completes
+    /// - Returns: Processing result with optional output and pending calls
+    /// - Throws: `AgentError.hasDeferredTools` if any tools are deferred
     private func processToolCalls(
         response: CompletionResponse,
-        state: inout RunState
-    ) async throws -> AgentResult<Output>? {
+        state: inout RunState,
+        onToolComplete: ((ToolCall, AnyToolResult, Duration) -> Void)? = nil
+    ) async throws -> ToolProcessingResult {
         var toolResults: [(ToolCall, ToolOutput)] = []
         var outputResult: Output?
         var outputToolUsed: String?
-        var deferredCalls: [DeferredToolCall] = []
+        var pendingCalls: [PendingToolCall] = []
 
-        for call in response.toolCalls {
+        // Separate output tool calls from regular tool calls
+        let outputToolCalls = response.toolCalls.filter { $0.name == outputToolName }
+        let regularToolCalls = response.toolCalls.filter { $0.name != outputToolName }
+
+        // Process output tool calls first (if early strategy, we might skip regular tools)
+        for call in outputToolCalls {
             state.toolCallCount += 1
+            let startTime = ContinuousClock.now
 
-            // Check if this is the output tool
-            if call.name == outputToolName {
-                // Parse as output type
-                do {
-                    if let output = try await parseAndValidateOutput(
-                        json: call.arguments,
-                        context: buildContext(state: state).forToolCall(id: call.id, name: call.name)
-                    ) {
-                        outputResult = output
-                        outputToolUsed = call.name
+            do {
+                if let output = try await parseAndValidateOutput(
+                    json: call.arguments,
+                    context: buildContext(state: state).forToolCall(id: call.id, name: call.name)
+                ) {
+                    outputResult = output
+                    outputToolUsed = call.name
 
-                        // Add success result for the output tool
-                        toolResults.append((call, .text("Output accepted")))
+                    let duration = ContinuousClock.now - startTime
+                    let result = AnyToolResult.success("Output accepted")
+                    toolResults.append((call, .text("Output accepted")))
+                    onToolComplete?(call, result, duration)
 
-                        // If early end strategy, skip remaining tools
-                        if endStrategy == .early {
-                            break
+                    // If early end strategy, skip remaining tools
+                    if endStrategy == .early {
+                        // Add tool results to messages and return early
+                        if !toolResults.isEmpty {
+                            state.messages.append(.fromToolResults(toolResults))
                         }
+                        return ToolProcessingResult(
+                            output: outputResult,
+                            outputToolUsed: outputToolUsed,
+                            pendingCalls: []
+                        )
                     }
-                } catch let retry as ValidationRetry {
-                    // Validation failed - send feedback to model for retry
-                    toolResults.append((call, .error("Validation failed: \(retry.message)")))
                 }
-                continue
+            } catch let retry as ValidationRetry {
+                let duration = ContinuousClock.now - startTime
+                let errorMsg = "Validation failed: \(retry.message)"
+                let result = AnyToolResult.retry(message: retry.message)
+                toolResults.append((call, .error(errorMsg)))
+                onToolComplete?(call, result, duration)
             }
+        }
 
-            // Find the tool
-            guard let tool = tools.first(where: { $0.name == call.name }) else {
-                toolResults.append((call, .error("Tool not found: \(call.name)")))
-                continue
-            }
-
-            // Execute tool with retries
-            let result = try await executeToolWithRetries(
-                tool: tool,
-                call: call,
-                state: state
+        // Execute regular tools via engine
+        if !regularToolCalls.isEmpty {
+            let baseContext = buildContext(state: state)
+            let batch = try await toolEngine.executeAll(
+                calls: regularToolCalls,
+                baseContext: baseContext
             )
 
-            switch result {
-            case .success(let value):
-                toolResults.append((call, .text(value)))
+            // Update tool call count
+            state.toolCallCount += batch.results.count
 
-            case .retry(let message):
-                // Max retries exceeded
-                toolResults.append((call, .error("Tool failed after retries: \(message)")))
+            // Process results and notify observer
+            for (call, result, duration) in batch.results {
+                // Notify observer of completion
+                onToolComplete?(call, result, duration)
 
-            case .failure(let error):
-                toolResults.append((call, .error(error.localizedDescription)))
+                switch result {
+                case .success(let value):
+                    toolResults.append((call, .text(value)))
 
-            case .deferred(let deferral):
-                deferredCalls.append(deferral)
-                toolResults.append((call, .error("Tool deferred: \(deferral.reason)")))
+                case .retry(let message):
+                    toolResults.append((call, .error("Tool failed after retries: \(message)")))
+
+                case .failure(let error):
+                    toolResults.append((call, .error(error.localizedDescription)))
+
+                case .deferred(let deferral):
+                    pendingCalls.append(PendingToolCall(toolCall: call, deferral: deferral))
+                }
             }
         }
 
         // Check for deferred tools
-        if !deferredCalls.isEmpty {
-            state.pendingApprovals.append(contentsOf: deferredCalls)
-            throw AgentError.hasDeferredTools(state.pendingApprovals)
+        if !pendingCalls.isEmpty {
+            if !toolResults.isEmpty {
+                state.messages.append(.fromToolResults(toolResults))
+            }
+
+            let paused = PausedAgentRun(
+                runID: state.runID,
+                messages: state.messages,
+                usage: state.usage,
+                requestCount: state.requestCount,
+                toolCallCount: state.toolCallCount,
+                pendingCalls: pendingCalls
+            )
+            throw AgentError.hasDeferredTools(paused)
         }
 
         // Add tool results to messages
@@ -924,57 +879,11 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             state.messages.append(.fromToolResults(toolResults))
         }
 
-        // Return output if found
-        if let output = outputResult {
-            return AgentResult(
-                output: output,
-                usage: state.usage,
-                messages: state.messages,
-                outputToolName: outputToolUsed,
-                runID: state.runID,
-                requestCount: state.requestCount,
-                toolCallCount: state.toolCallCount
-            )
-        }
-
-        return nil
-    }
-
-    private func executeToolWithRetries(
-        tool: AnyAgentTool<Deps>,
-        call: ToolCall,
-        state: RunState
-    ) async throws -> AnyToolResult {
-        var retries = 0
-        var lastResult: AnyToolResult?
-
-        while retries <= tool.maxRetries {
-            let context = buildContext(state: state)
-                .forToolCall(id: call.id, name: call.name, retries: retries)
-
-            do {
-                let result = try await tool.call(
-                    context: context,
-                    argumentsJSON: call.arguments
-                )
-                lastResult = result
-
-                // If not a retry, return immediately
-                if !result.needsRetry {
-                    return result
-                }
-
-                retries += 1
-            } catch {
-                return .failure(error)
-            }
-        }
-
-        // Return last result (will be a retry that exceeded max)
-        return lastResult ?? .failure(ToolExecutionError.maxRetriesExceeded(
-            toolName: tool.name,
-            attempts: retries
-        ))
+        return ToolProcessingResult(
+            output: outputResult,
+            outputToolUsed: outputToolUsed,
+            pendingCalls: pendingCalls
+        )
     }
 
     // MARK: - Output Extraction
@@ -993,7 +902,10 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         }
 
         // Validate through validators
-        var output = content as! Output
+        // Safe cast with internal error - should never fail since we checked Output.self == String.self
+        guard var output = content as? Output else {
+            throw AgentError.internalError("Failed to cast String content to Output type (expected String)")
+        }
         for validator in outputValidators {
             output = try await validator.validate(context: context, output: output)
         }
@@ -1079,6 +991,104 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             reasoningTokens: (current.reasoningTokens ?? 0) + (new.reasoningTokens ?? 0)
         )
     }
+
+    // MARK: - Retryable LLM Calls
+
+    /// Call model with retry policy for transient errors.
+    private func completeWithRetry(
+        request: CompletionRequest
+    ) async throws -> CompletionResponse {
+        var lastError: Error?
+        var attempt = 0
+
+        while attempt < retryPolicy.maxAttempts {
+            // Check for cancellation
+            try Task.checkCancellation()
+
+            do {
+                return try await model.complete(request)
+            } catch {
+                lastError = error
+
+                // Check if we should retry
+                guard retryPolicy.shouldRetry(error) else {
+                    throw error
+                }
+
+                attempt += 1
+
+                // If more attempts remain, delay and retry
+                if attempt < retryPolicy.maxAttempts {
+                    let delay = retryPolicy.delay(forAttempt: attempt)
+                    try await Task.sleep(for: delay)
+                }
+            }
+        }
+
+        // All retries exhausted
+        throw AgentError.retriesExhausted(
+            attempts: retryPolicy.maxAttempts,
+            lastError: lastError ?? LLMError.serverError("Unknown error")
+        )
+    }
+
+    /// Stream from model with retry policy for transient errors.
+    private func streamWithRetry(
+        request: CompletionRequest
+    ) -> AsyncThrowingStream<StreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                var lastError: Error?
+                var attempt = 0
+
+                retryLoop: while attempt < retryPolicy.maxAttempts {
+                    // Check for cancellation
+                    do {
+                        try Task.checkCancellation()
+                    } catch {
+                        continuation.finish(throwing: error)
+                        return
+                    }
+
+                    do {
+                        for try await event in model.stream(request) {
+                            continuation.yield(event)
+                        }
+                        continuation.finish()
+                        return
+                    } catch {
+                        lastError = error
+
+                        // Check if we should retry
+                        guard retryPolicy.shouldRetry(error) else {
+                            continuation.finish(throwing: error)
+                            return
+                        }
+
+                        attempt += 1
+
+                        // If more attempts remain, delay and retry
+                        if attempt < retryPolicy.maxAttempts {
+                            let delay = retryPolicy.delay(forAttempt: attempt)
+                            do {
+                                try await Task.sleep(for: delay)
+                            } catch {
+                                continuation.finish(throwing: error)
+                                return
+                            }
+                        }
+                    }
+                }
+
+                // All retries exhausted
+                continuation.finish(throwing: AgentError.retriesExhausted(
+                    attempts: retryPolicy.maxAttempts,
+                    lastError: lastError ?? LLMError.serverError("Unknown error")
+                ))
+            }
+        }
+    }
+
 }
 
 // MARK: - Message Helpers

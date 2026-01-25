@@ -41,6 +41,17 @@ public actor KeychainTokenStorage: MCPTokenStorage {
     /// Access group for shared Keychain access (optional).
     private let accessGroup: String?
 
+    /// Default service identifier for MCP tokens.
+    public static let defaultService = "com.yrden.mcp-tokens"
+
+    /// Create a Keychain token storage with default service.
+    ///
+    /// Uses "com.yrden.mcp-tokens" as the service identifier.
+    public init() {
+        self.service = Self.defaultService
+        self.accessGroup = nil
+    }
+
     /// Create a Keychain token storage.
     ///
     /// - Parameters:

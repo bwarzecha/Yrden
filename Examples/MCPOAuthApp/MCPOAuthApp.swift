@@ -47,20 +47,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let url = urls.first else { return }
 
+        // Close any extra windows first
         Task { @MainActor in
-            // Close any extra windows first
             self.closeExtraWindows()
-
             // Bring main window to front
             NSApplication.shared.windows.first?.makeKeyAndOrderFront(nil)
             NSApplication.shared.activate(ignoringOtherApps: true)
+        }
 
-            guard let viewModel = self.viewModel else {
-                print("Warning: No viewModel available for URL callback")
+        // Route the callback through the MCP router
+        // This handles both auto-discovery connections and state-based flows
+        Task {
+            let handled = await mcpHandleCallbackAsync(url)
+            if handled {
+                print("Callback handled by MCP router")
                 return
             }
 
-            await viewModel.handleCallback(url: url)
+            // Fall back to view model for manual OAuth flows
+            await MainActor.run {
+                guard let viewModel = self.viewModel else {
+                    print("Warning: No viewModel available for URL callback")
+                    return
+                }
+                Task {
+                    await viewModel.handleCallback(url: url)
+                }
+            }
         }
     }
 
@@ -88,20 +101,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 import MCP
 
-/// Wrapper for MCP Tool to make it identifiable for SwiftUI
-struct ToolInfo: Identifiable {
-    let id: String
-    let tool: MCP.Tool
-
-    init(_ tool: MCP.Tool) {
-        self.id = tool.name
-        self.tool = tool
-    }
-
-    var name: String { tool.name }
-    var description: String? { tool.description }
-    var inputSchema: Value { tool.inputSchema }
-}
+// ToolInfo is now provided by the library (Yrden.ToolInfo)
 
 /// Connection mode for MCP servers
 enum ConnectionMode: String, CaseIterable {
@@ -147,7 +147,6 @@ class OAuthViewModel: ObservableObject {
     // Internal
     private var oauthFlow: MCPOAuthFlow?
     private var server: MCPServerConnection?
-    private var autoAuthTransport: MCPAutoAuthTransport?
 
     // Computed for backwards compatibility
     var availableTools: [String] { tools.map { $0.name } }
@@ -315,30 +314,14 @@ class OAuthViewModel: ObservableObject {
         // User can click Disconnect to cancel
     }
 
+    /// Handle OAuth callback for manual OAuth flows only.
+    /// Auto-discovery flows are handled by mcpHandleCallback() in AppDelegate.
     func handleCallback(url: URL) async {
-        log("Received callback: \(url.absoluteString)")
+        log("Received callback (manual OAuth): \(url.absoluteString)")
 
-        // Route to auto-auth transport if in auto-discovery mode
-        if let transport = autoAuthTransport {
-            log("Routing callback to auto-auth transport...")
-            do {
-                let obtainedTokens = try await transport.handleOAuthCallback(url: url)
-                tokens = obtainedTokens
-                log("Obtained access token: \(String(obtainedTokens.accessToken.prefix(20)))...")
-                status = "Authentication successful!"
-                // Connection will continue automatically
-            } catch {
-                errorMessage = error.localizedDescription
-                status = "Authentication failed"
-                log("Error handling callback: \(error)")
-                isLoading = false
-            }
-            return
-        }
-
-        // Manual OAuth mode
+        // Manual OAuth mode only - auto-discovery is handled by the callback router
         guard let flow = oauthFlow else {
-            log("Error: No OAuth flow in progress")
+            log("Error: No manual OAuth flow in progress")
             errorMessage = "No OAuth flow in progress"
             return
         }
@@ -463,59 +446,34 @@ class OAuthViewModel: ObservableObject {
         tools = []
 
         log("Starting auto-discovery connection to \(mcpServerURL)")
-        log("This will discover OAuth endpoints automatically")
+        log("Using simplified mcpConnect() API")
 
-        // Use defer to always reset loading state
         defer {
             isLoading = false
         }
 
         do {
-            // Create delegate wrapper
-            let delegateWrapper = OAuthDelegateWrapper(viewModel: self)
-
-            // Create transport FIRST and store it so callbacks can reach it
-            // Capture weak self for log callback to avoid retain cycles
-            let logCallback: @Sendable (String) -> Void = { [weak self] message in
-                Task { @MainActor in
-                    self?.log("[Transport] \(message)")
-                }
-            }
-
-            let transport = MCPAutoAuthTransport(
-                serverURL: url,
-                storage: InMemoryTokenStorage(),
-                serverID: url.host ?? "mcp-server",
-                delegate: delegateWrapper,
+            // Use the NEW simplified API - just one function call!
+            // The callback router handles OAuth callbacks automatically.
+            server = try await mcpConnect(
+                url: url,
                 redirectScheme: redirectScheme,
-                clientName: "MCP OAuth Test App",
-                logCallback: logCallback
-            )
-
-            // Store transport reference BEFORE connecting (so callbacks work)
-            self.autoAuthTransport = transport
-            log("Transport created, waiting for OAuth if needed...")
-
-            // Now create connection using the transport
-            // This may trigger OAuth flow and block until callback is received
-            server = try await MCPServerConnection.withTransport(
-                transport: transport,
-                id: url.host ?? "mcp-server",
-                name: url.absoluteString
+                onProgress: { [weak self] state in
+                    Task { @MainActor in
+                        self?.handleOAuthProgress(state)
+                    }
+                }
             )
 
             log("Connected to MCP server via auto-discovery!")
 
-            // Always try to list tools (don't rely on supportsTools flag)
             await loadTools()
-
             status = "Connected (auto-discovery)"
 
         } catch {
             errorMessage = "Auto-discovery failed: \(error.localizedDescription)"
             log("Error: \(error)")
             status = "Connection failed"
-            autoAuthTransport = nil
         }
     }
 
@@ -535,52 +493,28 @@ class OAuthViewModel: ObservableObject {
         toolResult = nil
         selectedTool = nil
 
-        log("Starting stdio connection")
-        log("Command: \(stdioCommand)")
-        log("Arguments: \(stdioArguments)")
+        // Build full command line
+        let commandLine = stdioArguments.isEmpty
+            ? stdioCommand
+            : "\(stdioCommand) \(stdioArguments)"
+
+        log("Starting stdio connection: \(commandLine)")
+        log("Using simplified mcpConnect() API")
 
         defer {
             isLoading = false
         }
 
         do {
-            // Parse arguments (split by spaces, respecting quotes would be better but this is simple)
-            let args = stdioArguments.components(separatedBy: " ").filter { !$0.isEmpty }
-
-            // Parse environment (KEY=VALUE per line)
-            var env: [String: String]? = nil
-            if !stdioEnvironment.isEmpty {
-                env = [:]
-                for line in stdioEnvironment.components(separatedBy: "\n") {
-                    let parts = line.components(separatedBy: "=")
-                    if parts.count >= 2 {
-                        env?[parts[0]] = parts.dropFirst().joined(separator: "=")
-                    }
-                }
-            }
-
-            log("Spawning process...")
-
-            // Create a log callback that captures self weakly
-            let logCallback: @Sendable (String) -> Void = { [weak self] message in
-                Task { @MainActor in
-                    self?.log(message)
-                }
-            }
-
-            server = try await MCPServerConnection.stdio(
-                command: stdioCommand,
-                arguments: args,
-                environment: env,
-                id: stdioCommand,
-                name: "\(stdioCommand) \(args.joined(separator: " "))",
-                logCallback: logCallback
+            // Use the NEW simplified API - just one function call!
+            server = try await mcpConnect(
+                commandLine,
+                environment: stdioEnvironment.isEmpty ? nil : stdioEnvironment
             )
 
             log("Connected to stdio MCP server!")
 
             await loadTools()
-
             status = "Connected (stdio)"
 
         } catch {
@@ -630,60 +564,25 @@ class OAuthViewModel: ObservableObject {
         log("Executing tool: \(tool.name)")
 
         do {
-            // Convert string parameters to Value
+            // Convert string parameters to Value using library utility
             var args: [String: Value] = [:]
-            for (key, value) in toolParameters where !value.isEmpty {
-                // Try to parse as JSON first (for objects/arrays), then fall back to primitives
-                if let data = value.data(using: .utf8),
-                   (value.hasPrefix("{") || value.hasPrefix("[")),
-                   let jsonValue = try? JSONDecoder().decode(Value.self, from: data) {
-                    args[key] = jsonValue
-                } else {
-                    // Try to parse as number or boolean
-                    if let intVal = Int(value) {
-                        args[key] = .int(intVal)
-                    } else if let doubleVal = Double(value) {
-                        args[key] = .double(doubleVal)
-                    } else if value.lowercased() == "true" {
-                        args[key] = .bool(true)
-                    } else if value.lowercased() == "false" {
-                        args[key] = .bool(false)
-                    } else {
-                        args[key] = .string(value)
-                    }
+            for (key, value) in toolParameters {
+                if let parsedValue = Value.from(userInput: value) {
+                    args[key] = parsedValue
                 }
             }
 
             log("Arguments: \(args)")
 
-            // Always pass arguments object (even if empty) - MCP servers expect object, not undefined
+            // Call the tool
             let (content, isError) = try await server.callTool(
                 name: tool.name,
                 arguments: args
             )
 
-            // Format the result
-            var resultText = ""
-            for item in content {
-                switch item {
-                case .text(let text):
-                    resultText += text + "\n"
-                case .image(let data, let mimeType, _):
-                    resultText += "[Image: \(mimeType), \(data.count) bytes]\n"
-                case .audio(let data, let mimeType):
-                    resultText += "[Audio: \(mimeType), \(data.count) bytes]\n"
-                case .resource(let uri, let mimeType, _):
-                    resultText += "[Resource: \(uri), \(mimeType)]\n"
-                }
-            }
-
-            if let isError = isError, isError {
-                toolResult = "ERROR:\n\(resultText)"
-                log("Tool returned error: \(resultText)")
-            } else {
-                toolResult = resultText.isEmpty ? "(empty result)" : resultText
-                log("Tool result: \(resultText.prefix(200))...")
-            }
+            // Format the result using library utility
+            toolResult = formatMCPToolResult(content, isError: isError)
+            log("Tool result: \(toolResult?.prefix(200) ?? "")...")
 
         } catch {
             toolResult = "Error: \(error.localizedDescription)"
@@ -705,60 +604,32 @@ class OAuthViewModel: ObservableObject {
         toolResult = nil
         toolParameters = [:]
         oauthFlow = nil
-        autoAuthTransport = nil
         status = "Disconnected"
         isLoading = false
     }
-}
 
-// MARK: - OAuth Delegate Wrapper
+    // MARK: - OAuth Progress Handler
 
-/// Wrapper to handle actor isolation between MainActor ViewModel and the OAuth delegate
-final class OAuthDelegateWrapper: MCPOAuthDelegate, @unchecked Sendable {
-    private let viewModel: OAuthViewModel
-
-    init(viewModel: OAuthViewModel) {
-        self.viewModel = viewModel
-    }
-
-    func openAuthorizationURL(_ url: URL) async throws {
-        await MainActor.run {
-            viewModel.log("Opening authorization URL in browser...")
-            viewModel.log("URL: \(url.absoluteString)")
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    func promptReauthentication(for serverID: String, reason: String) async -> Bool {
-        await MainActor.run {
-            viewModel.log("Re-authentication needed for \(serverID): \(reason)")
-        }
-        // In a real app, show a dialog. For testing, always approve.
-        return true
-    }
-
-    func authenticationProgress(_ state: MCPOAuthProgress) {
-        Task { @MainActor in
-            switch state {
-            case .openingBrowser:
-                viewModel.status = "Opening browser..."
-                viewModel.log("OAuth: Opening browser")
-            case .waitingForUser:
-                viewModel.status = "Waiting for user..."
-                viewModel.log("OAuth: Waiting for user authorization")
-            case .exchangingCode:
-                viewModel.status = "Exchanging code..."
-                viewModel.log("OAuth: Exchanging authorization code")
-            case .refreshingTokens:
-                viewModel.status = "Refreshing tokens..."
-                viewModel.log("OAuth: Refreshing tokens")
-            case .complete:
-                viewModel.status = "Authentication complete"
-                viewModel.log("OAuth: Complete!")
-            case .failed(let error):
-                viewModel.status = "Authentication failed"
-                viewModel.log("OAuth: Failed - \(error)")
-            }
+    private func handleOAuthProgress(_ state: MCPOAuthProgress) {
+        switch state {
+        case .openingBrowser:
+            status = "Opening browser..."
+            log("OAuth: Opening browser")
+        case .waitingForUser:
+            status = "Waiting for user..."
+            log("OAuth: Waiting for user authorization")
+        case .exchangingCode:
+            status = "Exchanging code..."
+            log("OAuth: Exchanging authorization code")
+        case .refreshingTokens:
+            status = "Refreshing tokens..."
+            log("OAuth: Refreshing tokens")
+        case .complete:
+            status = "Authentication complete"
+            log("OAuth: Complete!")
+        case .failed(let error):
+            status = "Authentication failed"
+            log("OAuth: Failed - \(error)")
         }
     }
 }

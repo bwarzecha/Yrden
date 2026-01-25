@@ -48,8 +48,18 @@ public enum AgentError: Error, Sendable {
     /// Tool execution failed (wraps ToolExecutionError).
     case toolFailed(toolName: String, error: Error)
 
+    /// Tool execution timed out.
+    case toolTimeout(toolName: String, timeout: Duration)
+
     /// Agent has pending deferred tool calls that need resolution.
-    case hasDeferredTools([DeferredToolCall])
+    /// The associated `PausedAgentRun` contains all state needed to resume.
+    case hasDeferredTools(PausedAgentRun)
+
+    /// LLM request failed after retry attempts exhausted.
+    case retriesExhausted(attempts: Int, lastError: Error)
+
+    /// Internal error - indicates a bug in the library.
+    case internalError(String)
 }
 
 // MARK: - UsageLimitKind
@@ -99,9 +109,15 @@ extension AgentError: LocalizedError {
             return "Agent run was cancelled"
         case .toolFailed(let name, let error):
             return "Tool '\(name)' failed: \(error.localizedDescription)"
-        case .hasDeferredTools(let calls):
-            let names = calls.map { $0.id }.joined(separator: ", ")
-            return "Agent has deferred tools awaiting resolution: \(names)"
+        case .toolTimeout(let name, let timeout):
+            return "Tool '\(name)' timed out after \(timeout)"
+        case .hasDeferredTools(let paused):
+            let names = paused.pendingCalls.map { $0.toolCall.name }.joined(separator: ", ")
+            return "Agent has \(paused.pendingCalls.count) deferred tool(s) awaiting resolution: \(names)"
+        case .retriesExhausted(let attempts, let lastError):
+            return "LLM request failed after \(attempts) attempts: \(lastError.localizedDescription)"
+        case .internalError(let message):
+            return "Internal error: \(message)"
         }
     }
 }

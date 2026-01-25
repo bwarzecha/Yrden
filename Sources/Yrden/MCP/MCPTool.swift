@@ -136,7 +136,7 @@ public struct MCPTool<Deps: Sendable>: Sendable {
             return .failure(MCPToolError.executionFailed(
                 name: name,
                 server: serverID,
-                underlying: error
+                message: error.localizedDescription
             ))
         }
     }
@@ -145,15 +145,18 @@ public struct MCPTool<Deps: Sendable>: Sendable {
 // MARK: - MCPToolError
 
 /// Errors specific to MCP tool execution.
-public enum MCPToolError: Error, Sendable {
+public enum MCPToolError: Error, Sendable, Equatable {
     /// The MCP tool returned an error response.
     case toolReturnedError(name: String, message: String)
 
     /// Tool execution failed.
-    case executionFailed(name: String, server: String, underlying: Error)
+    case executionFailed(name: String, server: String, message: String)
 
     /// Server disconnected during execution.
     case serverDisconnected(serverID: String)
+
+    /// Tool execution was cancelled.
+    case toolCancelled(serverID: String, tool: String)
 }
 
 extension MCPToolError: LocalizedError {
@@ -161,10 +164,12 @@ extension MCPToolError: LocalizedError {
         switch self {
         case .toolReturnedError(let name, let message):
             return "MCP tool '\(name)' returned error: \(message)"
-        case .executionFailed(let name, let server, let underlying):
-            return "MCP tool '\(name)' from server '\(server)' failed: \(underlying.localizedDescription)"
+        case .executionFailed(let name, let server, let message):
+            return "MCP tool '\(name)' from server '\(server)' failed: \(message)"
         case .serverDisconnected(let serverID):
             return "MCP server '\(serverID)' disconnected"
+        case .toolCancelled(let serverID, let tool):
+            return "Tool '\(tool)' on server '\(serverID)' was cancelled"
         }
     }
 }
