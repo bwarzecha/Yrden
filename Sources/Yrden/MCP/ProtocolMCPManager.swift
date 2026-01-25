@@ -248,12 +248,12 @@ final class ProtocolMCPManager: ObservableObject {
 
     // MARK: - Event Handling
 
-    private func handleEvent(_ event: CoordinatorEvent) {
+    private func handleEvent(_ event: MCPEvent) {
         switch event {
-        case .serverStateChanged(let id, _, let to):
+        case .stateChanged(let id, _, let to):
             updateServerState(id: id, state: to)
 
-        case .serverLog(let id, let entry):
+        case .log(let id, let entry):
             appendLog(serverID: id, entry: entry)
 
         case .toolCallStarted(let serverID, let tool, let requestId):

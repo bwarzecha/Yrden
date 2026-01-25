@@ -22,8 +22,8 @@ public actor MockServerConnection: ServerConnectionProtocol {
 
     // MARK: - Events
 
-    public nonisolated let events: AsyncStream<ConnectionEvent>
-    private let eventContinuation: AsyncStream<ConnectionEvent>.Continuation
+    public nonisolated let events: AsyncStream<MCPEvent>
+    private let eventContinuation: AsyncStream<MCPEvent>.Continuation
 
     // MARK: - Behavior Configuration
 
@@ -68,7 +68,7 @@ public actor MockServerConnection: ServerConnectionProtocol {
 
     public init(id: String) {
         self.id = id
-        var continuation: AsyncStream<ConnectionEvent>.Continuation!
+        var continuation: AsyncStream<MCPEvent>.Continuation!
         self.events = AsyncStream { continuation = $0 }
         self.eventContinuation = continuation
     }
@@ -152,7 +152,7 @@ public actor MockServerConnection: ServerConnectionProtocol {
     }
 
     /// Manually emit an event.
-    public func emit(_ event: ConnectionEvent) {
+    public func emit(_ event: MCPEvent) {
         eventContinuation.yield(event)
     }
 

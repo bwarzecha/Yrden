@@ -204,23 +204,7 @@ actor ProtocolMCPCoordinator: MCPCoordinatorProtocol {
 
     private func forwardEvents(from connection: any ServerConnectionProtocol) async {
         for await event in connection.events {
-            let coordinatorEvent = mapToCoordinatorEvent(event)
-            eventContinuation.yield(coordinatorEvent)
-        }
-    }
-
-    private func mapToCoordinatorEvent(_ event: ConnectionEvent) -> CoordinatorEvent {
-        switch event {
-        case .stateChanged(let serverID, let from, let to):
-            return .serverStateChanged(serverID: serverID, from: from, to: to)
-        case .log(let serverID, let entry):
-            return .serverLog(serverID: serverID, entry: entry)
-        case .toolCallStarted(let serverID, let tool, let requestId):
-            return .toolCallStarted(serverID: serverID, tool: tool, requestId: requestId)
-        case .toolCallCompleted(let requestId, let duration, let success):
-            return .toolCallCompleted(requestId: requestId, duration: duration, success: success)
-        case .toolCallCancelled(let requestId, let reason):
-            return .toolCallCancelled(requestId: requestId, reason: reason)
+            eventContinuation.yield(event)
         }
     }
 }

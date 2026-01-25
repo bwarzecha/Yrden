@@ -132,10 +132,13 @@ public enum LogLevel: String, Sendable, Equatable {
     case error
 }
 
-// MARK: - Connection Events
+// MARK: - MCP Events
 
-/// Events emitted by a server connection.
-public enum ConnectionEvent: Sendable, Equatable {
+/// Events emitted throughout the MCP system.
+///
+/// This unified event type is used by both server connections and the coordinator.
+/// All events include a `serverID` to identify the source server.
+public enum MCPEvent: Sendable, Equatable {
     case stateChanged(serverID: String, from: ConnectionState, to: ConnectionState)
     case log(serverID: String, entry: LogEntry)
     case toolCallStarted(serverID: String, tool: String, requestId: String)
@@ -151,16 +154,15 @@ public enum CancellationReason: Sendable, Equatable {
     case appShutdown
 }
 
-// MARK: - Coordinator Events
+// MARK: - Deprecated Type Aliases
 
-/// Events emitted by the coordinator.
-public enum CoordinatorEvent: Sendable, Equatable {
-    case serverStateChanged(serverID: String, from: ConnectionState, to: ConnectionState)
-    case serverLog(serverID: String, entry: LogEntry)
-    case toolCallStarted(serverID: String, tool: String, requestId: String)
-    case toolCallCompleted(requestId: String, duration: TimeInterval, success: Bool)
-    case toolCallCancelled(requestId: String, reason: CancellationReason)
-}
+/// Deprecated: Use `MCPEvent` instead.
+@available(*, deprecated, renamed: "MCPEvent")
+public typealias ConnectionEvent = MCPEvent
+
+/// Deprecated: Use `MCPEvent` instead.
+@available(*, deprecated, renamed: "MCPEvent")
+public typealias CoordinatorEvent = MCPEvent
 
 // MARK: - Snapshots
 

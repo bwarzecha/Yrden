@@ -244,7 +244,7 @@ final class MCPCoordinatorTests: XCTestCase {
 
         // Should have at least one state change event showing connected
         let hasConnectedEvent = events.contains(where: { (event: CoordinatorEvent) in
-            if case .serverStateChanged(_, _, let to) = event,
+            if case .stateChanged(_, _, let to) = event,
                case .connected = to {
                 return true
             }

@@ -221,7 +221,7 @@ final class MCPManagerTests: XCTestCase {
         let manager = makeManager()
 
         // Emit state change event from coordinator
-        let event = CoordinatorEvent.serverStateChanged(
+        let event = MCPEvent.stateChanged(
             serverID: "server1",
             from: .connecting,
             to: .connected(toolCount: 1, toolNames: ["tool1"])
@@ -236,8 +236,8 @@ final class MCPManagerTests: XCTestCase {
             await coordinator.emit(event)
         }
 
-        guard case .serverStateChanged(let serverID, _, let to) = events.first else {
-            XCTFail("Expected serverStateChanged event")
+        guard case .stateChanged(let serverID, _, let to) = events.first else {
+            XCTFail("Expected stateChanged event")
             return
         }
         XCTAssertEqual(serverID, "server1")

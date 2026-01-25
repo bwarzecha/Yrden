@@ -16,8 +16,8 @@ public actor MockCoordinator: MCPCoordinatorProtocol {
 
     // MARK: - Events
 
-    public nonisolated let events: AsyncStream<CoordinatorEvent>
-    private let eventContinuation: AsyncStream<CoordinatorEvent>.Continuation
+    public nonisolated let events: AsyncStream<MCPEvent>
+    private let eventContinuation: AsyncStream<MCPEvent>.Continuation
 
     // MARK: - Behavior Configuration
 
@@ -62,7 +62,7 @@ public actor MockCoordinator: MCPCoordinatorProtocol {
     // MARK: - Initialization
 
     public init() {
-        var continuation: AsyncStream<CoordinatorEvent>.Continuation!
+        var continuation: AsyncStream<MCPEvent>.Continuation!
         self.events = AsyncStream { continuation = $0 }
         self.eventContinuation = continuation
     }
@@ -152,7 +152,7 @@ public actor MockCoordinator: MCPCoordinatorProtocol {
     }
 
     /// Emit an event (simulate coordinator activity).
-    public func emit(_ event: CoordinatorEvent) {
+    public func emit(_ event: MCPEvent) {
         eventContinuation.yield(event)
     }
 
@@ -162,7 +162,7 @@ public actor MockCoordinator: MCPCoordinatorProtocol {
         from: ConnectionState,
         to: ConnectionState
     ) {
-        eventContinuation.yield(.serverStateChanged(serverID: serverID, from: from, to: to))
+        eventContinuation.yield(.stateChanged(serverID: serverID, from: from, to: to))
     }
 
     /// Reset all recorded state.
