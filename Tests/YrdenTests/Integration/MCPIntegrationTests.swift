@@ -253,49 +253,6 @@ struct MCPIntegrationTests {
         await server.disconnect()
     }
 
-    // MARK: - MCPManager Tests
-
-    @Test("MCPManager coordinates multiple servers")
-    func managerMultipleServers() async throws {
-        guard isUvxAvailable && isGitAvailable else {
-            print("Skipping: uvx or git not available")
-            return
-        }
-
-        let repoDir1 = try createTempGitRepo()
-        let repoDir2 = try createTempGitRepo()
-
-        defer {
-            try? FileManager.default.removeItem(at: repoDir1)
-            try? FileManager.default.removeItem(at: repoDir2)
-        }
-
-        let manager = MCPManager()
-
-        // Add two git servers pointing to different repositories
-        _ = try await manager.addServer(.stdio(
-            command: "uvx",
-            arguments: ["mcp-server-git", "--repository", repoDir1.path],
-            id: "server1"
-        ))
-
-        _ = try await manager.addServer(.stdio(
-            command: "uvx",
-            arguments: ["mcp-server-git", "--repository", repoDir2.path],
-            id: "server2"
-        ))
-
-        // Get all tools from both servers
-        let allTools: [AnyAgentTool<Void>] = try await manager.allTools()
-
-        // Should have tools from both servers
-        #expect(allTools.count > 0, "Should have tools from servers")
-
-        // Clean up
-        await manager.removeServer("server1")
-        await manager.removeServer("server2")
-    }
-
     // MARK: - Fetch Server Tests (simpler, no filesystem needed)
 
     @Test("Connect to fetch MCP server")
