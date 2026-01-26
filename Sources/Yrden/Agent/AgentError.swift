@@ -28,7 +28,13 @@ import Foundation
 /// Errors that can occur during agent execution.
 public enum AgentError: Error, Sendable {
     /// Agent reached maximum iterations without completing.
+    /// Note: This case does not preserve state. Consider using `maxIterationsExceeded` instead.
     case maxIterationsReached(Int)
+
+    /// Agent reached maximum iterations but can be continued.
+    /// The associated `PausedAgentRun` contains all state needed to resume
+    /// execution with additional iterations via `agent.continueRun()`.
+    case maxIterationsExceeded(PausedAgentRun)
 
     /// Usage limit was exceeded.
     case usageLimitExceeded(UsageLimitKind)
@@ -97,6 +103,10 @@ extension AgentError: LocalizedError {
         switch self {
         case .maxIterationsReached(let count):
             return "Agent reached maximum iterations (\(count)) without completing"
+        case .maxIterationsExceeded(let paused):
+            let limit = paused.reason.iterationLimit ?? paused.requestCount
+            return "Agent paused after \(paused.requestCount) iterations (limit: \(limit)). " +
+                   "Tokens used: \(paused.usage.totalTokens). Can be continued with continueRun()."
         case .usageLimitExceeded(let kind):
             return "Usage limit exceeded: \(kind)"
         case .noOutput:

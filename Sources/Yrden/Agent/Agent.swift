@@ -219,7 +219,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             }
         }
 
-        throw AgentError.maxIterationsReached(maxIterations)
+        throw AgentError.maxIterationsExceeded(state.makePausedForIterations(limit: maxIterations))
     }
 
     /// Format a tool result for streaming output.
@@ -502,7 +502,153 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             }
         }
 
-        throw AgentError.maxIterationsReached(maxIterations)
+        throw AgentError.maxIterationsExceeded(state.makePausedForIterations(limit: maxIterations))
+    }
+
+    // MARK: - Iteration Continuation
+
+    /// Continue a paused agent run with additional iterations.
+    ///
+    /// Use this when the agent was paused due to `AgentError.maxIterationsExceeded`.
+    /// The agent will continue from where it left off with the specified
+    /// additional iterations allowed.
+    ///
+    /// ## Example
+    /// ```swift
+    /// do {
+    ///     let result = try await agent.run("Complex task", deps: myDeps)
+    /// } catch let error as AgentError {
+    ///     if case .maxIterationsExceeded(let paused) = error {
+    ///         print("Paused after \(paused.requestCount) iterations")
+    ///         // Continue with more iterations
+    ///         let result = try await agent.continueRun(
+    ///             paused: paused,
+    ///             additionalIterations: 10,
+    ///             deps: myDeps
+    ///         )
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - paused: The paused run state from `AgentError.maxIterationsExceeded`
+    ///   - additionalIterations: Number of additional iterations to allow
+    ///   - deps: Dependencies to pass to tools
+    /// - Returns: Final result with typed output and metadata
+    /// - Throws: `AgentError.maxIterationsExceeded` if new limit is also hit,
+    ///           or other `AgentError`/`LLMError` for failures
+    public func continueRun(
+        paused: PausedAgentRun,
+        additionalIterations: Int,
+        deps: Deps
+    ) async throws -> AgentResult<Output> {
+        // Resume from the paused state
+        var state = RunState.resume(from: paused, deps: deps)
+        let newLimit = state.requestCount + additionalIterations
+
+        // Continue the agent loop with extended limit
+        while state.requestCount < newLimit {
+            try Task.checkCancellation()
+            try checkUsageLimits(state: state)
+
+            let request = buildRequest(state: state)
+            let response = try await completeWithRetry(request: request)
+            state.requestCount += 1
+            state.usage = accumulateUsage(current: state.usage, new: response.usage)
+            state.addResponse(response)
+
+            // Handle response
+            switch try await handleModelResponse(response: response, state: &state) {
+            case .returnOutput(let output, let outputToolUsed):
+                return state.makeResult(output: output, outputToolUsed: outputToolUsed)
+            case .continueLoop:
+                continue
+            }
+        }
+
+        // Still not done - pause again with the new limit
+        throw AgentError.maxIterationsExceeded(state.makePausedForIterations(limit: newLimit))
+    }
+
+    /// Continue a paused agent run with additional iterations, streaming events.
+    ///
+    /// Streaming variant of `continueRun` that provides real-time visibility into
+    /// the agent's continued execution.
+    ///
+    /// - Parameters:
+    ///   - paused: The paused run state from `AgentError.maxIterationsExceeded`
+    ///   - additionalIterations: Number of additional iterations to allow
+    ///   - deps: Dependencies to pass to tools
+    /// - Returns: Async stream of agent events ending with `.result` on success
+    public nonisolated func continueRunStream(
+        paused: PausedAgentRun,
+        additionalIterations: Int,
+        deps: Deps
+    ) -> AsyncThrowingStream<AgentStreamEvent<Output>, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let result = try await self.continueRunStreamInternal(
+                        paused: paused,
+                        additionalIterations: additionalIterations,
+                        deps: deps,
+                        continuation: continuation
+                    )
+                    continuation.yield(.result(result))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Internal streaming implementation for continueRun.
+    private func continueRunStreamInternal(
+        paused: PausedAgentRun,
+        additionalIterations: Int,
+        deps: Deps,
+        continuation: AsyncThrowingStream<AgentStreamEvent<Output>, Error>.Continuation
+    ) async throws -> AgentResult<Output> {
+        // Resume from the paused state
+        var state = RunState.resume(from: paused, deps: deps)
+        let newLimit = state.requestCount + additionalIterations
+
+        // Continue the agent loop with streaming
+        while state.requestCount < newLimit {
+            try Task.checkCancellation()
+            try checkUsageLimits(state: state)
+
+            let request = buildRequest(state: state)
+
+            // Stream the model response
+            let response = try await streamModelResponse(
+                request: request,
+                continuation: continuation
+            )
+            state.requestCount += 1
+            state.usage = accumulateUsage(current: state.usage, new: response.usage)
+            continuation.yield(.usage(state.usage))
+            state.addResponse(response)
+
+            // Handle response with streaming callback for tool results
+            let action = try await handleModelResponse(
+                response: response,
+                state: &state
+            ) { call, toolResult, _ in
+                continuation.yield(.toolResult(id: call.id, result: self.formatToolResult(toolResult)))
+            }
+
+            switch action {
+            case .returnOutput(let output, let outputToolUsed):
+                return state.makeResult(output: output, outputToolUsed: outputToolUsed)
+            case .continueLoop:
+                continue
+            }
+        }
+
+        // Still not done - pause again
+        throw AgentError.maxIterationsExceeded(state.makePausedForIterations(limit: newLimit))
     }
 
     // MARK: - Private State
@@ -549,6 +695,19 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         /// Add tool results to the message history.
         mutating func addToolResults(_ results: [(ToolCall, ToolOutput)]) {
             messages.append(.fromToolResults(results))
+        }
+
+        /// Create a PausedAgentRun for max iterations exceeded.
+        func makePausedForIterations(limit: Int) -> PausedAgentRun {
+            PausedAgentRun(
+                runID: runID,
+                messages: messages,
+                usage: usage,
+                requestCount: requestCount,
+                toolCallCount: toolCallCount,
+                pendingCalls: [],
+                reason: .maxIterationsReached(limit: limit)
+            )
         }
     }
 
@@ -643,7 +802,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             }
         }
 
-        throw AgentError.maxIterationsReached(maxIterations)
+        throw AgentError.maxIterationsExceeded(state.makePausedForIterations(limit: maxIterations))
     }
 
     // MARK: - Response Handling
