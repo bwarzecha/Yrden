@@ -9,13 +9,14 @@ import Yrden
 struct YrdenExampleApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var viewModel = ChatViewModel()
+    @StateObject private var settingsStore = SettingsStore()
 
     var body: some Scene {
         Window("Yrden Example", id: "main") {
-            ChatView(viewModel: viewModel)
+            ChatView(viewModel: viewModel, settingsStore: settingsStore)
                 .frame(minWidth: 600, minHeight: 500)
                 .onAppear {
-                    configureFromEnvironment()
+                    configureFromSettings()
                 }
         }
         .commands {
@@ -23,17 +24,16 @@ struct YrdenExampleApp: App {
         }
     }
 
-    private func configureFromEnvironment() {
-        if let key = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"], !key.isEmpty {
-            let provider = AnthropicProvider(apiKey: key)
-            let model = AnthropicModel(name: "claude-sonnet-4-20250514", provider: provider)
+    private func configureFromSettings() {
+        // Auto-configure if we have persisted settings
+        guard settingsStore.canConfigure else { return }
+
+        do {
+            let model = try settingsStore.createModel()
             viewModel.configure(model: model)
-            return
-        }
-        if let key = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !key.isEmpty {
-            let provider = OpenAIProvider(apiKey: key)
-            let model = OpenAIModel(name: "gpt-4o", provider: provider)
-            viewModel.configure(model: model)
+            settingsStore.isConfigured = true
+        } catch {
+            // Silent failure on auto-configure - user can configure manually
         }
     }
 }

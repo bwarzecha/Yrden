@@ -15,9 +15,8 @@ class ChatViewModel: ObservableObject {
     private var pausedRun: PausedAgentRun?
     private var messageHistory: [Message] = []  // Conversation history for multi-turn
 
-    // MCP
-    private var mcpServer: MCPServerConnection?
-    private var mcpToolsCache: [AnyAgentTool<AppDependencies>] = []
+    // MCP - supports multiple servers
+    private var mcpToolsCache: [UUID: [AnyAgentTool<AppDependencies>]] = [:]
 
     init(deps: AppDependencies = .default()) { self.deps = deps }
 
@@ -51,28 +50,30 @@ class ChatViewModel: ObservableObject {
         log(.info, "Configured agent", details: "Model: \(model.name), Tools: \(mcpTools.map { $0.name }.joined(separator: ", "))")
     }
 
-    // MARK: - MCP
+    // MARK: - MCP (Multi-Server Support)
 
-    func connectMCPStdio(commandLine: String) async throws -> [String] {
+    /// Connect to an MCP server via stdio and return the connection + tool names.
+    /// The connection is NOT stored - caller is responsible for tracking it.
+    func connectMCPStdioRaw(commandLine: String) async throws -> (MCPServerConnection, [String]) {
         log(.info, "Connecting MCP stdio", details: commandLine)
         do {
             let server = try await mcpConnect(commandLine)
             let tools: [AnyAgentTool<AppDependencies>] = try await server.discoverTools()
-            mcpServer = server
-            mcpToolsCache = tools
             log(.info, "MCP connected", details: "Tools: \(tools.map { $0.name }.joined(separator: ", "))")
-            return tools.map { $0.name }
+            return (server, tools.map { $0.name })
         } catch {
             log(.error, "MCP connection failed", details: String(describing: error))
             throw error
         }
     }
 
-    func connectMCPOAuth(
+    /// Connect to an MCP server via OAuth and return the connection + tool names.
+    /// The connection is NOT stored - caller is responsible for tracking it.
+    func connectMCPOAuthRaw(
         url: URL,
         redirectScheme: String,
         onProgress: @escaping @Sendable (MCPOAuthProgress) -> Void
-    ) async throws -> [String] {
+    ) async throws -> (MCPServerConnection, [String]) {
         log(.info, "Connecting MCP OAuth", details: url.absoluteString)
         do {
             let server = try await mcpConnect(
@@ -81,26 +82,28 @@ class ChatViewModel: ObservableObject {
                 onProgress: onProgress
             )
             let tools: [AnyAgentTool<AppDependencies>] = try await server.discoverTools()
-            mcpServer = server
-            mcpToolsCache = tools
             log(.info, "MCP OAuth connected", details: "Tools: \(tools.map { $0.name }.joined(separator: ", "))")
-            return tools.map { $0.name }
+            return (server, tools.map { $0.name })
         } catch {
             log(.error, "MCP OAuth failed", details: String(describing: error))
             throw error
         }
     }
 
-    func disconnectMCP() async {
-        if let server = mcpServer {
-            await server.disconnect()
-        }
-        mcpServer = nil
-        mcpToolsCache = []
+    /// Register tools from a connected server (by server ID).
+    func registerMCPTools(serverId: UUID, connection: MCPServerConnection) async throws {
+        let tools: [AnyAgentTool<AppDependencies>] = try await connection.discoverTools()
+        mcpToolsCache[serverId] = tools
     }
 
-    func getMCPTools() -> [AnyAgentTool<AppDependencies>] {
-        mcpToolsCache
+    /// Unregister tools from a disconnected server.
+    func unregisterMCPTools(serverId: UUID) {
+        mcpToolsCache.removeValue(forKey: serverId)
+    }
+
+    /// Get all MCP tools from all connected servers.
+    func getAllMCPTools() -> [AnyAgentTool<AppDependencies>] {
+        mcpToolsCache.values.flatMap { $0 }
     }
 
     // MARK: - Chat

@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ChatView: View {
     @ObservedObject var viewModel: ChatViewModel
+    @ObservedObject var settingsStore: SettingsStore
     @State private var inputText = ""
     @State private var showSettings = false
     @State private var showLogs = false
@@ -71,7 +72,7 @@ struct ChatView: View {
             }
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView(viewModel: viewModel)
+            SettingsView(store: settingsStore, viewModel: viewModel)
         }
         .sheet(isPresented: $showLogs) {
             LogsView(viewModel: viewModel)
@@ -325,7 +326,7 @@ struct LogEntryRow: View {
 
 #Preview {
     NavigationStack {
-        ChatView(viewModel: ChatViewModel())
+        ChatView(viewModel: ChatViewModel(), settingsStore: SettingsStore())
     }
     .frame(width: 600, height: 500)
 }
