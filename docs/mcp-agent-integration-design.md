@@ -1,5 +1,11 @@
 # MCP + Agent Integration: Final Design
 
+> **Note (2026-01-25):** This design document reflects the original architecture. Since then:
+> - `ConnectionEvent` and `CoordinatorEvent` have been unified into `MCPEvent`
+> - `MCPTool` has been deprecated in favor of `MCPToolProxy`
+> - Shared parsing extracted to `parseMCPArguments()`
+> - See commits aac4628, e8357ae, d047b96 for details.
+
 ## Problem Statement
 
 The goal is to **load MCP tools into an Agent so the LLM can use them** with:

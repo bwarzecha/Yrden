@@ -580,7 +580,7 @@ Integrated the official MCP Swift SDK to enable dynamic tool discovery from exte
 | File | Description |
 |------|-------------|
 | `Sources/Yrden/MCP/MCPValueConversion.swift` | Bidirectional conversion between MCP.Value and JSONValue |
-| `Sources/Yrden/MCP/MCPTool.swift` | Wraps MCP tools as Yrden AgentTools |
+| `Sources/Yrden/MCP/MCPTool.swift` | ⚠️ **Deprecated** - use MCPToolProxy instead |
 | `Sources/Yrden/MCP/MCPServerConnection.swift` | Actor managing single MCP server connection |
 | `Sources/Yrden/MCP/MCPManager.swift` | Multi-server orchestration actor |
 | `Sources/Yrden/MCP/MCPResourceProvider.swift` | Resource injection for context enrichment |
@@ -600,7 +600,7 @@ Added MCP SDK dependency:
 | Type | Description |
 |------|-------------|
 | `MCPServerConnection` | Actor wrapping MCP Client for single server |
-| `MCPTool<Deps>` | Wrapper exposing MCP tool as AgentTool |
+| `MCPTool<Deps>` | ⚠️ **Deprecated** - use MCPToolProxy |
 | `MCPManager` | Actor coordinating multiple MCP servers |
 | `MCPResourceProvider` | Fetches MCP resources for context injection |
 | `MCPServerConfig` | Configuration enum for stdio/http transports |
@@ -1650,7 +1650,7 @@ Created environment variable support for integration tests:
 1. **MCP Consolidation (0.2)**
    - Choose Protocol* hierarchy as canonical
    - Deprecate old MCPServerConnection/MCPManager
-   - Merge MCPTool and MCPToolProxy
+   - ~~Merge MCPTool and MCPToolProxy~~ ✅ Done: MCPTool deprecated, shared parsing extracted
 
 2. **Test Quality (0.4)**
    - Simplify test doubles (<50 lines each)

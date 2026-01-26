@@ -126,7 +126,7 @@ handleModelResponse(response:, state:, onToolComplete:, beforeToolProcessing:, a
 **Refactoring tasks:**
 
 - [ ] **0.2.1** Choose ONE hierarchy (recommend Protocol* versions) and deprecate other
-- [ ] **0.2.2** Merge `MCPTool` and `MCPToolProxy` - share JSON parsing/conversion code
+- [x] **0.2.2** Deprecated `MCPTool`, extracted shared `parseMCPArguments()` helper (commit d047b96)
 - [ ] **0.2.3** Split `MCPServerConnection` (935 lines) into:
   - `MCPConnectionLifecycle` - connect/disconnect/state
   - `MCPToolDiscovery` - tool listing and caching
