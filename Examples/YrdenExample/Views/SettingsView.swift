@@ -9,7 +9,8 @@ struct SettingsView: View {
 
     // Provider settings
     @State private var selectedProvider = ProviderType.anthropic
-    @State private var apiKey = ""
+    @State private var anthropicApiKey = ""
+    @State private var openaiApiKey = ""
     @State private var awsRegion = "us-east-1"
     @State private var awsProfile = "default"
     @State private var awsAccessKey = ""
@@ -98,12 +99,20 @@ struct SettingsView: View {
         }
     }
 
+    private var currentApiKey: Binding<String> {
+        switch selectedProvider {
+        case .anthropic: return $anthropicApiKey
+        case .openai: return $openaiApiKey
+        case .bedrock: return .constant("")
+        }
+    }
+
     private var apiKeyField: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("API Key")
+            Text("\(selectedProvider.displayName) API Key")
                 .font(.caption)
                 .foregroundColor(.secondary)
-            SecureField("Enter API key", text: $apiKey)
+            SecureField("Enter API key", text: currentApiKey)
                 .textFieldStyle(.roundedBorder)
         }
     }
@@ -386,8 +395,10 @@ struct SettingsView: View {
 
     private var canLoadModels: Bool {
         switch selectedProvider {
-        case .anthropic, .openai:
-            return !apiKey.isEmpty
+        case .anthropic:
+            return !anthropicApiKey.isEmpty
+        case .openai:
+            return !openaiApiKey.isEmpty
         case .bedrock:
             if useAwsProfile {
                 return !awsRegion.isEmpty && !awsProfile.isEmpty
@@ -413,19 +424,28 @@ struct SettingsView: View {
     // MARK: - Actions
 
     private func loadFromEnvironment() {
+        // Load all available API keys
         if let key = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"], !key.isEmpty {
-            apiKey = key
-            selectedProvider = .anthropic
-        } else if let key = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !key.isEmpty {
-            apiKey = key
-            selectedProvider = .openai
-        } else if let region = ProcessInfo.processInfo.environment["AWS_REGION"] {
+            anthropicApiKey = key
+        }
+        if let key = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !key.isEmpty {
+            openaiApiKey = key
+        }
+        if let region = ProcessInfo.processInfo.environment["AWS_REGION"] {
             awsRegion = region
-            selectedProvider = .bedrock
             if let profile = ProcessInfo.processInfo.environment["AWS_PROFILE"] {
                 awsProfile = profile
                 useAwsProfile = true
             }
+        }
+
+        // Select default provider based on what's available
+        if !anthropicApiKey.isEmpty {
+            selectedProvider = .anthropic
+        } else if !openaiApiKey.isEmpty {
+            selectedProvider = .openai
+        } else if !awsRegion.isEmpty {
+            selectedProvider = .bedrock
         }
     }
 
@@ -480,9 +500,9 @@ struct SettingsView: View {
     private func createProvider() throws -> any Provider {
         switch selectedProvider {
         case .anthropic:
-            return AnthropicProvider(apiKey: apiKey)
+            return AnthropicProvider(apiKey: anthropicApiKey)
         case .openai:
-            return OpenAIProvider(apiKey: apiKey)
+            return OpenAIProvider(apiKey: openaiApiKey)
         case .bedrock:
             if useAwsProfile {
                 return try BedrockProvider(region: awsRegion, profile: awsProfile)
@@ -502,10 +522,10 @@ struct SettingsView: View {
 
             switch selectedProvider {
             case .anthropic:
-                let provider = AnthropicProvider(apiKey: apiKey)
+                let provider = AnthropicProvider(apiKey: anthropicApiKey)
                 model = AnthropicModel(name: selectedModelId, provider: provider)
             case .openai:
-                let provider = OpenAIProvider(apiKey: apiKey)
+                let provider = OpenAIProvider(apiKey: openaiApiKey)
                 model = OpenAIModel(name: selectedModelId, provider: provider)
             case .bedrock:
                 let provider: BedrockProvider
