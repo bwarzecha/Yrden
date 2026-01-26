@@ -124,7 +124,7 @@ public struct AnthropicModel: Model, Sendable {
 
         case .user(let parts):
             let blocks = try parts.map { try convertContentPart($0) }
-            return AnthropicMessage(role: "user", content: blocks)
+            return AnthropicMessage(role: MessageRole.user, content: blocks)
 
         case .assistant(let text, let toolCalls):
             var blocks: [AnthropicContentBlock] = []
@@ -142,11 +142,11 @@ public struct AnthropicModel: Model, Sendable {
                 blocks.append(.text(""))
             }
 
-            return AnthropicMessage(role: "assistant", content: blocks)
+            return AnthropicMessage(role: MessageRole.assistant, content: blocks)
 
         case .toolResult(let toolCallId, let content):
             return AnthropicMessage(
-                role: "user",
+                role: MessageRole.user,
                 content: [.toolResult(toolUseId: toolCallId, content: content, isError: nil)]
             )
 
@@ -167,7 +167,7 @@ public struct AnthropicModel: Model, Sendable {
                 }
                 return .toolResult(toolUseId: entry.id, content: content, isError: isError)
             }
-            return AnthropicMessage(role: "user", content: blocks)
+            return AnthropicMessage(role: MessageRole.user, content: blocks)
         }
     }
 

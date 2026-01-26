@@ -218,7 +218,7 @@ public struct OpenAIModel: Model, Sendable {
         switch message {
         case .system(let text):
             return OpenAIMessage(
-                role: "system",
+                role: MessageRole.system,
                 content: .text(text)
             )
 
@@ -226,14 +226,14 @@ public struct OpenAIModel: Model, Sendable {
             if parts.count == 1, case .text(let text) = parts[0] {
                 // Simple text - use string content
                 return OpenAIMessage(
-                    role: "user",
+                    role: MessageRole.user,
                     content: .text(text)
                 )
             } else {
                 // Multimodal - use parts array
                 let openAIParts = try parts.map { try convertContentPart($0) }
                 return OpenAIMessage(
-                    role: "user",
+                    role: MessageRole.user,
                     content: .parts(openAIParts)
                 )
             }
@@ -242,19 +242,19 @@ public struct OpenAIModel: Model, Sendable {
             let openAIToolCalls: [OpenAIToolCall]? = toolCalls.isEmpty ? nil : toolCalls.map { call in
                 OpenAIToolCall(
                     id: call.id,
-                    type: "function",
+                    type: ToolType.function,
                     function: OpenAIFunctionCall(name: call.name, arguments: call.arguments)
                 )
             }
             return OpenAIMessage(
-                role: "assistant",
+                role: MessageRole.assistant,
                 content: text.isEmpty ? nil : .text(text),
                 tool_calls: openAIToolCalls
             )
 
         case .toolResult(let toolCallId, let content):
             return OpenAIMessage(
-                role: "tool",
+                role: MessageRole.tool,
                 content: .text(content),
                 tool_call_id: toolCallId
             )
@@ -281,7 +281,7 @@ public struct OpenAIModel: Model, Sendable {
                     content = "Error: \(message)"
                 }
                 return OpenAIMessage(
-                    role: "tool",
+                    role: MessageRole.tool,
                     content: .text(content),
                     tool_call_id: entry.id
                 )
@@ -618,13 +618,13 @@ public struct OpenAIModel: Model, Sendable {
                         return .inputImage(url: dataURL)
                     }
                 }
-                return .message(role: "user", content: contentParts)
+                return .message(role: MessageRole.user, content: contentParts)
 
             case .assistant(let text, _):
                 // For assistant messages, use output_text content type
                 // Tool calls are implicit in the conversation flow
                 if !text.isEmpty {
-                    return .message(role: "assistant", content: [.outputText(text)])
+                    return .message(role: MessageRole.assistant, content: [.outputText(text)])
                 }
                 return nil
 

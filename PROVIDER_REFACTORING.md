@@ -2,7 +2,7 @@
 
 > Tracking document for extracting duplicate code and hard-coded strings from provider implementations.
 
-## Status: Phase 4 In Progress
+## Status: Phase 5 In Progress
 
 ---
 
@@ -82,7 +82,7 @@ Create `Sources/Yrden/SSE.swift` with SSE parsing constants.
 ---
 
 ## Phase 4: Message Role Constants
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 
 ### Problem
 Role strings used in message conversion:
@@ -99,13 +99,13 @@ Role strings used in message conversion:
 Create `Sources/Yrden/MessageRoles.swift` with role constants.
 
 ### Files to Create
-- [ ] `Sources/Yrden/MessageRoles.swift`
+- [x] `Sources/Yrden/MessageRoles.swift`
 
 ### Files to Modify
-- [ ] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAITypes.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAIResponsesTypes.swift`
+- [x] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
+- [x] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
+- [ ] `Sources/Yrden/Providers/OpenAI/OpenAITypes.swift` (not needed - comments only)
+- [ ] `Sources/Yrden/Providers/OpenAI/OpenAIResponsesTypes.swift` (not needed - comments only)
 
 ---
 
