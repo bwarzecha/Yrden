@@ -371,6 +371,14 @@ public struct BedrockModel: Model, @unchecked Sendable {
         let output = try await provider.runtimeClient.converseStream(input: input)
 
         guard let stream = output.stream else {
+            // No stream available - emit empty done event before finishing
+            let emptyResponse = CompletionResponse(
+                content: nil,
+                toolCalls: [],
+                stopReason: .endTurn,
+                usage: Usage(inputTokens: 0, outputTokens: 0)
+            )
+            continuation.yield(.done(emptyResponse))
             continuation.finish()
             return
         }
