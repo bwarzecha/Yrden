@@ -36,15 +36,15 @@ struct BedrockIntegrationTests {
             )
         }
 
-        // Use Claude Haiku via inference profile for cost-effective testing
+        // Use Claude Haiku 4.5 via inference profile for cost-effective testing
         model = BedrockModel(
-            name: "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+            name: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
             provider: provider
         )
 
-        // Use Sonnet for vision tests (Haiku 3.5 doesn't support images)
+        // Haiku 4.5 supports vision
         visionModel = BedrockModel(
-            name: "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+            name: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
             provider: provider
         )
     }

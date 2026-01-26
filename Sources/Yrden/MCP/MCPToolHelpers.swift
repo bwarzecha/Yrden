@@ -375,9 +375,11 @@ public enum MCPArgumentsResult: Sendable {
 /// - Parameter argumentsJSON: JSON string from LLM
 /// - Returns: Parsed arguments or error
 public func parseMCPArguments(_ argumentsJSON: String) -> MCPArgumentsResult {
-    // Empty or empty object means no arguments
-    if argumentsJSON.isEmpty || argumentsJSON == "{}" {
-        return .success(nil)
+    // Empty or whitespace-only means empty object (not nil/undefined)
+    // MCP servers expect an object, even if empty
+    let trimmed = argumentsJSON.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty || trimmed == "{}" {
+        return .success([:])  // Empty object, not nil
     }
 
     // Validate UTF-8

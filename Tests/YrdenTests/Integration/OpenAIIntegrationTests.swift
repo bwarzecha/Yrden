@@ -6,7 +6,7 @@
 /// Run with: swift test --filter OpenAIIntegration
 ///
 /// Tests cover:
-/// - Standard models (gpt-4o-mini) with full capabilities
+/// - Standard models (gpt-5-mini) with full capabilities
 /// - Reasoning models (o1-mini) with limited capabilities
 
 import Testing
@@ -22,8 +22,8 @@ struct OpenAIIntegrationTests {
     init() {
         let apiKey = TestConfig.openAIAPIKey
         provider = OpenAIProvider(apiKey: apiKey)
-        // Use gpt-4o-mini for cost-effective testing
-        model = OpenAIModel(name: "gpt-4o-mini", provider: provider)
+        // Use gpt-5-mini for cost-effective testing
+        model = OpenAIModel(name: "gpt-5-mini", provider: provider)
     }
 
     // MARK: - Simple Completion

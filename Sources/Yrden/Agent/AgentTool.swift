@@ -198,12 +198,36 @@ extension DeferredToolCall {
 // MARK: - ToolExecutionError
 
 /// Errors that can occur during tool execution.
+///
+/// ## Argument Error Hierarchy
+/// When processing tool arguments, errors fall into two categories:
+///
+/// **Parsing errors** (`.argumentParsing`):
+/// - Invalid JSON syntax
+/// - Invalid UTF-8 encoding
+/// - Type mismatch (expected object, got array)
+/// These indicate the LLM produced malformed output.
+///
+/// **Validation errors** (`.argumentValidation`):
+/// - Missing required fields
+/// - Value out of range
+/// - Invalid format (email, URL, etc.)
+/// These indicate the LLM understood the schema but provided invalid values.
+///
+/// This distinction helps with error handling:
+/// - Parsing errors are usually unrecoverable (LLM bug or misunderstanding)
+/// - Validation errors can be retried with feedback to the LLM
 public enum ToolExecutionError: Error, Sendable, Equatable {
     /// Custom error message.
     case custom(String)
 
-    /// Failed to parse arguments.
+    /// Failed to parse arguments JSON.
+    /// The JSON was malformed or couldn't be decoded.
     case argumentParsing(String)
+
+    /// Arguments parsed but failed validation.
+    /// The JSON was valid but values didn't meet constraints.
+    case argumentValidation(String)
 
     /// Tool not found.
     case toolNotFound(String)
@@ -219,6 +243,8 @@ extension ToolExecutionError: LocalizedError {
             return message
         case .argumentParsing(let details):
             return "Failed to parse tool arguments: \(details)"
+        case .argumentValidation(let details):
+            return "Tool argument validation failed: \(details)"
         case .toolNotFound(let name):
             return "Tool not found: \(name)"
         case .maxRetriesExceeded(let name, let attempts):

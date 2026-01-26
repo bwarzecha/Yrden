@@ -6,6 +6,7 @@ struct ChatView: View {
     @ObservedObject var viewModel: ChatViewModel
     @State private var inputText = ""
     @State private var showSettings = false
+    @State private var showLogs = false
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
@@ -57,6 +58,12 @@ struct ChatView: View {
                 }
             }
             ToolbarItem(placement: .automatic) {
+                Button(action: { showLogs = true }) {
+                    Image(systemName: "doc.text")
+                }
+                .badge(viewModel.logs.filter { $0.level == .error }.count)
+            }
+            ToolbarItem(placement: .automatic) {
                 Button(action: { viewModel.clearConversation() }) {
                     Image(systemName: "trash")
                 }
@@ -65,6 +72,9 @@ struct ChatView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsView(viewModel: viewModel)
+        }
+        .sheet(isPresented: $showLogs) {
+            LogsView(viewModel: viewModel)
         }
     }
 
@@ -192,6 +202,124 @@ struct ApprovalBanner: View {
         .cornerRadius(8)
         .padding(.horizontal)
         .padding(.vertical, 8)
+    }
+}
+
+// MARK: - Logs View
+
+struct LogsView: View {
+    @ObservedObject var viewModel: ChatViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var copiedToClipboard = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 12) {
+                Text("Logs (\(viewModel.logs.count))")
+                    .font(.headline)
+                Spacer()
+                Button("Clear") {
+                    viewModel.clearLogs()
+                }
+                .buttonStyle(.bordered)
+                .disabled(viewModel.logs.isEmpty)
+                Button("Copy All") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(viewModel.exportLogs(), forType: .string)
+                    copiedToClipboard = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        copiedToClipboard = false
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(viewModel.logs.isEmpty)
+                Button("Done") { dismiss() }
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding()
+
+            if copiedToClipboard {
+                Text("Copied to clipboard!")
+                    .font(.caption)
+                    .foregroundColor(.green)
+                    .padding(.bottom, 4)
+            }
+
+            Divider()
+
+            // Log list
+            if viewModel.logs.isEmpty {
+                Spacer()
+                Text("No logs yet")
+                    .foregroundColor(.secondary)
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(viewModel.logs) { entry in
+                            LogEntryRow(entry: entry)
+                        }
+                    }
+                    .padding()
+                }
+            }
+        }
+        .frame(width: 700, height: 500)
+    }
+}
+
+struct LogEntryRow: View {
+    let entry: LogEntry
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .top, spacing: 8) {
+                Text(entry.timestamp.formatted(date: .omitted, time: .standard))
+                    .font(.caption.monospaced())
+                    .foregroundColor(.secondary)
+
+                Text(entry.level.rawValue.uppercased())
+                    .font(.caption.bold())
+                    .foregroundColor(colorForLevel(entry.level))
+                    .frame(width: 50, alignment: .leading)
+
+                Text(entry.message)
+                    .font(.caption)
+
+                Spacer()
+
+                if entry.details != nil {
+                    Button(action: { isExpanded.toggle() }) {
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if isExpanded, let details = entry.details {
+                Text(details)
+                    .font(.caption.monospaced())
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+                    .padding(6)
+                    .background(Color.black.opacity(0.05))
+                    .cornerRadius(4)
+                    .padding(.leading, 90)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    func colorForLevel(_ level: LogEntry.Level) -> Color {
+        switch level {
+        case .debug: return .gray
+        case .info: return .blue
+        case .warning: return .orange
+        case .error: return .red
+        }
     }
 }
 

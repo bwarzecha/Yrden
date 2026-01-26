@@ -191,7 +191,13 @@ public struct AnthropicModel: Model, Sendable {
     }
 
     private func parseToolArguments(_ arguments: String) throws -> JSONValue {
-        guard let data = arguments.data(using: .utf8) else {
+        // Handle empty arguments - treat as empty object
+        let trimmed = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return .object([:])
+        }
+
+        guard let data = trimmed.data(using: .utf8) else {
             throw LLMError.decodingError("Invalid UTF-8 in tool arguments")
         }
         return try JSONDecoder().decode(JSONValue.self, from: data)

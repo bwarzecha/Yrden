@@ -117,7 +117,7 @@ struct OpenAITestSubject: ModelTestSubject {
     init() {
         let apiKey = TestConfig.openAIAPIKey
         let provider = OpenAIProvider(apiKey: apiKey)
-        let model = OpenAIModel(name: "gpt-4o-mini", provider: provider)
+        let model = OpenAIModel(name: "gpt-5-mini", provider: provider)
         self.model = model
         self.visionModel = model
     }
@@ -149,12 +149,12 @@ struct BedrockTestSubject: ModelTestSubject {
         }
 
         self.model = BedrockModel(
-            name: "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+            name: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
             provider: provider
         )
-        // Haiku 3.5 doesn't support vision, use Sonnet
+        // Haiku 4.5 supports vision
         self.visionModel = BedrockModel(
-            name: "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+            name: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
             provider: provider
         )
     }
