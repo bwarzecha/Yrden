@@ -46,8 +46,8 @@ public struct OpenAIProvider: Provider, OpenAICompatibleProvider, Sendable {
     /// - `Authorization`: Bearer token authentication
     /// - `Content-Type`: application/json
     public func authenticate(_ request: inout URLRequest) async throws {
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(HTTPHeaderValue.bearerPrefix + apiKey, forHTTPHeaderField: HTTPHeaderField.authorization)
+        request.setValue(HTTPHeaderValue.applicationJSON, forHTTPHeaderField: HTTPHeaderField.contentType)
     }
 
     /// Lists available models from OpenAI.
@@ -74,7 +74,7 @@ public struct OpenAIProvider: Provider, OpenAICompatibleProvider, Sendable {
             Task {
                 do {
                     var request = URLRequest(url: baseURL.appendingPathComponent("models"))
-                    request.httpMethod = "GET"
+                    request.httpMethod = HTTPMethod.get
                     try await authenticate(&request)
 
                     let (data, response) = try await URLSession.shared.data(for: request)
@@ -89,7 +89,7 @@ public struct OpenAIProvider: Provider, OpenAICompatibleProvider, Sendable {
                     case 401:
                         throw LLMError.invalidAPIKey
                     case 429:
-                        let retryAfter = http.value(forHTTPHeaderField: "Retry-After")
+                        let retryAfter = http.value(forHTTPHeaderField: HTTPHeaderField.retryAfter)
                             .flatMap { Double($0) }
                         throw LLMError.rateLimited(retryAfter: retryAfter)
                     default:

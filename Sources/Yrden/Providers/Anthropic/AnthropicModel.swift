@@ -269,7 +269,7 @@ public struct AnthropicModel: Model, Sendable {
 
     private func sendRequest(_ request: AnthropicRequest) async throws -> Data {
         var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("messages"))
-        urlRequest.httpMethod = "POST"
+        urlRequest.httpMethod = HTTPMethod.post
         try await provider.authenticate(&urlRequest)
         urlRequest.httpBody = try JSONEncoder().encode(request)
 
@@ -308,7 +308,7 @@ public struct AnthropicModel: Model, Sendable {
     }
 
     private func parseRetryAfter(_ response: HTTPURLResponse) -> TimeInterval? {
-        if let retryAfter = response.value(forHTTPHeaderField: "retry-after"),
+        if let retryAfter = response.value(forHTTPHeaderField: HTTPHeaderField.retryAfter),
            let seconds = Double(retryAfter) {
             return seconds
         }
@@ -329,7 +329,7 @@ public struct AnthropicModel: Model, Sendable {
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
     ) async throws {
         var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("messages"))
-        urlRequest.httpMethod = "POST"
+        urlRequest.httpMethod = HTTPMethod.post
         try await provider.authenticate(&urlRequest)
         urlRequest.httpBody = try JSONEncoder().encode(request)
 

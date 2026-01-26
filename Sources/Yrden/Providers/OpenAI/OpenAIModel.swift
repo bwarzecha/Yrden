@@ -381,7 +381,7 @@ public struct OpenAIModel: Model, Sendable {
 
     private func sendRequest(_ request: OpenAIRequest) async throws -> Data {
         var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("chat/completions"))
-        urlRequest.httpMethod = "POST"
+        urlRequest.httpMethod = HTTPMethod.post
         try await provider.authenticate(&urlRequest)
         urlRequest.httpBody = try JSONEncoder().encode(request)
 
@@ -421,7 +421,7 @@ public struct OpenAIModel: Model, Sendable {
 
             // Check if this is a retriable error (408, 409, 429, 500+)
             if isRetriableStatusCode(statusCode) {
-                let retryAfter = parseRetryAfter(http.value(forHTTPHeaderField: "Retry-After"))
+                let retryAfter = parseRetryAfter(http.value(forHTTPHeaderField: HTTPHeaderField.retryAfter))
                 throw RetriableError(
                     underlyingError: underlyingError,
                     retryAfter: retryAfter,
@@ -448,7 +448,7 @@ public struct OpenAIModel: Model, Sendable {
         stopSequences: [String]? = nil
     ) async throws {
         var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("chat/completions"))
-        urlRequest.httpMethod = "POST"
+        urlRequest.httpMethod = HTTPMethod.post
         try await provider.authenticate(&urlRequest)
         urlRequest.httpBody = try JSONEncoder().encode(request)
 
@@ -684,7 +684,7 @@ public struct OpenAIModel: Model, Sendable {
 
     private func sendResponsesRequest(_ request: ResponsesAPIRequest) async throws -> Data {
         var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("responses"))
-        urlRequest.httpMethod = "POST"
+        urlRequest.httpMethod = HTTPMethod.post
         try await provider.authenticate(&urlRequest)
         urlRequest.httpBody = try JSONEncoder().encode(request)
 
@@ -767,7 +767,7 @@ public struct OpenAIModel: Model, Sendable {
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
     ) async throws {
         var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("responses"))
-        urlRequest.httpMethod = "POST"
+        urlRequest.httpMethod = HTTPMethod.post
         try await provider.authenticate(&urlRequest)
         urlRequest.httpBody = try JSONEncoder().encode(request)
 

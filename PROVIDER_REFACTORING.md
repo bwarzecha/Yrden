@@ -2,7 +2,7 @@
 
 > Tracking document for extracting duplicate code and hard-coded strings from provider implementations.
 
-## Status: Phase 2 In Progress
+## Status: Phase 3 In Progress
 
 ---
 
@@ -25,7 +25,7 @@ Extract common logic into a shared helper that returns a tuple, then have both m
 ---
 
 ## Phase 2: HTTP Constants
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 
 ### Problem
 Hard-coded HTTP-related strings scattered across providers:
@@ -46,13 +46,13 @@ Hard-coded HTTP-related strings scattered across providers:
 Create `Sources/Yrden/Providers/HTTPConstants.swift` with enums for headers, methods, and values.
 
 ### Files to Create
-- [ ] `Sources/Yrden/Providers/HTTPConstants.swift`
+- [x] `Sources/Yrden/Providers/HTTPConstants.swift`
 
 ### Files to Modify
-- [ ] `Sources/Yrden/Providers/Anthropic/AnthropicProvider.swift`
-- [ ] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAIProvider.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
+- [x] `Sources/Yrden/Providers/Anthropic/AnthropicProvider.swift`
+- [x] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
+- [x] `Sources/Yrden/Providers/OpenAI/OpenAIProvider.swift`
+- [x] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
 
 ---
 

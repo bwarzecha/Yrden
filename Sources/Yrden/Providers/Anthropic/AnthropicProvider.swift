@@ -46,9 +46,9 @@ public struct AnthropicProvider: Provider, Sendable {
     /// - `anthropic-version`: API version (2023-06-01)
     /// - `Content-Type`: application/json
     public func authenticate(_ request: inout URLRequest) async throws {
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: AnthropicHeader.apiKeyField)
+        request.setValue(AnthropicHeader.versionValue, forHTTPHeaderField: AnthropicHeader.versionField)
+        request.setValue(HTTPHeaderValue.applicationJSON, forHTTPHeaderField: HTTPHeaderField.contentType)
     }
 
     /// Lists available models from Anthropic.
@@ -107,7 +107,7 @@ public struct AnthropicProvider: Provider, Sendable {
         }
 
         var request = URLRequest(url: urlComponents.url!)
-        request.httpMethod = "GET"
+        request.httpMethod = HTTPMethod.get
         try await authenticate(&request)
 
         let (data, response) = try await URLSession.shared.data(for: request)
