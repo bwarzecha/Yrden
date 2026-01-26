@@ -467,8 +467,9 @@ struct SettingsView: View {
         case .anthropic:
             return model.id.contains("claude")
         case .openai:
-            let validPrefixes = ["gpt-4", "gpt-3.5", "o1", "o3"]
-            return validPrefixes.contains { model.id.hasPrefix($0) }
+            // Include gpt-3.5, gpt-4, gpt-5+, chatgpt, o-series, and any model with "chat"
+            let validPrefixes = ["gpt-", "chatgpt-", "o1", "o3", "o4"]
+            return validPrefixes.contains { model.id.hasPrefix($0) } || model.id.contains("chat")
         case .bedrock:
             let isClaudeModel = model.id.contains("claude") || model.id.contains("anthropic")
             let isInferenceProfile = model.metadata?["type"]?.stringValue == "inference_profile"

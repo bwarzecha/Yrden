@@ -71,9 +71,14 @@ public struct BedrockModel: Model, @unchecked Sendable {
         try validateRequest(request)
 
         let input = try encodeRequest(request)
-        let output = try await provider.runtimeClient.converse(input: input)
-
-        return try decodeResponse(output)
+        do {
+            let output = try await provider.runtimeClient.converse(input: input)
+            return try decodeResponse(output)
+        } catch let error as LLMError {
+            throw error
+        } catch {
+            throw provider.mapError(error)
+        }
     }
 
     public func stream(_ request: CompletionRequest) -> AsyncThrowingStream<StreamEvent, Error> {
@@ -82,9 +87,11 @@ public struct BedrockModel: Model, @unchecked Sendable {
                 do {
                     try validateRequest(request)
                     let input = try encodeStreamRequest(request)
-                    try await streamRequest(input, continuation: continuation)
-                } catch {
+                    try await self.streamRequest(input, continuation: continuation)
+                } catch let error as LLMError {
                     continuation.finish(throwing: error)
+                } catch {
+                    continuation.finish(throwing: self.provider.mapError(error))
                 }
             }
         }
@@ -355,7 +362,12 @@ public struct BedrockModel: Model, @unchecked Sendable {
         _ input: ConverseStreamInput,
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
     ) async throws {
-        let output = try await provider.runtimeClient.converseStream(input: input)
+        let output: ConverseStreamOutput
+        do {
+            output = try await provider.runtimeClient.converseStream(input: input)
+        } catch {
+            throw provider.mapError(error)
+        }
 
         guard let stream = output.stream else {
             // No stream available - emit empty done event before finishing

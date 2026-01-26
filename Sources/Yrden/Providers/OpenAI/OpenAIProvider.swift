@@ -101,8 +101,11 @@ public struct OpenAIProvider: Provider, OpenAICompatibleProvider, Sendable {
                     // Filter to chat completion models only
                     let chatModels = apiResponse.data.filter { model in
                         model.id.hasPrefix("gpt-") ||
+                        model.id.hasPrefix("chatgpt-") ||
                         model.id.hasPrefix("o1") ||
-                        model.id.hasPrefix("o3")
+                        model.id.hasPrefix("o3") ||
+                        model.id.hasPrefix("o4") ||
+                        model.id.contains("chat")
                     }
 
                     // Sort by creation date (newest first)

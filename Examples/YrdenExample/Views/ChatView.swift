@@ -10,6 +10,11 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Error banner at top
+            if let error = viewModel.error {
+                ErrorBanner(error: error, onDismiss: { viewModel.clearError() })
+            }
+
             // Messages list
             ScrollViewReader { proxy in
                 ScrollView {
@@ -99,6 +104,58 @@ struct ChatView: View {
         guard !text.isEmpty else { return }
         inputText = ""
         Task { await viewModel.send(text) }
+    }
+}
+
+// MARK: - Error Banner
+
+struct ErrorBanner: View {
+    let error: Error
+    let onDismiss: () -> Void
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "exclamationmark.octagon.fill")
+                    .foregroundColor(.red)
+                Text("Error")
+                    .font(.headline)
+                Spacer()
+                Button(action: { isExpanded.toggle() }) {
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text(error.localizedDescription)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .lineLimit(isExpanded ? nil : 2)
+
+            if isExpanded {
+                // Show full error details
+                Text(String(describing: error))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+                    .padding(8)
+                    .background(Color.black.opacity(0.05))
+                    .cornerRadius(4)
+            }
+        }
+        .padding()
+        .background(Color.red.opacity(0.1))
+        .cornerRadius(8)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 }
 

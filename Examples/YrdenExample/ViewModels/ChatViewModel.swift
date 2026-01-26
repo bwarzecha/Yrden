@@ -133,4 +133,8 @@ class ChatViewModel: ObservableObject {
         pausedRun = nil
         pendingApproval = nil
     }
+
+    func clearError() {
+        error = nil
+    }
 }
