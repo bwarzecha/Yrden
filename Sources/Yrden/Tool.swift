@@ -216,3 +216,26 @@ extension ToolOutput {
         }
     }
 }
+
+// MARK: - JSON String Conversion
+
+extension ToolOutput {
+    /// Returns the JSON string representation for `.json` case, nil otherwise.
+    ///
+    /// This helper consolidates the JSON encoding logic used by providers when
+    /// converting tool results to their wire format.
+    ///
+    /// Example:
+    /// ```swift
+    /// let output = ToolOutput.json(["key": "value"])
+    /// let content = output.jsonString ?? ""  // '{"key":"value"}'
+    /// ```
+    public var jsonString: String? {
+        guard case .json(let json) = self else { return nil }
+        guard let data = try? JSONEncoder().encode(json),
+              let string = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return string
+    }
+}

@@ -276,8 +276,8 @@ public struct OpenAIModel: Model, Sendable {
                 switch entry.output {
                 case .text(let text):
                     content = text
-                case .json(let json):
-                    content = (try? String(data: JSONEncoder().encode(json), encoding: .utf8)) ?? "{}"
+                case .json:
+                    content = entry.output.jsonString ?? "{}"
                 case .error(let message):
                     content = "Error: \(message)"
                 }
@@ -335,11 +335,8 @@ public struct OpenAIModel: Model, Sendable {
             )
         } ?? []
 
-        let stopReason = mapStopReason(
-            choice.finish_reason,
-            content: content,
-            stopSequences: stopSequences
-        )
+        let hasStopSequences = stopSequences?.isEmpty == false
+        let stopReason = StopReason.from(openAIReason: choice.finish_reason, hasStopSequences: hasStopSequences)
         let usage = Usage(
             inputTokens: response.usage?.prompt_tokens ?? 0,
             outputTokens: response.usage?.completion_tokens ?? 0
@@ -351,31 +348,6 @@ public struct OpenAIModel: Model, Sendable {
             stopReason: stopReason,
             usage: usage
         )
-    }
-
-    private func mapStopReason(
-        _ reason: String?,
-        content: String? = nil,
-        stopSequences: [String]? = nil
-    ) -> StopReason {
-        switch reason {
-        case OpenAIFinishReason.stop:
-            // OpenAI returns "stop" for both natural end and stop sequence
-            // OpenAI removes the stop sequence from content, so we can't detect it by suffix
-            // If stop sequences were provided, assume it stopped due to one of them
-            if let stopSequences = stopSequences, !stopSequences.isEmpty {
-                return .stopSequence
-            }
-            return .endTurn
-        case OpenAIFinishReason.toolCalls:
-            return .toolUse
-        case OpenAIFinishReason.length:
-            return .maxTokens
-        case OpenAIFinishReason.contentFilter:
-            return .contentFiltered
-        default:
-            return .endTurn
-        }
     }
 
     // MARK: - HTTP
@@ -522,14 +494,11 @@ public struct OpenAIModel: Model, Sendable {
             ToolCall(id: acc.id, name: acc.name, arguments: acc.arguments)
         }
 
+        let hasStopSequences = stopSequences?.isEmpty == false
         let completionResponse = CompletionResponse(
             content: accumulatedContent.isEmpty ? nil : accumulatedContent,
             toolCalls: toolCalls,
-            stopReason: mapStopReason(
-                lastFinishReason,
-                content: accumulatedContent.isEmpty ? nil : accumulatedContent,
-                stopSequences: stopSequences
-            ),
+            stopReason: StopReason.from(openAIReason: lastFinishReason, hasStopSequences: hasStopSequences),
             usage: Usage(inputTokens: inputTokens, outputTokens: outputTokens)
         )
 

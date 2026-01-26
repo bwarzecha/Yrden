@@ -158,8 +158,8 @@ public struct AnthropicModel: Model, Sendable {
                 case .text(let text):
                     content = text
                     isError = false
-                case .json(let json):
-                    content = (try? String(data: JSONEncoder().encode(json), encoding: .utf8)) ?? "{}"
+                case .json:
+                    content = entry.output.jsonString ?? "{}"
                     isError = false
                 case .error(let message):
                     content = message
@@ -229,7 +229,7 @@ public struct AnthropicModel: Model, Sendable {
             }
         }
 
-        let stopReason = mapStopReason(response.stop_reason)
+        let stopReason = StopReason.from(anthropicReason: response.stop_reason)
         let usage = Usage(
             inputTokens: response.usage.input_tokens,
             outputTokens: response.usage.output_tokens
@@ -249,21 +249,6 @@ public struct AnthropicModel: Model, Sendable {
             throw LLMError.decodingError("Failed to encode tool input as UTF-8")
         }
         return string
-    }
-
-    private func mapStopReason(_ reason: String?) -> StopReason {
-        switch reason {
-        case AnthropicStopReason.endTurn:
-            return .endTurn
-        case AnthropicStopReason.toolUse:
-            return .toolUse
-        case AnthropicStopReason.maxTokens:
-            return .maxTokens
-        case AnthropicStopReason.stopSequence:
-            return .stopSequence
-        default:
-            return .endTurn
-        }
     }
 
     // MARK: - HTTP
@@ -406,7 +391,7 @@ public struct AnthropicModel: Model, Sendable {
 
         case .messageDelta(let delta, let usage):
             outputTokens = usage.output_tokens
-            let stopReason = mapStopReason(delta.stop_reason)
+            let stopReason = StopReason.from(anthropicReason: delta.stop_reason)
 
             // Build final response
             let toolCalls = accumulatedToolCalls.map { acc in

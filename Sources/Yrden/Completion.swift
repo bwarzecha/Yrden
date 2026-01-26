@@ -169,6 +169,55 @@ public enum StopReason: String, Codable, Sendable, Equatable, Hashable {
     case contentFiltered = "content_filtered"
 }
 
+// MARK: - Provider Stop Reason Mapping
+
+extension StopReason {
+    /// Create StopReason from Anthropic API `stop_reason` value.
+    ///
+    /// Maps Anthropic-specific strings to the common StopReason enum:
+    /// - "end_turn" → .endTurn
+    /// - "tool_use" → .toolUse
+    /// - "max_tokens" → .maxTokens
+    /// - "stop_sequence" → .stopSequence
+    /// - Unknown values default to .endTurn
+    public static func from(anthropicReason reason: String?) -> StopReason {
+        switch reason {
+        case "end_turn": return .endTurn
+        case "tool_use": return .toolUse
+        case "max_tokens": return .maxTokens
+        case "stop_sequence": return .stopSequence
+        default: return .endTurn
+        }
+    }
+
+    /// Create StopReason from OpenAI API `finish_reason` value.
+    ///
+    /// Maps OpenAI-specific strings to the common StopReason enum:
+    /// - "stop" → .endTurn (or .stopSequence if stop sequences were provided)
+    /// - "tool_calls" → .toolUse
+    /// - "length" → .maxTokens
+    /// - "content_filter" → .contentFiltered
+    /// - Unknown values default to .endTurn
+    ///
+    /// - Parameters:
+    ///   - reason: The finish_reason string from OpenAI API
+    ///   - hasStopSequences: Whether stop sequences were provided in the request.
+    ///     OpenAI returns "stop" for both natural end and stop sequence hits,
+    ///     so we use this flag to disambiguate.
+    public static func from(openAIReason reason: String?, hasStopSequences: Bool = false) -> StopReason {
+        switch reason {
+        case "stop":
+            // OpenAI returns "stop" for both natural end and stop sequence
+            // If stop sequences were provided, assume it stopped due to one of them
+            return hasStopSequences ? .stopSequence : .endTurn
+        case "tool_calls": return .toolUse
+        case "length": return .maxTokens
+        case "content_filter": return .contentFiltered
+        default: return .endTurn
+        }
+    }
+}
+
 // MARK: - Usage
 
 /// Token usage statistics for a completion.

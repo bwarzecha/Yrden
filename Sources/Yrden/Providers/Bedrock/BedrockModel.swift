@@ -229,8 +229,8 @@ public struct BedrockModel: Model, @unchecked Sendable {
                 case .text(let text):
                     content = text
                     status = nil
-                case .json(let json):
-                    content = (try? String(data: JSONEncoder().encode(json), encoding: .utf8)) ?? "{}"
+                case .json:
+                    content = entry.output.jsonString ?? "{}"
                     status = nil
                 case .error(let message):
                     content = message
@@ -370,15 +370,11 @@ public struct BedrockModel: Model, @unchecked Sendable {
         }
 
         guard let stream = output.stream else {
-            // No stream available - emit empty done event before finishing
-            let emptyResponse = CompletionResponse(
-                content: nil,
-                toolCalls: [],
-                stopReason: .endTurn,
-                usage: Usage(inputTokens: 0, outputTokens: 0)
-            )
-            continuation.yield(.done(emptyResponse))
-            continuation.finish()
+            // Stream unavailable - this is an error condition, not a valid empty response
+            continuation.finish(throwing: LLMError.networkError(
+                "Bedrock streaming unavailable - converseStream returned nil stream. " +
+                "This may indicate a connection issue or unsupported model configuration."
+            ))
             return
         }
 
