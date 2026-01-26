@@ -66,5 +66,11 @@ let package = Package(
             path: "Examples/MCPOAuthApp",
             exclude: ["Info.plist", "build-app.sh"]
         ),
+        .executableTarget(
+            name: "YrdenExample",
+            dependencies: ["Yrden"],
+            path: "Examples/YrdenExample",
+            exclude: ["build-app.sh"]
+        ),
     ]
 )
