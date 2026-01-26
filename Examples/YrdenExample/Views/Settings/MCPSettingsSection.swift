@@ -175,7 +175,8 @@ struct MCPSettingsSection: View {
         connectionStatus = ""
 
         do {
-            let tools: [String]
+            let toolNames: [String]
+            let agentTools: [AnyAgentTool<AppDependencies>]
             let connection: MCPServerConnection
 
             switch server.mode {
@@ -183,13 +184,13 @@ struct MCPSettingsSection: View {
                 let commandLine = [server.command, server.arguments]
                     .compactMap { $0 }
                     .joined(separator: " ")
-                (connection, tools) = try await viewModel.connectMCPStdioRaw(commandLine: commandLine)
+                (connection, agentTools, toolNames) = try await viewModel.connectMCPStdioRaw(commandLine: commandLine)
 
             case .oauth:
                 guard let urlString = server.serverURL, let url = URL(string: urlString) else {
                     throw NSError(domain: "MCP", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
                 }
-                (connection, tools) = try await viewModel.connectMCPOAuthRaw(
+                (connection, agentTools, toolNames) = try await viewModel.connectMCPOAuthRaw(
                     url: url,
                     redirectScheme: server.redirectScheme ?? "yrden-example"
                 ) { progress in
@@ -199,10 +200,10 @@ struct MCPSettingsSection: View {
                 }
             }
 
-            // Register tools with viewModel
-            try await viewModel.registerMCPTools(serverId: server.id, connection: connection)
+            // Register tools with viewModel (pass the already-discovered tools)
+            viewModel.registerMCPTools(serverId: server.id, tools: agentTools)
 
-            let connectedServer = ConnectedMCPServer(config: server, connection: connection, tools: tools)
+            let connectedServer = ConnectedMCPServer(config: server, connection: connection, tools: toolNames)
             store.addConnectedServer(connectedServer)
             connectingServerId = nil
             connectionStatus = ""

@@ -10,6 +10,11 @@ class ChatViewModel: ObservableObject {
     @Published var error: Error?
     @Published var logs: [LogEntry] = []
 
+    // Usage tracking
+    @Published var currentTurnUsage: Usage?       // Usage for current streaming turn
+    @Published var totalUsage: Usage?             // Accumulated usage for conversation
+    @Published var maxContextTokens: Int?         // Model's context window size
+
     private let deps: AppDependencies
     private var agent: Agent<AppDependencies, String>?
     private var pausedRun: PausedAgentRun?
@@ -19,6 +24,13 @@ class ChatViewModel: ObservableObject {
     private var mcpToolsCache: [UUID: [AnyAgentTool<AppDependencies>]] = [:]
 
     init(deps: AppDependencies = .default()) { self.deps = deps }
+
+    /// Context usage as a percentage (0.0 to 1.0), or nil if unknown
+    var contextUsagePercent: Double? {
+        guard let maxContext = maxContextTokens, maxContext > 0,
+              let total = totalUsage else { return nil }
+        return Double(total.inputTokens) / Double(maxContext)
+    }
 
     // MARK: - Logging
 
@@ -47,33 +59,33 @@ class ChatViewModel: ObservableObject {
             tools: mcpTools,
             maxIterations: 10
         )
-        log(.info, "Configured agent", details: "Model: \(model.name), Tools: \(mcpTools.map { $0.name }.joined(separator: ", "))")
+        // Store model's context window size for usage indicator
+        maxContextTokens = model.capabilities.maxContextTokens
+        log(.info, "Configured agent", details: "Model: \(model.name), Context: \(maxContextTokens.map { "\($0)" } ?? "unknown"), Tools: \(mcpTools.map { $0.name }.joined(separator: ", "))")
     }
 
     // MARK: - MCP (Multi-Server Support)
 
-    /// Connect to an MCP server via stdio and return the connection + tool names.
-    /// The connection is NOT stored - caller is responsible for tracking it.
-    func connectMCPStdioRaw(commandLine: String) async throws -> (MCPServerConnection, [String]) {
+    /// Connect to an MCP server via stdio and return the connection, tools, and tool names.
+    func connectMCPStdioRaw(commandLine: String) async throws -> (MCPServerConnection, [AnyAgentTool<AppDependencies>], [String]) {
         log(.info, "Connecting MCP stdio", details: commandLine)
         do {
             let server = try await mcpConnect(commandLine)
             let tools: [AnyAgentTool<AppDependencies>] = try await server.discoverTools()
             log(.info, "MCP connected", details: "Tools: \(tools.map { $0.name }.joined(separator: ", "))")
-            return (server, tools.map { $0.name })
+            return (server, tools, tools.map { $0.name })
         } catch {
             log(.error, "MCP connection failed", details: String(describing: error))
             throw error
         }
     }
 
-    /// Connect to an MCP server via OAuth and return the connection + tool names.
-    /// The connection is NOT stored - caller is responsible for tracking it.
+    /// Connect to an MCP server via OAuth and return the connection, tools, and tool names.
     func connectMCPOAuthRaw(
         url: URL,
         redirectScheme: String,
         onProgress: @escaping @Sendable (MCPOAuthProgress) -> Void
-    ) async throws -> (MCPServerConnection, [String]) {
+    ) async throws -> (MCPServerConnection, [AnyAgentTool<AppDependencies>], [String]) {
         log(.info, "Connecting MCP OAuth", details: url.absoluteString)
         do {
             let server = try await mcpConnect(
@@ -83,7 +95,7 @@ class ChatViewModel: ObservableObject {
             )
             let tools: [AnyAgentTool<AppDependencies>] = try await server.discoverTools()
             log(.info, "MCP OAuth connected", details: "Tools: \(tools.map { $0.name }.joined(separator: ", "))")
-            return (server, tools.map { $0.name })
+            return (server, tools, tools.map { $0.name })
         } catch {
             log(.error, "MCP OAuth failed", details: String(describing: error))
             throw error
@@ -91,8 +103,7 @@ class ChatViewModel: ObservableObject {
     }
 
     /// Register tools from a connected server (by server ID).
-    func registerMCPTools(serverId: UUID, connection: MCPServerConnection) async throws {
-        let tools: [AnyAgentTool<AppDependencies>] = try await connection.discoverTools()
+    func registerMCPTools(serverId: UUID, tools: [AnyAgentTool<AppDependencies>]) {
         mcpToolsCache[serverId] = tools
     }
 
@@ -136,10 +147,14 @@ class ChatViewModel: ObservableObject {
                         info.status = .completed
                     }
                 case .usage(let usage):
+                    currentTurnUsage = usage
                     log(.debug, "Usage update", details: "Input: \(usage.inputTokens), Output: \(usage.outputTokens)")
                 case .result(let r):
                     log(.info, "Agent result", details: "Output: \(r.output.prefix(200))..., Usage: \(r.usage)")
                     messageHistory = r.messages  // Save for multi-turn
+                    // Update total usage
+                    updateTotalUsage(with: r.usage)
+                    currentTurnUsage = nil
                     if messages.last?.content.isEmpty == true {
                         messages[messages.count - 1].appendText(r.output)
                     }
@@ -173,6 +188,7 @@ class ChatViewModel: ObservableObject {
             let result = try await agent.resume(paused: paused, resolutions: resolutions, deps: deps)
             log(.info, "Resume completed", details: "Output length: \(result.output.count)")
             messageHistory = result.messages  // Save for multi-turn
+            updateTotalUsage(with: result.usage)
             if messages.last?.content.isEmpty == true {
                 messages[messages.count - 1].appendText(result.output)
             }
@@ -199,6 +215,25 @@ class ChatViewModel: ObservableObject {
         error = nil
         pausedRun = nil
         pendingApproval = nil
+        // Reset usage tracking
+        currentTurnUsage = nil
+        totalUsage = nil
+    }
+
+    // MARK: - Usage Tracking
+
+    private func updateTotalUsage(with usage: Usage) {
+        if let existing = totalUsage {
+            // Accumulate totals - input tokens represent the growing context
+            totalUsage = Usage(
+                inputTokens: usage.inputTokens,  // Latest input reflects full context
+                outputTokens: existing.outputTokens + usage.outputTokens,
+                cachedTokens: usage.cachedTokens,
+                reasoningTokens: (existing.reasoningTokens ?? 0) + (usage.reasoningTokens ?? 0)
+            )
+        } else {
+            totalUsage = usage
+        }
     }
 
     func clearError() {
