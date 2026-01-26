@@ -380,7 +380,7 @@ public struct OpenAIModel: Model, Sendable {
     // MARK: - HTTP
 
     private func sendRequest(_ request: OpenAIRequest) async throws -> Data {
-        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("chat/completions"))
+        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent(OpenAIEndpoint.chatCompletions))
         urlRequest.httpMethod = HTTPMethod.post
         try await provider.authenticate(&urlRequest)
         urlRequest.httpBody = try JSONEncoder().encode(request)
@@ -447,7 +447,7 @@ public struct OpenAIModel: Model, Sendable {
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation,
         stopSequences: [String]? = nil
     ) async throws {
-        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("chat/completions"))
+        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent(OpenAIEndpoint.chatCompletions))
         urlRequest.httpMethod = HTTPMethod.post
         try await provider.authenticate(&urlRequest)
         urlRequest.httpBody = try JSONEncoder().encode(request)
@@ -683,7 +683,7 @@ public struct OpenAIModel: Model, Sendable {
     }
 
     private func sendResponsesRequest(_ request: ResponsesAPIRequest) async throws -> Data {
-        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("responses"))
+        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent(OpenAIEndpoint.responses))
         urlRequest.httpMethod = HTTPMethod.post
         try await provider.authenticate(&urlRequest)
         urlRequest.httpBody = try JSONEncoder().encode(request)
@@ -766,7 +766,7 @@ public struct OpenAIModel: Model, Sendable {
         _ request: ResponsesAPIRequest,
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
     ) async throws {
-        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("responses"))
+        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent(OpenAIEndpoint.responses))
         urlRequest.httpMethod = HTTPMethod.post
         try await provider.authenticate(&urlRequest)
         urlRequest.httpBody = try JSONEncoder().encode(request)

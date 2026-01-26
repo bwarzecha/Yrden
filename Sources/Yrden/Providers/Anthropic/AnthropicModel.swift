@@ -268,7 +268,7 @@ public struct AnthropicModel: Model, Sendable {
     // MARK: - HTTP
 
     private func sendRequest(_ request: AnthropicRequest) async throws -> Data {
-        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("messages"))
+        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent(AnthropicEndpoint.messages))
         urlRequest.httpMethod = HTTPMethod.post
         try await provider.authenticate(&urlRequest)
         urlRequest.httpBody = try JSONEncoder().encode(request)
@@ -328,7 +328,7 @@ public struct AnthropicModel: Model, Sendable {
         _ request: AnthropicRequest,
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
     ) async throws {
-        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent("messages"))
+        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent(AnthropicEndpoint.messages))
         urlRequest.httpMethod = HTTPMethod.post
         try await provider.authenticate(&urlRequest)
         urlRequest.httpBody = try JSONEncoder().encode(request)

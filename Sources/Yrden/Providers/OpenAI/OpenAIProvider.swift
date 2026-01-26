@@ -73,7 +73,7 @@ public struct OpenAIProvider: Provider, OpenAICompatibleProvider, Sendable {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    var request = URLRequest(url: baseURL.appendingPathComponent("models"))
+                    var request = URLRequest(url: baseURL.appendingPathComponent(OpenAIEndpoint.models))
                     request.httpMethod = HTTPMethod.get
                     try await authenticate(&request)
 

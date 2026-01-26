@@ -2,7 +2,7 @@
 
 > Tracking document for extracting duplicate code and hard-coded strings from provider implementations.
 
-## Status: Phase 5 In Progress
+## Status: Phase 6 In Progress
 
 ---
 
@@ -110,7 +110,7 @@ Create `Sources/Yrden/MessageRoles.swift` with role constants.
 ---
 
 ## Phase 5: API Endpoint Constants
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 
 ### Problem
 API endpoint paths hard-coded:
@@ -126,13 +126,13 @@ API endpoint paths hard-coded:
 Add endpoint constants to each provider or create `Sources/Yrden/Providers/APIEndpoints.swift`.
 
 ### Files to Create
-- [ ] `Sources/Yrden/Providers/APIEndpoints.swift`
+- [x] `Sources/Yrden/Providers/APIEndpoints.swift`
 
 ### Files to Modify
-- [ ] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
-- [ ] `Sources/Yrden/Providers/Anthropic/AnthropicProvider.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAIProvider.swift`
+- [x] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
+- [x] `Sources/Yrden/Providers/Anthropic/AnthropicProvider.swift`
+- [x] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
+- [x] `Sources/Yrden/Providers/OpenAI/OpenAIProvider.swift`
 
 ---
 

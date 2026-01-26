@@ -100,7 +100,7 @@ public struct AnthropicProvider: Provider, Sendable {
 
     /// Fetches a single page of models from the API.
     private func fetchModelsPage(after cursor: String?) async throws -> ModelsPage {
-        var urlComponents = URLComponents(url: baseURL.appendingPathComponent("models"), resolvingAgainstBaseURL: false)!
+        var urlComponents = URLComponents(url: baseURL.appendingPathComponent(AnthropicEndpoint.models), resolvingAgainstBaseURL: false)!
 
         if let cursor = cursor {
             urlComponents.queryItems = [URLQueryItem(name: "after_id", value: cursor)]
