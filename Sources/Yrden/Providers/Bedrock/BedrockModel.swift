@@ -487,9 +487,38 @@ public struct BedrockModel: Model, @unchecked Sendable {
             baseId = modelId
         }
 
-        // Detect by model family
+        // Detect Claude model family
         if baseId.contains("claude") {
-            return .claude35 // Claude models have full capabilities
+            // Claude 4.5 Opus (anthropic.claude-opus-4-5-*)
+            if baseId.contains("opus-4-5") || baseId.contains("opus-4.5") {
+                return .claude45Opus
+            }
+            // Claude 4.5 Sonnet (anthropic.claude-sonnet-4-5-*)
+            if baseId.contains("sonnet-4-5") || baseId.contains("sonnet-4.5") {
+                return .claude45Sonnet
+            }
+            // Claude 4.5 Haiku (anthropic.claude-haiku-4-5-*)
+            if baseId.contains("haiku-4-5") || baseId.contains("haiku-4.5") {
+                return .claude45Haiku
+            }
+            // Claude 4 Sonnet (anthropic.claude-sonnet-4-*)
+            if baseId.contains("sonnet-4-") {
+                return .claude4Sonnet
+            }
+            // Claude 3.5 Sonnet (anthropic.claude-3-5-sonnet-*)
+            if baseId.contains("3-5-sonnet") || baseId.contains("3.5-sonnet") {
+                return .claude35
+            }
+            // Claude 3.5 Haiku (anthropic.claude-3-5-haiku-*)
+            if baseId.contains("3-5-haiku") || baseId.contains("3.5-haiku") {
+                return .claude35Haiku
+            }
+            // Claude 3 Haiku
+            if baseId.contains("haiku") {
+                return .claude3Haiku
+            }
+            // Default to claude35 for other Claude models
+            return .claude35
         } else if baseId.contains("nova") {
             // Nova models have full capabilities
             return ModelCapabilities(

@@ -869,34 +869,39 @@ public struct OpenAIModel: Model, Sendable {
 
     private static func capabilities(for modelName: String) -> ModelCapabilities {
         // GPT-5.x family - flagship models with full capabilities
-        // GPT-5: 400K context, GPT-5.2: 400K context, 128K max output
+        // 400K context, 128K max output
         if modelName.hasPrefix("gpt-5") {
             return .gpt5
         }
 
-        // GPT-4.1 family - similar to GPT-4o but newer
+        // GPT-4.1 family - 1M context, 32K max output
         if modelName.hasPrefix("gpt-4.1") {
-            return .gpt4o
+            return .gpt41
         }
 
-        // GPT-4o and GPT-4o-mini
+        // GPT-4o and GPT-4o-mini - 128K context, 16K max output
         if modelName.hasPrefix("gpt-4o") {
             return .gpt4o
         }
 
-        // GPT-4 Turbo
+        // GPT-4 Turbo - 128K context
         if modelName.hasPrefix("gpt-4-turbo") || modelName == "gpt-4-1106-preview" || modelName == "gpt-4-0125-preview" {
             return .gpt4Turbo
         }
 
-        // o1 family (significant limitations - no temp, no system, no tools)
-        if modelName.hasPrefix("o1") {
-            return .o1
+        // o4 family - 200K context, 100K max output
+        if modelName.hasPrefix("o4") {
+            return .o4
         }
 
-        // o3 family (no temp, no system, but has tools and vision)
+        // o3 family - 200K context, 100K max output (has tools and vision)
         if modelName.hasPrefix("o3") {
             return .o3
+        }
+
+        // o1 family - 200K context, 100K max output (significant limitations)
+        if modelName.hasPrefix("o1") {
+            return .o1
         }
 
         // GPT-4 base (older, less capable than turbo/o)
@@ -904,7 +909,7 @@ public struct OpenAIModel: Model, Sendable {
             return .gpt4Turbo
         }
 
-        // GPT-3.5 Turbo
+        // GPT-3.5 Turbo - 16K context
         if modelName.hasPrefix("gpt-3.5") {
             return ModelCapabilities(
                 supportsTemperature: true,

@@ -421,9 +421,38 @@ public struct AnthropicModel: Model, Sendable {
     // MARK: - Capabilities
 
     private static func capabilities(for modelName: String) -> ModelCapabilities {
-        // Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Sonnet
-        if modelName.contains("claude-3") {
+        // Claude 4.5 Opus (claude-opus-4-5-*, anthropic.claude-opus-4-5-*)
+        if modelName.contains("opus-4") || modelName.contains("claude-4-5-opus") ||
+           modelName.contains("claude-4.5-opus") {
+            return .claude45Opus
+        }
+
+        // Claude 4.5 Sonnet (claude-sonnet-4-5-*, anthropic.claude-sonnet-4-5-*)
+        if modelName.contains("sonnet-4-5") || modelName.contains("claude-4-5-sonnet") ||
+           modelName.contains("claude-4.5-sonnet") {
+            return .claude45Sonnet
+        }
+
+        // Claude 4.5 Haiku (claude-haiku-4-5-*, anthropic.claude-haiku-4-5-*)
+        if modelName.contains("haiku-4-5") || modelName.contains("claude-4-5-haiku") ||
+           modelName.contains("claude-4.5-haiku") || modelName.contains("haiku-4.5") {
+            return .claude45Haiku
+        }
+
+        // Claude 4 Sonnet (claude-sonnet-4-*, anthropic.claude-sonnet-4-*)
+        if modelName.contains("sonnet-4-") || modelName.contains("claude-4-sonnet") ||
+           modelName.contains("claude-4.0-sonnet") {
+            return .claude4Sonnet
+        }
+
+        // Claude 3.5 Sonnet (claude-3-5-sonnet-*, anthropic.claude-3-5-sonnet-*)
+        if modelName.contains("3-5-sonnet") || modelName.contains("3.5-sonnet") {
             return .claude35
+        }
+
+        // Claude 3.5 Haiku (claude-3-5-haiku-*, anthropic.claude-3-5-haiku-*)
+        if modelName.contains("3-5-haiku") || modelName.contains("3.5-haiku") {
+            return .claude35Haiku
         }
 
         // Claude 3 Haiku
@@ -431,15 +460,13 @@ public struct AnthropicModel: Model, Sendable {
             return .claude3Haiku
         }
 
-        // Default to full capabilities
-        return ModelCapabilities(
-            supportsTemperature: true,
-            supportsTools: true,
-            supportsVision: true,
-            supportsStructuredOutput: true,
-            supportsSystemMessage: true,
-            maxContextTokens: 200_000
-        )
+        // Claude 3 Opus, Claude 3 Sonnet
+        if modelName.contains("claude-3") {
+            return .claude35
+        }
+
+        // Default to Claude 4.5 capabilities for unknown/future models
+        return .claude45Sonnet
     }
 }
 

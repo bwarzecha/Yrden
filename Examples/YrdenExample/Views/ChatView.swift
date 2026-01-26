@@ -39,6 +39,22 @@ struct ChatView: View {
 
             Divider()
 
+            // Usage indicator (show when we have usage data or are processing)
+            if viewModel.totalUsage != nil || viewModel.currentTurnUsage != nil {
+                HStack {
+                    Spacer()
+                    UsageIndicator(
+                        currentTurnUsage: viewModel.currentTurnUsage,
+                        totalUsage: viewModel.totalUsage,
+                        maxContextTokens: viewModel.maxContextTokens,
+                        isProcessing: viewModel.isProcessing
+                    )
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 4)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+            }
+
             // Approval banner
             if let approval = viewModel.pendingApproval {
                 ApprovalBanner(

@@ -81,7 +81,54 @@ public struct ModelCapabilities: Sendable, Codable, Equatable, Hashable {
 // MARK: - Predefined Capabilities
 
 extension ModelCapabilities {
+    // MARK: - Anthropic Claude Models
+
+    /// Capabilities for Claude 4.5 Opus.
+    /// 200K context, 64K max output.
+    public static let claude45Opus = ModelCapabilities(
+        supportsTemperature: true,
+        supportsTools: true,
+        supportsVision: true,
+        supportsStructuredOutput: true,
+        supportsSystemMessage: true,
+        maxContextTokens: 200_000
+    )
+
+    /// Capabilities for Claude 4.5 Sonnet.
+    /// 200K context (1M with beta header), 64K max output.
+    public static let claude45Sonnet = ModelCapabilities(
+        supportsTemperature: true,
+        supportsTools: true,
+        supportsVision: true,
+        supportsStructuredOutput: true,
+        supportsSystemMessage: true,
+        maxContextTokens: 200_000
+    )
+
+    /// Capabilities for Claude 4.5 Haiku.
+    /// 200K context, 64K max output.
+    public static let claude45Haiku = ModelCapabilities(
+        supportsTemperature: true,
+        supportsTools: true,
+        supportsVision: true,
+        supportsStructuredOutput: true,
+        supportsSystemMessage: true,
+        maxContextTokens: 200_000
+    )
+
+    /// Capabilities for Claude 4 Sonnet.
+    /// 200K context (1M with beta header), 64K max output.
+    public static let claude4Sonnet = ModelCapabilities(
+        supportsTemperature: true,
+        supportsTools: true,
+        supportsVision: true,
+        supportsStructuredOutput: true,
+        supportsSystemMessage: true,
+        maxContextTokens: 200_000
+    )
+
     /// Capabilities for Claude 3.5 Sonnet/Opus models.
+    /// 200K context, 8K max output.
     public static let claude35 = ModelCapabilities(
         supportsTemperature: true,
         supportsTools: true,
@@ -91,7 +138,19 @@ extension ModelCapabilities {
         maxContextTokens: 200_000
     )
 
+    /// Capabilities for Claude 3.5 Haiku.
+    /// 200K context, 8K max output.
+    public static let claude35Haiku = ModelCapabilities(
+        supportsTemperature: true,
+        supportsTools: true,
+        supportsVision: true,
+        supportsStructuredOutput: true,
+        supportsSystemMessage: true,
+        maxContextTokens: 200_000
+    )
+
     /// Capabilities for Claude 3 Haiku.
+    /// 200K context, 4K max output.
     public static let claude3Haiku = ModelCapabilities(
         supportsTemperature: true,
         supportsTools: true,
@@ -101,8 +160,10 @@ extension ModelCapabilities {
         maxContextTokens: 200_000
     )
 
-    /// Capabilities for GPT-5 family (gpt-5, gpt-5.1, gpt-5.2, gpt-5-mini, etc).
-    /// Full featured with 400K context window.
+    // MARK: - OpenAI GPT Models
+
+    /// Capabilities for GPT-5 family (gpt-5, gpt-5.1, gpt-5.2, gpt-5-mini, gpt-5-nano, gpt-5.2-pro).
+    /// 400K context, 128K max output.
     public static let gpt5 = ModelCapabilities(
         supportsTemperature: true,
         supportsTools: true,
@@ -112,7 +173,19 @@ extension ModelCapabilities {
         maxContextTokens: 400_000
     )
 
+    /// Capabilities for GPT-4.1 family (gpt-4.1, gpt-4.1-mini, gpt-4.1-nano).
+    /// 1M context, 32K max output.
+    public static let gpt41 = ModelCapabilities(
+        supportsTemperature: true,
+        supportsTools: true,
+        supportsVision: true,
+        supportsStructuredOutput: true,
+        supportsSystemMessage: true,
+        maxContextTokens: 1_047_576
+    )
+
     /// Capabilities for GPT-4o and GPT-4o-mini.
+    /// 128K context, 16K max output.
     public static let gpt4o = ModelCapabilities(
         supportsTemperature: true,
         supportsTools: true,
@@ -123,6 +196,7 @@ extension ModelCapabilities {
     )
 
     /// Capabilities for GPT-4 Turbo.
+    /// 128K context.
     public static let gpt4Turbo = ModelCapabilities(
         supportsTemperature: true,
         supportsTools: true,
@@ -132,22 +206,35 @@ extension ModelCapabilities {
         maxContextTokens: 128_000
     )
 
-    /// Capabilities for o1/o1-mini/o3-mini reasoning models.
-    /// These models have significant limitations.
+    // MARK: - OpenAI Reasoning Models
+
+    /// Capabilities for o1/o1-mini/o1-pro reasoning models.
+    /// 200K context, 100K max output. Limited feature support.
     public static let o1 = ModelCapabilities(
         supportsTemperature: false,
         supportsTools: false,
         supportsVision: false,
         supportsStructuredOutput: false,
         supportsSystemMessage: false,
-        maxContextTokens: 128_000
+        maxContextTokens: 200_000
     )
 
-    /// Capabilities for o3 reasoning model.
-    /// Has more capabilities than o1 but still limited.
+    /// Capabilities for o3/o3-mini reasoning models.
+    /// 200K context, 100K max output. More capable than o1.
     public static let o3 = ModelCapabilities(
         supportsTemperature: false,
-        supportsTools: true,  // o3 supports tools
+        supportsTools: true,
+        supportsVision: true,
+        supportsStructuredOutput: true,
+        supportsSystemMessage: false,
+        maxContextTokens: 200_000
+    )
+
+    /// Capabilities for o4-mini reasoning model.
+    /// 200K context, 100K max output.
+    public static let o4 = ModelCapabilities(
+        supportsTemperature: false,
+        supportsTools: true,
         supportsVision: true,
         supportsStructuredOutput: true,
         supportsSystemMessage: false,
