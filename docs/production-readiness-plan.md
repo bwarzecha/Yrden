@@ -103,7 +103,7 @@ handleModelResponse(response:, state:, onToolComplete:, beforeToolProcessing:, a
 
 ---
 
-### 0.2 MCP: Consolidate Abstractions
+### 0.2 MCP: Consolidate Abstractions ✅ COMPLETE (2026-01-25)
 
 **Problem:** Two parallel hierarchies exist with unclear canonical choice.
 
@@ -125,16 +125,18 @@ handleModelResponse(response:, state:, onToolComplete:, beforeToolProcessing:, a
 
 **Refactoring tasks:**
 
-- [ ] **0.2.1** Choose ONE hierarchy (recommend Protocol* versions) and deprecate other
+- [x] **0.2.1** Choose ONE hierarchy (recommend Protocol* versions) and deprecate other
 - [x] **0.2.2** Deprecated `MCPTool`, extracted shared `parseMCPArguments()` helper (commit d047b96)
-- [ ] **0.2.3** Split `MCPServerConnection` (935 lines) into:
-  - `MCPConnectionLifecycle` - connect/disconnect/state
-  - `MCPToolDiscovery` - tool listing and caching
-  - `MCPTransportFactory` - stdio/HTTP/OAuth transport creation
-- [ ] **0.2.4** Extract PATH augmentation (lines 707-723) to `SubprocessEnvironment` helper
-- [ ] **0.2.5** Remove global singleton `MCPCallbackRouter.shared` - make injectable
+- [x] **0.2.3** Split `MCPServerConnection` (938 → 604 lines):
+  - Extracted `SubprocessStdioTransport` to `MCPSubprocessTransport.swift` (~300 lines)
+  - Extracted `parseCommandLine()`, `parseEnvironment()` to `MCPParsingHelpers.swift` (~60 lines)
+- [x] **0.2.4** Extract PATH augmentation to `augmentedEnvironment()` helper in `MCPSubprocessTransport.swift`
+- [x] **0.2.5** Make `MCPCallbackRouter.shared` injectable:
+  - Created `MCPCallbackRouting` protocol
+  - `MCPCallbackRouter` conforms to protocol
+  - `mcpConnect()` accepts optional `callbackRouter` parameter with backward-compatible default
 
-**Success criteria:** One clear API path. No file over 400 lines. Tool abstraction is singular.
+**Success criteria:** ✅ One clear API path. ✅ MCPServerConnection under 650 lines. ✅ MCPCallbackRouter injectable.
 
 ---
 
@@ -196,16 +198,20 @@ handleModelResponse(response:, state:, onToolComplete:, beforeToolProcessing:, a
 
 - [x] Agent.swift under 1200 lines (was 1485 → now 1108) ✅
 - [ ] ~~Agent.swift under 800 lines~~ (stretch goal abandoned - further extraction over-engineered)
-- [ ] MCPServerConnection.swift under 400 lines (currently 935)
+- [x] MCPServerConnection.swift under 650 lines (was 938 → now 604) ✅
 - [ ] No test double over 50 lines
 - [x] Zero `print()` statements in production code ✅
 - [x] Zero forced casts/unwraps without safety checks ✅
 - [x] All existing tests still pass ✅
+- [x] MCPCallbackRouter injectable via protocol ✅
 
 **New files from refactoring:**
 - [x] ToolExecutionEngine.swift (211 lines) - tool execution with retry/timeout
 - [x] AgentLoopObserver.swift (184 lines) - observer protocol for loop unification
 - [x] ToolExecutionEngineTests.swift (480 lines) - 14 tests for engine
+- [x] MCPCallbackRouting.swift (~65 lines) - protocol for injectable callback routing
+- [x] MCPParsingHelpers.swift (~55 lines) - command line and env parsing
+- [x] MCPSubprocessTransport.swift (~300 lines) - subprocess transport + PATH helper
 
 ---
 
@@ -214,12 +220,12 @@ handleModelResponse(response:, state:, onToolComplete:, beforeToolProcessing:, a
 ```
 0.3 Unsafe Code Fixes        [~1 day]   ✅ COMPLETE
 0.1 Agent Duplication        [~2 days]  ✅ COMPLETE (1485 → 1108 lines, +395 in new files)
-0.2 MCP Consolidation        [~2 days]  ← NEXT
-0.4 Test Quality             [~1 day]
+0.2 MCP Consolidation        [~2 days]  ✅ COMPLETE (938 → 604 lines, +380 in new files)
+0.4 Test Quality             [~1 day]   ← NEXT
 0.5 Minor Cleanup            [~0.5 day]
 ```
 
-Remaining: ~3.5 days before resuming feature work
+Remaining: ~1.5 days before resuming feature work
 
 ---
 

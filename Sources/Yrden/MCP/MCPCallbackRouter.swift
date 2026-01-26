@@ -23,9 +23,12 @@ import os.log
 ///
 /// Routes callbacks to the correct pending authorization flow by matching
 /// the OAuth `state` parameter or server ID.
-public actor MCPCallbackRouter {
-    /// Shared instance for simple usage. Injectable for testing.
-    public static let shared = MCPCallbackRouter()
+public actor MCPCallbackRouter: MCPCallbackRouting {
+    /// Shared instance for simple usage.
+    ///
+    /// For testability, use dependency injection with the `MCPCallbackRouting`
+    /// protocol instead of accessing this directly.
+    public static let shared: any MCPCallbackRouting = MCPCallbackRouter()
 
     private let logger = Logger(subsystem: "Yrden", category: "MCPCallbackRouter")
 

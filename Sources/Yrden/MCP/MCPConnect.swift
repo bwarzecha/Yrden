@@ -88,6 +88,7 @@ public func mcpConnect(
 ///   - url: Server URL (e.g., "https://ai.todoist.net/mcp")
 ///   - redirectScheme: Custom URL scheme for OAuth callback (e.g., "myapp")
 ///   - tokenStorage: Token storage (defaults to KeychainTokenStorage)
+///   - callbackRouter: OAuth callback router for testability (defaults to shared instance)
 ///   - clientName: Client name for dynamic registration
 ///   - onProgress: Progress callback for OAuth flow
 ///   - name: Optional display name for the connection
@@ -97,6 +98,7 @@ public func mcpConnect(
     url: URL,
     redirectScheme: String,
     tokenStorage: MCPTokenStorage? = nil,
+    callbackRouter: (any MCPCallbackRouting)? = nil,
     clientName: String = "Yrden MCP Client",
     onProgress: (@Sendable (MCPOAuthProgress) -> Void)? = nil,
     name: String? = nil
@@ -104,6 +106,7 @@ public func mcpConnect(
     mcpLogger.info("Connecting to OAuth server: \(url.absoluteString, privacy: .public)")
 
     let effectiveStorage = tokenStorage ?? KeychainTokenStorage()
+    let effectiveRouter = callbackRouter ?? MCPCallbackRouter.shared
     let serverID = url.host ?? url.absoluteString
 
     // Create delegate that opens URL and reports progress
@@ -128,7 +131,7 @@ public func mcpConnect(
     // Register the transport with the callback router for future callbacks
     let transport = await connection.autoAuthTransport
     if let transport = transport {
-        await MCPCallbackRouter.shared.register(transport: transport, serverID: serverID)
+        await effectiveRouter.register(transport: transport, serverID: serverID)
     }
 
     return connection
