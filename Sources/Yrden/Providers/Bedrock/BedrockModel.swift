@@ -92,7 +92,16 @@ public struct BedrockModel: Model, @unchecked Sendable {
 
     // MARK: - Request Encoding
 
-    private func encodeRequest(_ request: CompletionRequest) throws -> ConverseInput {
+    /// Common request components extracted from a CompletionRequest.
+    private struct RequestComponents {
+        let systemBlocks: [BedrockRuntimeClientTypes.SystemContentBlock]?
+        let messages: [BedrockRuntimeClientTypes.Message]
+        let inferenceConfig: BedrockRuntimeClientTypes.InferenceConfiguration
+        let toolConfig: BedrockRuntimeClientTypes.ToolConfiguration?
+    }
+
+    /// Extracts common components from a CompletionRequest for both Converse and ConverseStream.
+    private func extractRequestComponents(_ request: CompletionRequest) throws -> RequestComponents {
         // Extract system messages
         var systemBlocks: [BedrockRuntimeClientTypes.SystemContentBlock] = []
         var conversationMessages: [Message] = []
@@ -126,55 +135,33 @@ public struct BedrockModel: Model, @unchecked Sendable {
             )
         }
 
-        return ConverseInput(
-            inferenceConfig: inferenceConfig,
+        return RequestComponents(
+            systemBlocks: systemBlocks.isEmpty ? nil : systemBlocks,
             messages: bedrockMessages,
-            modelId: name,
-            system: systemBlocks.isEmpty ? nil : systemBlocks,
+            inferenceConfig: inferenceConfig,
             toolConfig: toolConfig
         )
     }
 
-    private func encodeStreamRequest(_ request: CompletionRequest) throws -> ConverseStreamInput {
-        // Extract system messages
-        var systemBlocks: [BedrockRuntimeClientTypes.SystemContentBlock] = []
-        var conversationMessages: [Message] = []
-
-        for message in request.messages {
-            if case .system(let text) = message {
-                systemBlocks.append(.text(text))
-            } else {
-                conversationMessages.append(message)
-            }
-        }
-
-        // Convert messages
-        let bedrockMessages = try conversationMessages.map { try convertMessage($0) }
-
-        // Build inference config
-        let inferenceConfig = BedrockRuntimeClientTypes.InferenceConfiguration(
-            maxTokens: request.config.maxTokens ?? defaultMaxTokens,
-            stopSequences: request.config.stopSequences,
-            temperature: request.config.temperature.map { Float($0) },
-            topp: request.config.topP.map { Float($0) }
-        )
-
-        // Build tool config if tools are provided
-        var toolConfig: BedrockRuntimeClientTypes.ToolConfiguration? = nil
-        if let tools = request.tools, !tools.isEmpty {
-            let toolSpecs = tools.map { convertToolDefinition($0) }
-            toolConfig = BedrockRuntimeClientTypes.ToolConfiguration(
-                toolChoice: .auto(.init()),
-                tools: toolSpecs
-            )
-        }
-
-        return ConverseStreamInput(
-            inferenceConfig: inferenceConfig,
-            messages: bedrockMessages,
+    private func encodeRequest(_ request: CompletionRequest) throws -> ConverseInput {
+        let components = try extractRequestComponents(request)
+        return ConverseInput(
+            inferenceConfig: components.inferenceConfig,
+            messages: components.messages,
             modelId: name,
-            system: systemBlocks.isEmpty ? nil : systemBlocks,
-            toolConfig: toolConfig
+            system: components.systemBlocks,
+            toolConfig: components.toolConfig
+        )
+    }
+
+    private func encodeStreamRequest(_ request: CompletionRequest) throws -> ConverseStreamInput {
+        let components = try extractRequestComponents(request)
+        return ConverseStreamInput(
+            inferenceConfig: components.inferenceConfig,
+            messages: components.messages,
+            modelId: name,
+            system: components.systemBlocks,
+            toolConfig: components.toolConfig
         )
     }
 
