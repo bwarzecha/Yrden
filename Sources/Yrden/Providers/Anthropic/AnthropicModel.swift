@@ -356,11 +356,11 @@ public struct AnthropicModel: Model, Sendable {
         var outputTokens = 0
 
         for try await line in bytes.lines {
-            if line.hasPrefix("event: ") {
-                currentEvent = String(line.dropFirst(7))
+            if line.hasPrefix(SSE.eventPrefix) {
+                currentEvent = String(line.dropFirst(SSE.eventPrefixLength))
                 currentData = ""
-            } else if line.hasPrefix("data: ") {
-                currentData = String(line.dropFirst(6))
+            } else if line.hasPrefix(SSE.dataPrefix) {
+                currentData = String(line.dropFirst(SSE.dataPrefixLength))
 
                 guard let eventType = currentEvent else { continue }
 

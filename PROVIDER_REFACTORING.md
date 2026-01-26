@@ -2,7 +2,7 @@
 
 > Tracking document for extracting duplicate code and hard-coded strings from provider implementations.
 
-## Status: Phase 3 In Progress
+## Status: Phase 4 In Progress
 
 ---
 
@@ -57,7 +57,7 @@ Create `Sources/Yrden/Providers/HTTPConstants.swift` with enums for headers, met
 ---
 
 ## Phase 3: SSE Constants
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 
 ### Problem
 SSE format strings repeated in streaming code:
@@ -73,11 +73,11 @@ SSE format strings repeated in streaming code:
 Create `Sources/Yrden/SSE.swift` with SSE parsing constants.
 
 ### Files to Create
-- [ ] `Sources/Yrden/SSE.swift`
+- [x] `Sources/Yrden/SSE.swift`
 
 ### Files to Modify
-- [ ] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
+- [x] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
+- [x] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
 
 ---
 

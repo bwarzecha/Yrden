@@ -474,11 +474,11 @@ public struct OpenAIModel: Model, Sendable {
         var lastFinishReason: String?
 
         for try await line in bytes.lines {
-            guard line.hasPrefix("data: ") else { continue }
-            let data = String(line.dropFirst(6))
+            guard line.hasPrefix(SSE.dataPrefix) else { continue }
+            let data = String(line.dropFirst(SSE.dataPrefixLength))
 
             // Check for stream end
-            if data == "[DONE]" {
+            if data == SSE.done {
                 break
             }
 
@@ -800,11 +800,11 @@ public struct OpenAIModel: Model, Sendable {
         var incompleteReason: String?
 
         for try await line in bytes.lines {
-            guard line.hasPrefix("data: ") else { continue }
-            let data = String(line.dropFirst(6))
+            guard line.hasPrefix(SSE.dataPrefix) else { continue }
+            let data = String(line.dropFirst(SSE.dataPrefixLength))
 
             // Check for stream end
-            if data == "[DONE]" {
+            if data == SSE.done {
                 break
             }
 
