@@ -353,33 +353,35 @@ public func formatMCPToolResult(_ content: [MCP.Tool.Content], isError: Bool?) -
 
 /// Result of parsing MCP tool arguments.
 public enum MCPArgumentsResult: Sendable {
+    /// Successfully parsed arguments (may be empty `[:]` but never nil).
     case success([String: MCP.Value]?)
+    /// Parsing failed with error.
     case error(ToolExecutionError)
 }
 
 /// Parse JSON arguments string to MCP Value dictionary.
 ///
-/// Used by both MCPTool and MCPToolProxy to convert LLM-provided
-/// JSON arguments to the format expected by MCP tools.
+/// Converts a JSON string to MCP's `[String: Value]` format for tool calls.
 ///
-/// ## Example
-/// ```swift
-/// switch parseMCPArguments(argumentsJSON) {
-/// case .success(let args):
-///     // Use args with MCP client
-/// case .error(let error):
-///     return .failure(error)
-/// }
-/// ```
+/// **Note**: Since `ToolCall.init` normalizes empty arguments to `"{}"`,
+/// this function typically receives valid JSON. Empty handling is kept
+/// as a defensive measure for direct callers.
 ///
-/// - Parameter argumentsJSON: JSON string from LLM
-/// - Returns: Parsed arguments or error
+/// | Input                | Output                  |
+/// |----------------------|-------------------------|
+/// | `"{}"`               | `.success([:])`         |
+/// | `""` (empty)         | `.success([:])`         |
+/// | Valid JSON object    | `.success(parsed)`      |
+/// | Valid JSON non-obj   | `.error(...)`           |
+/// | Invalid JSON         | `.error(...)`           |
+///
+/// - Parameter argumentsJSON: JSON string (typically from ToolCall.arguments)
+/// - Returns: Parsed arguments as MCP Value dict, or parsing error
 public func parseMCPArguments(_ argumentsJSON: String) -> MCPArgumentsResult {
-    // Empty or whitespace-only means empty object (not nil/undefined)
-    // MCP servers expect an object, even if empty
+    // Defensive: handle empty strings (rare due to ToolCall normalization)
     let trimmed = argumentsJSON.trimmingCharacters(in: .whitespacesAndNewlines)
     if trimmed.isEmpty || trimmed == "{}" {
-        return .success([:])  // Empty object, not nil
+        return .success([:])
     }
 
     // Validate UTF-8

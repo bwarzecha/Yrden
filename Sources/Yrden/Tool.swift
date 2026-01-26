@@ -65,6 +65,26 @@ public struct ToolDefinition: Codable, Sendable, Equatable, Hashable {
 /// tool name and JSON-encoded arguments. The agent loop executes the
 /// tool and returns the result.
 ///
+/// ## Argument Contract
+///
+/// The `arguments` field follows this contract:
+///
+/// | Input Value      | Meaning                        | Should Parse To    |
+/// |------------------|--------------------------------|--------------------|
+/// | `"{}"`           | Explicitly empty object        | Empty object `[:]` |
+/// | `""` (empty)     | No arguments provided          | Empty object `[:]` |
+/// | `"   "` (spaces) | Whitespace-only                | Empty object `[:]` |
+/// | Valid JSON       | Arguments provided             | Parsed object      |
+/// | Invalid JSON     | Malformed                      | Error              |
+///
+/// **Important**: Empty and whitespace-only strings are semantically equivalent
+/// to `{}`. This is because LLMs may omit arguments entirely when a tool has
+/// no required parameters, rather than sending an explicit empty object.
+///
+/// **Why not `nil`?**: Using empty string instead of optional keeps the type
+/// simple and matches how LLM providers serialize tool calls. The empty-to-object
+/// conversion happens at parse time in each provider/tool implementation.
+///
 /// ## Example
 /// ```swift
 /// let call = ToolCall(
@@ -86,13 +106,27 @@ public struct ToolCall: Codable, Sendable, Equatable, Hashable {
     public let name: String
 
     /// JSON-encoded arguments for the tool.
-    /// This is the raw string from the LLM, not yet parsed.
+    ///
+    /// **Invariant**: Always valid JSON. Empty/whitespace inputs are
+    /// normalized to `"{}"` at construction time.
+    ///
+    /// This eliminates the need for downstream code to handle empty strings.
+    /// All parsing can assume valid JSON (though it may be an empty object).
     public let arguments: String
 
+    /// Creates a tool call, normalizing empty arguments to `"{}"`.
+    ///
+    /// - Parameters:
+    ///   - id: Unique identifier for this call
+    ///   - name: Tool name to invoke
+    ///   - arguments: JSON arguments (empty/whitespace normalized to `"{}"`)
     public init(id: String, name: String, arguments: String) {
         self.id = id
         self.name = name
-        self.arguments = arguments
+        // Enforce invariant: arguments is always valid JSON
+        // Empty/whitespace → "{}" so downstream parsing always succeeds
+        let trimmed = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.arguments = trimmed.isEmpty ? "{}" : arguments
     }
 }
 

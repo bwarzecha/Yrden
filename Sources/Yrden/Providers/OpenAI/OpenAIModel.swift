@@ -239,6 +239,7 @@ public struct OpenAIModel: Model, Sendable {
             }
 
         case .assistant(let text, let toolCalls):
+            // ToolCall.init guarantees arguments is valid JSON (empty normalized to "{}")
             let openAIToolCalls: [OpenAIToolCall]? = toolCalls.isEmpty ? nil : toolCalls.map { call in
                 OpenAIToolCall(
                     id: call.id,

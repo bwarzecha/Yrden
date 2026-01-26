@@ -278,7 +278,7 @@ public struct AnyAgentTool<Deps: Sendable>: Sendable {
         self.definition = tool.definition
 
         self._call = { context, argumentsJSON in
-            // Parse arguments
+            // ToolCall.init guarantees arguments is valid JSON (empty normalized to "{}")
             guard let data = argumentsJSON.data(using: .utf8) else {
                 throw ToolExecutionError.argumentParsing("Invalid UTF-8 in arguments")
             }

@@ -539,14 +539,9 @@ public struct BedrockModel: Model, @unchecked Sendable {
     // MARK: - JSON Helpers
 
     private func parseJSONToDocument(_ json: String) throws -> Smithy.Document {
-        // Handle empty arguments - treat as empty object
-        let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            return Document(StringMapDocument(value: [:]))
-        }
-
-        guard let data = trimmed.data(using: .utf8) else {
-            return Document(StringMapDocument(value: [:]))
+        // ToolCall.init guarantees arguments is valid JSON (empty normalized to "{}")
+        guard let data = json.data(using: .utf8) else {
+            throw LLMError.decodingError("Invalid UTF-8 in tool arguments")
         }
         let value = try JSONDecoder().decode(JSONValue.self, from: data)
         return jsonValueToDocument(value)

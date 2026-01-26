@@ -284,3 +284,148 @@ struct ToolOutputTests {
         #expect(outputs.count == 3)
     }
 }
+
+// MARK: - Tool Argument Contract Tests
+
+@Suite("Tool Argument Contract")
+struct ToolArgumentContractTests {
+
+    // MARK: - MCP Argument Parsing
+
+    @Test("Empty string parses to empty object")
+    func mcpArgs_emptyString() {
+        let result = parseMCPArguments("")
+        switch result {
+        case .success(let args):
+            #expect(args != nil, "Should return non-nil empty dict, not nil")
+            #expect(args?.isEmpty == true, "Should be empty dictionary")
+        case .error(let error):
+            Issue.record("Empty string should not error: \(error)")
+        }
+    }
+
+    @Test("Whitespace-only string parses to empty object")
+    func mcpArgs_whitespaceOnly() {
+        let result = parseMCPArguments("   \n\t  ")
+        switch result {
+        case .success(let args):
+            #expect(args != nil, "Should return non-nil for whitespace")
+            #expect(args?.isEmpty == true, "Should be empty dictionary")
+        case .error(let error):
+            Issue.record("Whitespace should not error: \(error)")
+        }
+    }
+
+    @Test("Explicit empty object parses to empty object")
+    func mcpArgs_emptyObject() {
+        let result = parseMCPArguments("{}")
+        switch result {
+        case .success(let args):
+            #expect(args != nil, "Should return non-nil for {}")
+            #expect(args?.isEmpty == true, "Should be empty dictionary")
+        case .error(let error):
+            Issue.record("Empty object should not error: \(error)")
+        }
+    }
+
+    @Test("Valid JSON object parses correctly")
+    func mcpArgs_validObject() {
+        let result = parseMCPArguments(#"{"query": "test", "limit": 10}"#)
+        switch result {
+        case .success(let args):
+            #expect(args != nil)
+            #expect(args?.count == 2)
+        case .error(let error):
+            Issue.record("Valid JSON should not error: \(error)")
+        }
+    }
+
+    @Test("Array is rejected (must be object)")
+    func mcpArgs_arrayRejected() {
+        let result = parseMCPArguments("[1, 2, 3]")
+        switch result {
+        case .success:
+            Issue.record("Array should be rejected, MCP requires object")
+        case .error(let error):
+            #expect(error == .argumentParsing("Arguments must be a JSON object"))
+        }
+    }
+
+    @Test("Invalid JSON produces parsing error")
+    func mcpArgs_invalidJSON() {
+        let result = parseMCPArguments("{invalid json}")
+        switch result {
+        case .success:
+            Issue.record("Invalid JSON should produce error")
+        case .error(let error):
+            if case .argumentParsing = error {
+                // Expected - parsing error
+            } else {
+                Issue.record("Should be argumentParsing error, got: \(error)")
+            }
+        }
+    }
+
+    // MARK: - ToolExecutionError Distinction
+
+    @Test("argumentParsing vs argumentValidation are distinct errors")
+    func errorTypes_areDistinct() {
+        let parsing = ToolExecutionError.argumentParsing("Invalid JSON")
+        let validation = ToolExecutionError.argumentValidation("Value out of range")
+
+        #expect(parsing != validation)
+
+        // Check error descriptions are different
+        #expect(parsing.errorDescription?.contains("parse") == true)
+        #expect(validation.errorDescription?.contains("validation") == true)
+    }
+
+    // MARK: - Contract Documentation Verification
+
+    /// This test documents and verifies the argument contract table from ToolCall.
+    @Test("Argument contract table")
+    func argumentContract_documentedCases() {
+        // | Input Value      | Meaning                        | Should Parse To    |
+        // |------------------|--------------------------------|--------------------|
+        // | `"{}"`           | Explicitly empty object        | Empty object `[:]` |
+        // | `""` (empty)     | No arguments provided          | Empty object `[:]` |
+        // | `"   "` (spaces) | Whitespace-only                | Empty object `[:]` |
+        // | Valid JSON       | Arguments provided             | Parsed object      |
+        // | Invalid JSON     | Malformed                      | Error              |
+
+        // Case 1: "{}"
+        if case .success(let args1) = parseMCPArguments("{}") {
+            #expect(args1?.isEmpty == true, "Contract: {} → empty object")
+        } else {
+            Issue.record("Contract violation: {} should parse")
+        }
+
+        // Case 2: "" (empty)
+        if case .success(let args2) = parseMCPArguments("") {
+            #expect(args2?.isEmpty == true, "Contract: empty string → empty object")
+        } else {
+            Issue.record("Contract violation: empty string should parse")
+        }
+
+        // Case 3: "   " (spaces)
+        if case .success(let args3) = parseMCPArguments("   ") {
+            #expect(args3?.isEmpty == true, "Contract: whitespace → empty object")
+        } else {
+            Issue.record("Contract violation: whitespace should parse")
+        }
+
+        // Case 4: Valid JSON
+        if case .success(let args4) = parseMCPArguments(#"{"key": "value"}"#) {
+            #expect(args4?.count == 1, "Contract: valid JSON → parsed object")
+        } else {
+            Issue.record("Contract violation: valid JSON should parse")
+        }
+
+        // Case 5: Invalid JSON
+        if case .error = parseMCPArguments("not json") {
+            // Expected
+        } else {
+            Issue.record("Contract violation: invalid JSON should error")
+        }
+    }
+}
