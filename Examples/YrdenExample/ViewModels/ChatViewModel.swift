@@ -117,10 +117,10 @@ class ChatViewModel: ObservableObject {
             for try await event in agent.runStream(text, deps: deps, messageHistory: messageHistory) {
                 switch event {
                 case .contentDelta(let t):
-                    messages[messages.count - 1].content += t
+                    messages[messages.count - 1].appendText(t)
                 case .toolCallStart(let name, let id):
                     log(.info, "Tool call start", details: "[\(id)] \(name)")
-                    messages[messages.count - 1].toolCalls.append(ToolCallInfo(id: id, name: name, status: .running))
+                    messages[messages.count - 1].appendToolCall(ToolCallInfo(id: id, name: name, status: .running))
                 case .toolCallDelta(let id, let delta):
                     log(.debug, "Tool args delta", details: "[\(id)] \(delta)")
                 case .toolCallEnd(let id):
@@ -128,16 +128,18 @@ class ChatViewModel: ObservableObject {
                 case .toolResult(let id, let result):
                     let resultStr = String(describing: result)
                     log(.info, "Tool result", details: "[\(id)] \(resultStr.prefix(1000))\(resultStr.count > 1000 ? "..." : "")")
-                    if let i = messages[messages.count - 1].toolCalls.firstIndex(where: { $0.id == id }) {
-                        messages[messages.count - 1].toolCalls[i].result = result
-                        messages[messages.count - 1].toolCalls[i].status = .completed
+                    messages[messages.count - 1].updateToolCall(id: id) { info in
+                        info.result = result
+                        info.status = .completed
                     }
                 case .usage(let usage):
                     log(.debug, "Usage update", details: "Input: \(usage.inputTokens), Output: \(usage.outputTokens)")
                 case .result(let r):
                     log(.info, "Agent result", details: "Output: \(r.output.prefix(200))..., Usage: \(r.usage)")
                     messageHistory = r.messages  // Save for multi-turn
-                    if messages.last?.content.isEmpty == true { messages[messages.count - 1].content = r.output }
+                    if messages.last?.content.isEmpty == true {
+                        messages[messages.count - 1].appendText(r.output)
+                    }
                 }
             }
         } catch let e as AgentError {
@@ -168,7 +170,9 @@ class ChatViewModel: ObservableObject {
             let result = try await agent.resume(paused: paused, resolutions: resolutions, deps: deps)
             log(.info, "Resume completed", details: "Output length: \(result.output.count)")
             messageHistory = result.messages  // Save for multi-turn
-            if messages.last?.content.isEmpty == true { messages[messages.count - 1].content = result.output }
+            if messages.last?.content.isEmpty == true {
+                messages[messages.count - 1].appendText(result.output)
+            }
         } catch {
             log(.error, "Resume failed", details: String(describing: error))
             self.error = error; messages.append(.error(error.localizedDescription))
@@ -181,7 +185,7 @@ class ChatViewModel: ObservableObject {
         pausedRun = nil
         pendingApproval = nil
         if !messages.isEmpty {
-            messages[messages.count - 1].content += "\n\n[Tool call rejected by user]"
+            messages[messages.count - 1].appendText("\n\n[Tool call rejected by user]")
             messages[messages.count - 1].isStreaming = false
         }
     }

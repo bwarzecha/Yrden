@@ -2,44 +2,96 @@
 
 import Foundation
 
+/// A block of content within a message - either text or a tool call.
+enum ContentBlock: Identifiable, Sendable {
+    case text(id: UUID, content: String)
+    case toolCall(ToolCallInfo)
+
+    var id: String {
+        switch self {
+        case .text(let id, _): return id.uuidString
+        case .toolCall(let info): return info.id
+        }
+    }
+}
+
 /// A message in the chat conversation.
 struct ChatMessage: Identifiable, Sendable {
     let id: UUID
     let role: MessageRole
-    var content: String
+    var blocks: [ContentBlock]
     let timestamp: Date
-    var toolCalls: [ToolCallInfo]
     var isStreaming: Bool
 
     init(
         id: UUID = UUID(),
         role: MessageRole,
-        content: String,
+        blocks: [ContentBlock] = [],
         timestamp: Date = Date(),
-        toolCalls: [ToolCallInfo] = [],
         isStreaming: Bool = false
     ) {
         self.id = id
         self.role = role
-        self.content = content
+        self.blocks = blocks
         self.timestamp = timestamp
-        self.toolCalls = toolCalls
         self.isStreaming = isStreaming
     }
 
     /// Create a user message.
     static func user(_ content: String) -> ChatMessage {
-        ChatMessage(role: .user, content: content)
+        ChatMessage(role: .user, blocks: [.text(id: UUID(), content: content)])
     }
 
     /// Create an assistant message.
-    static func assistant(_ content: String, isStreaming: Bool = false) -> ChatMessage {
-        ChatMessage(role: .assistant, content: content, isStreaming: isStreaming)
+    static func assistant(_ content: String = "", isStreaming: Bool = false) -> ChatMessage {
+        let blocks: [ContentBlock] = content.isEmpty ? [] : [.text(id: UUID(), content: content)]
+        return ChatMessage(role: .assistant, blocks: blocks, isStreaming: isStreaming)
     }
 
     /// Create an error message.
     static func error(_ content: String) -> ChatMessage {
-        ChatMessage(role: .error, content: content)
+        ChatMessage(role: .error, blocks: [.text(id: UUID(), content: content)])
+    }
+
+    /// Get all text content concatenated.
+    var content: String {
+        blocks.compactMap { block in
+            if case .text(_, let content) = block { return content }
+            return nil
+        }.joined()
+    }
+
+    /// Get all tool calls.
+    var toolCalls: [ToolCallInfo] {
+        blocks.compactMap { block in
+            if case .toolCall(let info) = block { return info }
+            return nil
+        }
+    }
+
+    /// Append text to the last text block, or create a new one.
+    mutating func appendText(_ text: String) {
+        if case .text(let id, let existing) = blocks.last {
+            blocks[blocks.count - 1] = .text(id: id, content: existing + text)
+        } else {
+            blocks.append(.text(id: UUID(), content: text))
+        }
+    }
+
+    /// Append a tool call block.
+    mutating func appendToolCall(_ toolCall: ToolCallInfo) {
+        blocks.append(.toolCall(toolCall))
+    }
+
+    /// Update a tool call by ID.
+    mutating func updateToolCall(id: String, update: (inout ToolCallInfo) -> Void) {
+        for i in blocks.indices {
+            if case .toolCall(var info) = blocks[i], info.id == id {
+                update(&info)
+                blocks[i] = .toolCall(info)
+                return
+            }
+        }
     }
 }
 

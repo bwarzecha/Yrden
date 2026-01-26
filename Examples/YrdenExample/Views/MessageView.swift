@@ -18,20 +18,22 @@ struct MessageView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                // Message content
-                if !message.content.isEmpty {
-                    Text(LocalizedStringKey(message.content))
-                        .textSelection(.enabled)
+                // Render blocks in order
+                ForEach(message.blocks) { block in
+                    switch block {
+                    case .text(_, let content):
+                        if !content.isEmpty {
+                            Text(LocalizedStringKey(content))
+                                .textSelection(.enabled)
+                        }
+                    case .toolCall(let toolCall):
+                        ToolCallView(toolCall: toolCall)
+                    }
                 }
 
-                // Streaming indicator
-                if message.isStreaming && message.content.isEmpty {
+                // Streaming indicator when no content yet
+                if message.isStreaming && message.blocks.isEmpty {
                     TypingIndicator()
-                }
-
-                // Tool calls
-                ForEach(message.toolCalls) { toolCall in
-                    ToolCallView(toolCall: toolCall)
                 }
             }
 
