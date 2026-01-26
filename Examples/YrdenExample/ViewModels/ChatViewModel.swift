@@ -13,16 +13,60 @@ class ChatViewModel: ObservableObject {
     private var agent: Agent<AppDependencies, String>?
     private var pausedRun: PausedAgentRun?
 
+    // MCP
+    private var mcpServer: MCPServerConnection?
+    private var mcpToolsCache: [AnyAgentTool<AppDependencies>] = []
+
     init(deps: AppDependencies = .default()) { self.deps = deps }
 
-    func configure(model: any Model) {
+    func configure(model: any Model, mcpTools: [AnyAgentTool<AppDependencies>] = []) {
         agent = Agent(
             model: model,
             systemPrompt: "You are a helpful assistant. Use tools when appropriate.",
-            tools: [AnyAgentTool(CalculatorTool()), AnyAgentTool(WebSearchTool()), AnyAgentTool(FileWriteTool())],
+            tools: mcpTools,
             maxIterations: 10
         )
     }
+
+    // MARK: - MCP
+
+    func connectMCPStdio(commandLine: String) async throws -> [String] {
+        let server = try await mcpConnect(commandLine)
+        let tools: [AnyAgentTool<AppDependencies>] = try await server.discoverTools()
+        mcpServer = server
+        mcpToolsCache = tools
+        return tools.map { $0.name }
+    }
+
+    func connectMCPOAuth(
+        url: URL,
+        redirectScheme: String,
+        onProgress: @escaping @Sendable (MCPOAuthProgress) -> Void
+    ) async throws -> [String] {
+        let server = try await mcpConnect(
+            url: url,
+            redirectScheme: redirectScheme,
+            onProgress: onProgress
+        )
+        let tools: [AnyAgentTool<AppDependencies>] = try await server.discoverTools()
+        mcpServer = server
+        mcpToolsCache = tools
+        return tools.map { $0.name }
+    }
+
+    func disconnectMCP() async {
+        if let server = mcpServer {
+            await server.disconnect()
+        }
+        mcpServer = nil
+        mcpToolsCache = []
+    }
+
+    func getMCPTools() -> [AnyAgentTool<AppDependencies>] {
+        mcpToolsCache
+    }
+
+    // MARK: - Chat
 
     func send(_ text: String) async {
         guard let agent, !text.isEmpty else { return }
@@ -58,7 +102,7 @@ class ChatViewModel: ObservableObject {
         } catch { self.error = error; messages.append(.error(error.localizedDescription)) }
 
         isProcessing = false
-        messages[messages.count - 1].isStreaming = false
+        if !messages.isEmpty { messages[messages.count - 1].isStreaming = false }
     }
 
     func approveToolCall() async {
@@ -77,8 +121,10 @@ class ChatViewModel: ObservableObject {
     func rejectToolCall() {
         pausedRun = nil
         pendingApproval = nil
-        messages[messages.count - 1].content += "\n\n[Tool call rejected by user]"
-        messages[messages.count - 1].isStreaming = false
+        if !messages.isEmpty {
+            messages[messages.count - 1].content += "\n\n[Tool call rejected by user]"
+            messages[messages.count - 1].isStreaming = false
+        }
     }
 
     func clearConversation() {
