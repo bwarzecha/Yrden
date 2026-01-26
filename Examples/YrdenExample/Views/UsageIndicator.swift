@@ -9,17 +9,27 @@ struct UsageIndicator: View {
     let maxContextTokens: Int?
     let isProcessing: Bool
 
+    /// Total tokens in context = input + output (what the next turn will see)
+    private var contextTokens: Int? {
+        guard let total = totalUsage else { return nil }
+        return total.inputTokens + total.outputTokens
+    }
+
     private var contextPercent: Double? {
         guard let maxContext = maxContextTokens, maxContext > 0,
-              let total = totalUsage else { return nil }
-        return Double(total.inputTokens) / Double(maxContext)
+              let tokens = contextTokens else { return nil }
+        return Double(tokens) / Double(maxContext)
     }
 
     var body: some View {
         HStack(spacing: 12) {
-            // Context fullness indicator
-            if let percent = contextPercent {
-                ContextBar(percent: percent, maxTokens: maxContextTokens ?? 0)
+            // Context fullness indicator (input + output = next turn's context)
+            if let percent = contextPercent, let tokens = contextTokens {
+                ContextBar(
+                    percent: percent,
+                    maxTokens: maxContextTokens ?? 0,
+                    usedTokens: tokens
+                )
             }
 
             // Token counts
@@ -37,6 +47,7 @@ struct UsageIndicator: View {
 private struct ContextBar: View {
     let percent: Double
     let maxTokens: Int
+    let usedTokens: Int
 
     private var barColor: Color {
         if percent > 0.9 { return .red }
@@ -44,13 +55,20 @@ private struct ContextBar: View {
         return .blue
     }
 
-    private var formattedMax: String {
-        if maxTokens >= 1_000_000 {
-            return String(format: "%.1fM", Double(maxTokens) / 1_000_000)
-        } else if maxTokens >= 1_000 {
-            return "\(maxTokens / 1_000)K"
+    private func formatTokens(_ count: Int) -> String {
+        if count >= 1_000_000 {
+            return String(format: "%.1fM", Double(count) / 1_000_000)
+        } else if count >= 1_000 {
+            return String(format: "%.1fK", Double(count) / 1_000)
         }
-        return "\(maxTokens)"
+        return "\(count)"
+    }
+
+    private var formattedPercent: String {
+        if percent < 0.01 {
+            return String(format: "%.1f%%", percent * 100)
+        }
+        return "\(Int(percent * 100))%"
     }
 
     var body: some View {
@@ -62,19 +80,19 @@ private struct ContextBar: View {
                         .fill(Color.gray.opacity(0.2))
                     RoundedRectangle(cornerRadius: 2)
                         .fill(barColor)
-                        .frame(width: geo.size.width * min(percent, 1.0))
+                        .frame(width: max(geo.size.width * min(percent, 1.0), percent > 0 ? 2 : 0))
                 }
             }
             .frame(width: 40, height: 6)
 
-            // Percentage and max
-            Text("\(Int(percent * 100))%")
+            // Show used/max tokens for clarity
+            Text("\(formatTokens(usedTokens))/\(formatTokens(maxTokens))")
                 .monospacedDigit()
 
-            Text("of \(formattedMax)")
+            Text("(\(formattedPercent))")
                 .foregroundColor(.secondary.opacity(0.7))
         }
-        .help("Context window: \(Int(percent * 100))% used of \(formattedMax) tokens")
+        .help("Context: \(usedTokens.formatted()) of \(maxTokens.formatted()) tokens (\(formattedPercent))")
     }
 }
 

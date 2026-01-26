@@ -148,9 +148,12 @@ class ChatViewModel: ObservableObject {
                     }
                 case .usage(let usage):
                     currentTurnUsage = usage
-                    log(.debug, "Usage update", details: "Input: \(usage.inputTokens), Output: \(usage.outputTokens)")
+                    log(.debug, "Usage (streaming)", details: "Input: \(usage.inputTokens), Output: \(usage.outputTokens), Cached: \(usage.cachedTokens ?? 0)")
                 case .result(let r):
-                    log(.info, "Agent result", details: "Output: \(r.output.prefix(200))..., Usage: \(r.usage)")
+                    let contextAfter = r.usage.inputTokens + r.usage.outputTokens
+                    let maxCtx = maxContextTokens ?? 0
+                    let pct = maxCtx > 0 ? Double(contextAfter) / Double(maxCtx) * 100 : 0
+                    log(.info, "Turn complete", details: "Input: \(r.usage.inputTokens), Output: \(r.usage.outputTokens), Context: \(contextAfter)/\(maxCtx) (\(String(format: "%.1f", pct))%)")
                     messageHistory = r.messages  // Save for multi-turn
                     // Update total usage
                     updateTotalUsage(with: r.usage)
@@ -162,6 +165,11 @@ class ChatViewModel: ObservableObject {
             }
         } catch let e as AgentError {
             log(.error, "AgentError", details: String(describing: e))
+            // Preserve any streaming usage we captured before the error
+            if let streamingUsage = currentTurnUsage {
+                updateTotalUsage(with: streamingUsage)
+            }
+            currentTurnUsage = nil
             if case .hasDeferredTools(let paused) = e {
                 pausedRun = paused
                 if let p = paused.pendingCalls.first {
@@ -171,6 +179,11 @@ class ChatViewModel: ObservableObject {
             } else { error = e; messages.append(.error(e.localizedDescription)) }
         } catch {
             log(.error, "Error", details: String(describing: error))
+            // Preserve any streaming usage we captured before the error
+            if let streamingUsage = currentTurnUsage {
+                updateTotalUsage(with: streamingUsage)
+            }
+            currentTurnUsage = nil
             self.error = error; messages.append(.error(error.localizedDescription))
         }
 
