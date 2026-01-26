@@ -380,23 +380,17 @@ public struct OpenAIModel: Model, Sendable {
     // MARK: - HTTP
 
     private func sendRequest(_ request: OpenAIRequest) async throws -> Data {
-        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent(OpenAIEndpoint.chatCompletions))
-        urlRequest.httpMethod = HTTPMethod.post
-        try await provider.authenticate(&urlRequest)
-        urlRequest.httpBody = try JSONEncoder().encode(request)
-
-        let (data, response) = try await URLSession.shared.data(for: urlRequest)
-        try handleHTTPResponse(response, data: data)
+        let url = provider.baseURL.appendingPathComponent(OpenAIEndpoint.chatCompletions)
+        let (data, http) = try await HTTPClient.sendJSONPOST(
+            url: url,
+            body: request,
+            configure: provider.authenticate
+        )
+        try handleHTTPStatus(http.statusCode, data: data, retryAfterHeader: http.value(forHTTPHeaderField: HTTPHeaderField.retryAfter))
         return data
     }
 
-    private func handleHTTPResponse(_ response: URLResponse, data: Data) throws {
-        guard let http = response as? HTTPURLResponse else {
-            throw LLMError.networkError("Invalid response type")
-        }
-
-        let statusCode = http.statusCode
-
+    private func handleHTTPStatus(_ statusCode: Int, data: Data, retryAfterHeader: String? = nil) throws {
         switch statusCode {
         case 200..<300:
             return
@@ -421,7 +415,7 @@ public struct OpenAIModel: Model, Sendable {
 
             // Check if this is a retriable error (408, 409, 429, 500+)
             if isRetriableStatusCode(statusCode) {
-                let retryAfter = parseRetryAfter(http.value(forHTTPHeaderField: HTTPHeaderField.retryAfter))
+                let retryAfter = HTTPClient.parseRetryAfter(retryAfterHeader)
                 throw RetriableError(
                     underlyingError: underlyingError,
                     retryAfter: retryAfter,
@@ -447,23 +441,16 @@ public struct OpenAIModel: Model, Sendable {
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation,
         stopSequences: [String]? = nil
     ) async throws {
-        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent(OpenAIEndpoint.chatCompletions))
-        urlRequest.httpMethod = HTTPMethod.post
-        try await provider.authenticate(&urlRequest)
-        urlRequest.httpBody = try JSONEncoder().encode(request)
-
-        let (bytes, response) = try await URLSession.shared.bytes(for: urlRequest)
-
-        guard let http = response as? HTTPURLResponse else {
-            throw LLMError.networkError("Invalid response type")
-        }
+        let url = provider.baseURL.appendingPathComponent(OpenAIEndpoint.chatCompletions)
+        let (bytes, http) = try await HTTPClient.streamJSONPOST(
+            url: url,
+            body: request,
+            configure: provider.authenticate
+        )
 
         if http.statusCode != 200 {
-            var errorData = Data()
-            for try await byte in bytes {
-                errorData.append(byte)
-            }
-            try handleHTTPResponse(response, data: errorData)
+            let errorData = try await HTTPClient.collectErrorData(from: bytes)
+            try handleHTTPStatus(http.statusCode, data: errorData, retryAfterHeader: http.value(forHTTPHeaderField: HTTPHeaderField.retryAfter))
             return
         }
 
@@ -683,13 +670,13 @@ public struct OpenAIModel: Model, Sendable {
     }
 
     private func sendResponsesRequest(_ request: ResponsesAPIRequest) async throws -> Data {
-        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent(OpenAIEndpoint.responses))
-        urlRequest.httpMethod = HTTPMethod.post
-        try await provider.authenticate(&urlRequest)
-        urlRequest.httpBody = try JSONEncoder().encode(request)
-
-        let (data, response) = try await URLSession.shared.data(for: urlRequest)
-        try handleHTTPResponse(response, data: data)
+        let url = provider.baseURL.appendingPathComponent(OpenAIEndpoint.responses)
+        let (data, http) = try await HTTPClient.sendJSONPOST(
+            url: url,
+            body: request,
+            configure: provider.authenticate
+        )
+        try handleHTTPStatus(http.statusCode, data: data, retryAfterHeader: http.value(forHTTPHeaderField: HTTPHeaderField.retryAfter))
         return data
     }
 
@@ -766,23 +753,16 @@ public struct OpenAIModel: Model, Sendable {
         _ request: ResponsesAPIRequest,
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
     ) async throws {
-        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent(OpenAIEndpoint.responses))
-        urlRequest.httpMethod = HTTPMethod.post
-        try await provider.authenticate(&urlRequest)
-        urlRequest.httpBody = try JSONEncoder().encode(request)
-
-        let (bytes, response) = try await URLSession.shared.bytes(for: urlRequest)
-
-        guard let http = response as? HTTPURLResponse else {
-            throw LLMError.networkError("Invalid response type")
-        }
+        let url = provider.baseURL.appendingPathComponent(OpenAIEndpoint.responses)
+        let (bytes, http) = try await HTTPClient.streamJSONPOST(
+            url: url,
+            body: request,
+            configure: provider.authenticate
+        )
 
         if http.statusCode != 200 {
-            var errorData = Data()
-            for try await byte in bytes {
-                errorData.append(byte)
-            }
-            try handleHTTPResponse(response, data: errorData)
+            let errorData = try await HTTPClient.collectErrorData(from: bytes)
+            try handleHTTPStatus(http.statusCode, data: errorData, retryAfterHeader: http.value(forHTTPHeaderField: HTTPHeaderField.retryAfter))
             return
         }
 

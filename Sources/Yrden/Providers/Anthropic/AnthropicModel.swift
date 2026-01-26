@@ -268,22 +268,18 @@ public struct AnthropicModel: Model, Sendable {
     // MARK: - HTTP
 
     private func sendRequest(_ request: AnthropicRequest) async throws -> Data {
-        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent(AnthropicEndpoint.messages))
-        urlRequest.httpMethod = HTTPMethod.post
-        try await provider.authenticate(&urlRequest)
-        urlRequest.httpBody = try JSONEncoder().encode(request)
-
-        let (data, response) = try await URLSession.shared.data(for: urlRequest)
-        try handleHTTPResponse(response, data: data)
+        let url = provider.baseURL.appendingPathComponent(AnthropicEndpoint.messages)
+        let (data, http) = try await HTTPClient.sendJSONPOST(
+            url: url,
+            body: request,
+            configure: provider.authenticate
+        )
+        try handleHTTPStatus(http.statusCode, data: data)
         return data
     }
 
-    private func handleHTTPResponse(_ response: URLResponse, data: Data) throws {
-        guard let http = response as? HTTPURLResponse else {
-            throw LLMError.networkError("Invalid response type")
-        }
-
-        switch http.statusCode {
+    private func handleHTTPStatus(_ statusCode: Int, data: Data) throws {
+        switch statusCode {
         case 200..<300:
             return
 
@@ -291,8 +287,7 @@ public struct AnthropicModel: Model, Sendable {
             throw LLMError.invalidAPIKey
 
         case 429:
-            let retryAfter = parseRetryAfter(http)
-            throw LLMError.rateLimited(retryAfter: retryAfter)
+            throw LLMError.rateLimited(retryAfter: nil)
 
         case 400:
             let message = parseErrorMessage(data)
@@ -303,16 +298,8 @@ public struct AnthropicModel: Model, Sendable {
 
         default:
             let message = parseErrorMessage(data)
-            throw LLMError.networkError("HTTP \(http.statusCode): \(message)")
+            throw LLMError.networkError("HTTP \(statusCode): \(message)")
         }
-    }
-
-    private func parseRetryAfter(_ response: HTTPURLResponse) -> TimeInterval? {
-        if let retryAfter = response.value(forHTTPHeaderField: HTTPHeaderField.retryAfter),
-           let seconds = Double(retryAfter) {
-            return seconds
-        }
-        return nil
     }
 
     private func parseErrorMessage(_ data: Data) -> String {
@@ -328,23 +315,16 @@ public struct AnthropicModel: Model, Sendable {
         _ request: AnthropicRequest,
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
     ) async throws {
-        var urlRequest = URLRequest(url: provider.baseURL.appendingPathComponent(AnthropicEndpoint.messages))
-        urlRequest.httpMethod = HTTPMethod.post
-        try await provider.authenticate(&urlRequest)
-        urlRequest.httpBody = try JSONEncoder().encode(request)
-
-        let (bytes, response) = try await URLSession.shared.bytes(for: urlRequest)
-
-        guard let http = response as? HTTPURLResponse else {
-            throw LLMError.networkError("Invalid response type")
-        }
+        let url = provider.baseURL.appendingPathComponent(AnthropicEndpoint.messages)
+        let (bytes, http) = try await HTTPClient.streamJSONPOST(
+            url: url,
+            body: request,
+            configure: provider.authenticate
+        )
 
         if http.statusCode != 200 {
-            var errorData = Data()
-            for try await byte in bytes {
-                errorData.append(byte)
-            }
-            try handleHTTPResponse(response, data: errorData)
+            let errorData = try await HTTPClient.collectErrorData(from: bytes)
+            try handleHTTPStatus(http.statusCode, data: errorData)
             return
         }
 

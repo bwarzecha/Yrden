@@ -2,7 +2,7 @@
 
 > Tracking document for extracting duplicate code and hard-coded strings from provider implementations.
 
-## Status: Phase 8 In Progress
+## Status: Phase 11 In Progress
 
 ---
 
@@ -193,7 +193,7 @@ Added constants to each provider's Types file:
 ---
 
 ## Phase 8: HTTP Request Helper
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 
 ### Problem
 Identical HTTP request pattern in AnthropicModel and OpenAIModel (~40 lines duplicated):
@@ -207,37 +207,41 @@ try handleHTTPResponse(response, data: data)
 ```
 
 ### Solution
-Create `Sources/Yrden/Providers/HTTPClient.swift` with reusable request methods.
+Created `HTTPClient` enum with reusable request methods:
+- `sendJSONPOST` - Sends POST with JSON body, returns (Data, HTTPURLResponse)
+- `streamJSONPOST` - Sends POST for streaming, returns (AsyncBytes, HTTPURLResponse)
+- `collectErrorData` - Collects error data from streaming response
+- `parseRetryAfter` - Parses Retry-After header
 
-### Files to Create
-- [ ] `Sources/Yrden/Providers/HTTPClient.swift`
+### Files Created
+- [x] `Sources/Yrden/Providers/HTTPClient.swift`
 
-### Files to Modify
-- [ ] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
+### Files Modified
+- [x] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift` - Simplified sendRequest, streamRequest
+- [x] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift` - Simplified sendRequest, streamRequest, sendResponsesRequest, streamResponsesRequest
 
 ---
 
 ## Phase 9: HTTP Status Handler
-**Status:** [ ] Not Started
+**Status:** [~] Kept Provider-Specific
 
 ### Problem
 Nearly identical status code handling (~50 lines duplicated):
 - AnthropicModel:281-307
 - OpenAIModel:393-433
 
-### Solution
-Extract into shared `handleHTTPStatus` function in HTTPClient.swift.
+### Decision
+After analysis, the status handling differs enough between providers to warrant keeping separate:
+- OpenAI has retry logic for 408, 409, 429, 500+
+- OpenAI checks for context length in 400 errors
+- Anthropic has simpler handling
 
-### Files to Modify
-- [ ] `Sources/Yrden/Providers/HTTPClient.swift` (extend from Phase 8)
-- [ ] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
+Added helper for common cases (`handleCommonStatus`, `parseRetryAfter`) to HTTPClient.swift, but kept main status handling in providers since the logic diverges significantly.
 
 ---
 
 ## Phase 10: Streaming Setup Helper
-**Status:** [ ] Not Started
+**Status:** [x] Completed (merged with Phase 8)
 
 ### Problem
 Identical streaming setup pattern (~25 lines x 3):
@@ -246,12 +250,11 @@ Identical streaming setup pattern (~25 lines x 3):
 - OpenAIModel:765-787
 
 ### Solution
-Add streaming helper to HTTPClient.swift.
+Combined with Phase 8 - `HTTPClient.streamJSONPOST` and `collectErrorData` handle all streaming setup.
 
-### Files to Modify
-- [ ] `Sources/Yrden/Providers/HTTPClient.swift`
-- [ ] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
+### Files Modified
+- [x] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
+- [x] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
 
 ---
 
