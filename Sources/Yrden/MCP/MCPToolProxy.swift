@@ -186,6 +186,50 @@ struct MCPToolProxy: Sendable {
         }
     }
 
+    /// Call the tool with retry logic.
+    ///
+    /// Retries failed tool calls up to `maxRetries` times before surfacing
+    /// the error to the model. This allows transient failures to be handled
+    /// transparently.
+    ///
+    /// - Parameter argumentsJSON: JSON-encoded arguments string
+    /// - Returns: Tool result after retries
+    func callWithRetry(argumentsJSON: String) async throws -> AnyToolResult {
+        var lastResult: AnyToolResult = .failure(MCPToolError.executionFailed(
+            name: name,
+            server: serverID,
+            message: "No attempts made"
+        ))
+
+        for attempt in 1...maxRetries {
+            lastResult = try await call(argumentsJSON: argumentsJSON)
+
+            switch lastResult {
+            case .success:
+                return lastResult
+            case .retry:
+                // Retry indicates recoverable - try again
+                if attempt < maxRetries {
+                    continue
+                }
+                return lastResult
+            case .failure:
+                // Failure might be transient - retry
+                if attempt < maxRetries {
+                    // Small delay before retry
+                    try? await Task.sleep(for: .milliseconds(100 * attempt))
+                    continue
+                }
+                return lastResult
+            case .deferred:
+                // Deferred tools don't retry - return immediately
+                return lastResult
+            }
+        }
+
+        return lastResult
+    }
+
     // MARK: - Conversion
 
     /// Convert to type-erased AnyAgentTool for use with Agent.

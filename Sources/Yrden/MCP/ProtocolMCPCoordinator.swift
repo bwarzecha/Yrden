@@ -29,11 +29,19 @@ actor ProtocolMCPCoordinator: MCPCoordinatorProtocol {
 
     private var connections: [String: any ServerConnectionProtocol] = [:]
     private var connectionTasks: [String: Task<Void, Never>] = [:]
+    private var serverSpecs: [String: ServerSpec] = [:]
+    private var reconnectAttempts: [String: Int] = [:]
+    private var healthCheckTask: Task<Void, Never>?
 
     // MARK: - Events
 
     nonisolated let events: AsyncStream<CoordinatorEvent>
     private let eventContinuation: AsyncStream<CoordinatorEvent>.Continuation
+
+    // MARK: - Alerts
+
+    nonisolated let alerts: AsyncStream<MCPAlert>
+    private let alertContinuation: AsyncStream<MCPAlert>.Continuation
 
     // MARK: - Initialization
 
@@ -44,15 +52,20 @@ actor ProtocolMCPCoordinator: MCPCoordinatorProtocol {
         self.connectionFactory = connectionFactory
         self.configuration = configuration
 
-        var continuation: AsyncStream<CoordinatorEvent>.Continuation!
-        self.events = AsyncStream { continuation = $0 }
-        self.eventContinuation = continuation
+        var eventCont: AsyncStream<CoordinatorEvent>.Continuation!
+        self.events = AsyncStream { eventCont = $0 }
+        self.eventContinuation = eventCont
+
+        var alertCont: AsyncStream<MCPAlert>.Continuation!
+        self.alerts = AsyncStream { alertCont = $0 }
+        self.alertContinuation = alertCont
     }
 
     // MARK: - MCPCoordinatorProtocol
 
     func startAll(specs: [ServerSpec]) async {
         for spec in specs {
+            serverSpecs[spec.id] = spec
             let connection = connectionFactory.makeConnection(id: spec.id, spec: spec)
             connections[spec.id] = connection
 
@@ -161,21 +174,28 @@ actor ProtocolMCPCoordinator: MCPCoordinatorProtocol {
 
         if let timeout = timeout {
             // Call with timeout
-            return try await withThrowingTaskGroup(of: String.self) { group in
-                group.addTask {
-                    try await connection.callTool(name: name, arguments: arguments)
-                }
+            do {
+                return try await withThrowingTaskGroup(of: String.self) { group in
+                    group.addTask {
+                        try await connection.callTool(name: name, arguments: arguments)
+                    }
 
-                group.addTask {
-                    try await Task.sleep(for: timeout)
-                    throw MCPConnectionError.toolTimeout(serverID: serverID, tool: name, timeout: timeout)
-                }
+                    group.addTask {
+                        try await Task.sleep(for: timeout)
+                        throw MCPConnectionError.toolTimeout(serverID: serverID, tool: name, timeout: timeout)
+                    }
 
-                guard let result = try await group.next() else {
-                    throw MCPConnectionError.internalError("Task group completed without result")
+                    guard let result = try await group.next() else {
+                        throw MCPConnectionError.internalError("Task group completed without result")
+                    }
+                    group.cancelAll()
+                    return result
                 }
-                group.cancelAll()
-                return result
+            } catch let error as MCPConnectionError {
+                if case .toolTimeout = error {
+                    alertContinuation.yield(.toolTimedOut(serverID: serverID, tool: name))
+                }
+                throw error
             }
         } else {
             return try await connection.callTool(name: name, arguments: arguments)
@@ -202,11 +222,146 @@ actor ProtocolMCPCoordinator: MCPCoordinatorProtocol {
         }
     }
 
+    // MARK: - Resilience
+
+    func triggerAutoReconnect(serverID: String) async {
+        guard let connection = connections[serverID] else { return }
+
+        let maxAttempts: Int
+        let baseDelay: TimeInterval
+
+        switch configuration.reconnectPolicy {
+        case .none:
+            return
+        case .immediate(let max):
+            maxAttempts = max
+            baseDelay = 0
+        case .exponentialBackoff(let max, let base):
+            maxAttempts = max
+            baseDelay = base
+        }
+
+        reconnectAttempts[serverID] = 0
+
+        for attempt in 1...maxAttempts {
+            reconnectAttempts[serverID] = attempt
+
+            // Calculate delay with exponential backoff
+            let delay = baseDelay * pow(2.0, Double(attempt - 1))
+            if delay > 0 {
+                try? await Task.sleep(for: .seconds(delay))
+            }
+
+            // Check if we're still supposed to reconnect
+            let currentState = await connection.state
+            if currentState.isConnected {
+                alertContinuation.yield(.reconnected(serverID: serverID))
+                return
+            }
+
+            // Emit reconnecting alert
+            alertContinuation.yield(.reconnecting(serverID: serverID, attempt: attempt))
+
+            // Mark as reconnecting
+            await connection.markReconnecting(
+                attempt: attempt,
+                maxAttempts: maxAttempts,
+                nextRetryAt: Date().addingTimeInterval(delay)
+            )
+
+            // Attempt reconnection
+            await connection.connect()
+
+            // Check result
+            let newState = await connection.state
+            if newState.isConnected {
+                alertContinuation.yield(.reconnected(serverID: serverID))
+                return
+            }
+
+            // If still not connected and not last attempt, continue loop
+            if attempt >= maxAttempts {
+                break
+            }
+        }
+    }
+
+    func startHealthChecks() async {
+        guard let interval = configuration.healthCheckInterval else { return }
+
+        // Cancel existing health check task
+        healthCheckTask?.cancel()
+
+        healthCheckTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+
+                guard !Task.isCancelled else { break }
+
+                // Check each connection
+                for (serverID, connection) in connections {
+                    let state = await connection.state
+                    guard state.isConnected else { continue }
+
+                    // Health check by attempting a tool call. We use a non-existent
+                    // tool name since MCP doesn't define a ping mechanism. If the
+                    // connection is alive, we get "tool not found"; if dead, we get
+                    // a transport error which triggers reconnection.
+                    do {
+                        _ = try await connection.callTool(name: "__health_check__", arguments: nil)
+                    } catch {
+                        // Health check failed - mark as unhealthy
+                        alertContinuation.yield(.serverUnhealthy(
+                            serverID: serverID,
+                            reason: error.localizedDescription
+                        ))
+
+                        // Trigger reconnection
+                        await triggerAutoReconnect(serverID: serverID)
+                    }
+                }
+            }
+        }
+    }
+
+    func availableTools() async -> [AvailableTool] {
+        var tools: [AvailableTool] = []
+
+        for (serverID, connection) in connections {
+            let state = await connection.state
+            guard state.isConnected else { continue }
+
+            for toolInfo in state.tools {
+                tools.append(AvailableTool(serverID: serverID, toolInfo: toolInfo))
+            }
+        }
+
+        return tools
+    }
+
+    func emitConnectionLost(serverID: String) async {
+        alertContinuation.yield(.connectionLost(serverID: serverID))
+    }
+
     // MARK: - Private Helpers
 
     private func forwardEvents(from connection: any ServerConnectionProtocol) async {
         for await event in connection.events {
             eventContinuation.yield(event)
+
+            // Emit alerts based on events
+            if case .stateChanged(let serverID, let from, let to) = event {
+                if from.isConnected && to.isFailed {
+                    alertContinuation.yield(.connectionLost(serverID: serverID))
+                } else if !from.isConnected && to.isFailed {
+                    if case .failed(let message, _) = to {
+                        alertContinuation.yield(.connectionFailed(
+                            serverID: serverID,
+                            error: MCPConnectionError.connectionFailed(serverID: serverID, message: message)
+                        ))
+                    }
+                }
+            }
         }
     }
 }

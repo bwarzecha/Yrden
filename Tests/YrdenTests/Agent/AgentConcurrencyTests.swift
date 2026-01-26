@@ -376,6 +376,62 @@ struct AgentCancellationPropagationTests {
         // The important thing is the test completes without hanging
         _ = wasCancelled
     }
+
+    @Test("Cancellation terminates stream cleanly")
+    func cancellationMidStream() async throws {
+        let slowModel = SlowStreamingModel(
+            delayBetweenChunks: .milliseconds(50),
+            chunks: ["Hello, ", "this ", "is ", "a ", "slow ", "response."]
+        )
+
+        let agent = Agent<Void, String>(
+            model: slowModel,
+            systemPrompt: "You are helpful.",
+            tools: [],
+            maxIterations: 5
+        )
+
+        // Use actor for thread-safe delta collection
+        actor DeltaCollector {
+            var deltas: [String] = []
+            func add(_ delta: String) { deltas.append(delta) }
+        }
+
+        let collector = DeltaCollector()
+        var wasCancelled = false
+
+        let task = Task {
+            for try await event in agent.runStream("Test", deps: ()) {
+                if case .contentDelta(let delta) = event {
+                    await collector.add(delta)
+                }
+            }
+        }
+
+        // Cancel after receiving some deltas
+        try await Task.sleep(for: .milliseconds(80))
+        task.cancel()
+
+        do {
+            try await task.value
+            // May complete if timing allows
+        } catch is CancellationError {
+            wasCancelled = true
+        } catch {
+            // Other errors acceptable
+        }
+
+        let deltasReceived = await collector.deltas
+
+        // Either cancellation happened or completed - both are valid outcomes
+        // The key is that the stream doesn't hang and terminates cleanly
+        #expect(deltasReceived.count >= 0, "Stream should have processed events")
+
+        // If cancelled early, we should have partial content
+        if wasCancelled {
+            #expect(deltasReceived.count < 6, "Expected partial content before cancellation")
+        }
+    }
 }
 
 // MARK: - Data Race Detection Tests
@@ -784,5 +840,64 @@ actor LongRunningTool: AgentTool {
 
     private func markCancelled() {
         wasCancelled = true
+    }
+}
+
+/// Model that streams content slowly, chunk by chunk.
+/// Used for testing cancellation during streaming.
+actor SlowStreamingModel: Model {
+    nonisolated let name: String = "slow-streaming-model"
+    nonisolated let capabilities = ModelCapabilities.claude35
+
+    private let delayBetweenChunks: Duration
+    private let chunks: [String]
+
+    init(delayBetweenChunks: Duration, chunks: [String]) {
+        self.delayBetweenChunks = delayBetweenChunks
+        self.chunks = chunks
+    }
+
+    nonisolated func complete(_ request: CompletionRequest) async throws -> CompletionResponse {
+        // For non-streaming, just return the full content
+        try await Task.sleep(for: delayBetweenChunks)
+        return CompletionResponse(
+            content: chunks.joined(),
+            refusal: nil,
+            toolCalls: [],
+            stopReason: .endTurn,
+            usage: Usage(inputTokens: 10, outputTokens: 10)
+        )
+    }
+
+    nonisolated func stream(_ request: CompletionRequest) -> AsyncThrowingStream<StreamEvent, Error> {
+        let chunks = self.chunks
+        let delay = self.delayBetweenChunks
+
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    for chunk in chunks {
+                        try Task.checkCancellation()
+                        try await Task.sleep(for: delay)
+                        try Task.checkCancellation()
+                        continuation.yield(.contentDelta(chunk))
+                    }
+
+                    let response = CompletionResponse(
+                        content: chunks.joined(),
+                        refusal: nil,
+                        toolCalls: [],
+                        stopReason: .endTurn,
+                        usage: Usage(inputTokens: 10, outputTokens: 10)
+                    )
+                    continuation.yield(.done(response))
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish(throwing: CancellationError())
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
 }

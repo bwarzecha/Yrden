@@ -12,286 +12,19 @@ import Foundation
 @testable import Yrden
 
 // MARK: - Test Mock Model
-
-/// A controllable model for testing agent behavior.
-/// All configuration is done via async methods to be safe with Swift concurrency.
-actor TestMockModel: Model {
-    nonisolated let name: String = "test-mock-model"
-    nonisolated let capabilities = ModelCapabilities.claude35
-
-    private var responses: [CompletionResponse] = []
-    private var errorToThrow: Error?
-    private(set) var callCount: Int = 0
-
-    /// Set responses to return in order.
-    func setResponses(_ responses: [CompletionResponse]) {
-        self.responses = responses
-    }
-
-    /// Set error to throw on next call.
-    func setError(_ error: Error?) {
-        self.errorToThrow = error
-    }
-
-    nonisolated func complete(_ request: CompletionRequest) async throws -> CompletionResponse {
-        try await nextResponse()
-    }
-
-    private func nextResponse() throws -> CompletionResponse {
-        callCount += 1
-
-        if let error = errorToThrow {
-            throw error
-        }
-
-        guard !responses.isEmpty else {
-            throw LLMError.serverError("TestMockModel: No responses configured")
-        }
-
-        return responses.removeFirst()
-    }
-
-    nonisolated func stream(_ request: CompletionRequest) -> AsyncThrowingStream<StreamEvent, Error> {
-        AsyncThrowingStream { continuation in
-            Task {
-                do {
-                    let response = try await self.complete(request)
-                    if let content = response.content {
-                        continuation.yield(.contentDelta(content))
-                    }
-                    for call in response.toolCalls {
-                        continuation.yield(.toolCallStart(id: call.id, name: call.name))
-                        continuation.yield(.toolCallDelta(argumentsDelta: call.arguments))
-                        continuation.yield(.toolCallEnd(id: call.id))
-                    }
-                    continuation.yield(.done(response))
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-        }
-    }
-
-    /// Reset the model state.
-    func reset() {
-        responses = []
-        errorToThrow = nil
-        callCount = 0
-    }
-
-    /// Configure model to return a text response.
-    func setTextResponse(_ text: String) {
-        responses = [CompletionResponse(
-            content: text,
-            refusal: nil,
-            toolCalls: [],
-            stopReason: .endTurn,
-            usage: Usage(inputTokens: 10, outputTokens: 10)
-        )]
-    }
-
-    /// Configure model to call a tool.
-    func setToolCall(name: String, arguments: String, id: String = "call-1") {
-        responses = [CompletionResponse(
-            content: nil,
-            refusal: nil,
-            toolCalls: [ToolCall(id: id, name: name, arguments: arguments)],
-            stopReason: .toolUse,
-            usage: Usage(inputTokens: 10, outputTokens: 10)
-        )]
-    }
-
-    /// Configure model to call a tool then return text.
-    func setToolCallThenText(toolName: String, toolArgs: String, finalText: String) {
-        responses = [
-            CompletionResponse(
-                content: nil,
-                refusal: nil,
-                toolCalls: [ToolCall(id: "call-1", name: toolName, arguments: toolArgs)],
-                stopReason: .toolUse,
-                usage: Usage(inputTokens: 10, outputTokens: 10)
-            ),
-            CompletionResponse(
-                content: finalText,
-                refusal: nil,
-                toolCalls: [],
-                stopReason: .endTurn,
-                usage: Usage(inputTokens: 10, outputTokens: 10)
-            )
-        ]
-    }
-
-    /// Configure model to return maxTokens stop reason.
-    func setMaxTokensResponse(_ partialContent: String) {
-        responses = [CompletionResponse(
-            content: partialContent,
-            refusal: nil,
-            toolCalls: [],
-            stopReason: .maxTokens,
-            usage: Usage(inputTokens: 10, outputTokens: 4096)
-        )]
-    }
-
-    /// Configure model to return content filtered.
-    func setContentFilteredResponse() {
-        responses = [CompletionResponse(
-            content: nil,
-            refusal: nil,
-            toolCalls: [],
-            stopReason: .contentFiltered,
-            usage: Usage(inputTokens: 10, outputTokens: 0)
-        )]
-    }
-
-    /// Configure model to return a refusal.
-    func setRefusalResponse(_ reason: String) {
-        responses = [CompletionResponse(
-            content: nil,
-            refusal: reason,
-            toolCalls: [],
-            stopReason: .endTurn,
-            usage: Usage(inputTokens: 10, outputTokens: 10)
-        )]
-    }
-}
+//
+// TestMockModel is now defined in AgentTestHelpers.swift.
+// Also see MockResponse for convenience factories.
 
 // MARK: - Test Tools
-
-@Schema(description: "Arguments for throwing tool")
-struct ThrowingToolArgs {
-    let input: String
-}
-
-/// Tool that always throws an error.
-struct ThrowingTool: AgentTool {
-    typealias Deps = Void
-    typealias Args = ThrowingToolArgs
-
-    struct ToolError: Error, LocalizedError {
-        let message: String
-        var errorDescription: String? { message }
-    }
-
-    var name: String { "throwing_tool" }
-    var description: String { "A tool that throws errors" }
-
-    func call(context: AgentContext<Void>, arguments: Args) async throws -> ToolResult<String> {
-        throw ToolError(message: "Tool crashed: \(arguments.input)")
-    }
-}
-
-@Schema(description: "Arguments for failing tool")
-struct FailingToolArgs {
-    let input: String
-}
-
-/// Tool that returns .failure result.
-struct FailingTool: AgentTool {
-    typealias Deps = Void
-    typealias Args = FailingToolArgs
-
-    struct ToolFailure: Error, LocalizedError {
-        let reason: String
-        var errorDescription: String? { reason }
-    }
-
-    var name: String { "failing_tool" }
-    var description: String { "A tool that returns failure" }
-
-    func call(context: AgentContext<Void>, arguments: Args) async throws -> ToolResult<String> {
-        return .failure(ToolFailure(reason: "Failed to process: \(arguments.input)"))
-    }
-}
-
-@Schema(description: "Arguments for retry tool")
-struct RetryToolArgs {
-    let input: String
-}
-
-/// Tool that returns .retry result to ask LLM to try again.
-struct RetryRequestingTool: AgentTool {
-    typealias Deps = Void
-    typealias Args = RetryToolArgs
-
-    var name: String { "retry_tool" }
-    var description: String { "A tool that requests retry" }
-
-    func call(context: AgentContext<Void>, arguments: Args) async throws -> ToolResult<String> {
-        return .retry(message: "Invalid input '\(arguments.input)', please try with a different value")
-    }
-}
-
-@Schema(description: "Arguments for counting tool")
-struct CountingToolArgs {
-    let input: String
-}
-
-/// Actor to track call count for CountingTool.
-actor CountingToolState {
-    var callCount = 0
-
-    func increment() -> Int {
-        callCount += 1
-        return callCount
-    }
-
-    func reset() {
-        callCount = 0
-    }
-}
-
-/// Tool that tracks call count and can be configured to fail then succeed.
-struct CountingTool: AgentTool {
-    typealias Deps = Void
-    typealias Args = CountingToolArgs
-
-    let state = CountingToolState()
-    let failUntilCall: Int
-    let successResult: String
-
-    var name: String { "counting_tool" }
-    var description: String { "A tool that counts calls" }
-
-    init(failUntilCall: Int = 0, successResult: String = "Success") {
-        self.failUntilCall = failUntilCall
-        self.successResult = successResult
-    }
-
-    func call(context: AgentContext<Void>, arguments: Args) async throws -> ToolResult<String> {
-        let currentCount = await state.increment()
-        if currentCount <= failUntilCall {
-            return .retry(message: "Not ready yet, please try again (attempt \(currentCount))")
-        }
-        return .success(successResult)
-    }
-
-    var callCount: Int {
-        get async { await state.callCount }
-    }
-
-    func reset() async {
-        await state.reset()
-    }
-}
-
-@Schema(description: "Simple tool args")
-struct SimpleToolArgs {
-    let value: String
-}
-
-/// Simple working tool for control tests.
-struct SimpleTool: AgentTool {
-    typealias Deps = Void
-    typealias Args = SimpleToolArgs
-
-    var name: String { "simple_tool" }
-    var description: String { "A simple working tool" }
-
-    func call(context: AgentContext<Void>, arguments: Args) async throws -> ToolResult<String> {
-        return .success("Processed: \(arguments.value)")
-    }
-}
+//
+// Uses shared test helpers from AgentTestHelpers.swift:
+// - ConfigurableTool.throwing() - Tool that throws errors
+// - ConfigurableTool.failing() - Tool that returns .failure
+// - ConfigurableTool.retrying() - Tool that returns .retry
+// - ConfigurableTool.succeeding() - Tool that succeeds
+// - RetryStatefulTool - Tool that changes behavior after N calls
+// - SlowTool - Tool with configurable delay
 
 // MARK: - Tool Failure Tests
 
@@ -325,14 +58,14 @@ struct AgentToolFailureTests {
         let agent = Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(ThrowingTool())],
+            tools: [AnyAgentTool(ConfigurableTool.throwing(TestToolError.crashed("test")))],
             maxIterations: 5
         )
 
         let result = try await agent.run("Test the tool", deps: ())
 
-        // Agent should complete successfully after receiving error feedback
-        #expect(result.output.contains("error"))
+        // Agent should complete with exact response from mock
+        #expect(result.output == "The tool threw an error, I understand.")
         let callCount = await model.callCount
         #expect(callCount == 2)
     }
@@ -361,13 +94,14 @@ struct AgentToolFailureTests {
         let agent = Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(FailingTool())],
+            tools: [AnyAgentTool(ConfigurableTool.failing(TestToolError.processingFailed("data")))],
             maxIterations: 5
         )
 
         let result = try await agent.run("Process this data", deps: ())
 
-        #expect(result.output.contains("failed"))
+        // Agent should complete with exact response from mock
+        #expect(result.output == "The tool failed to process the data.")
         let callCount = await model.callCount
         #expect(callCount == 2)
     }
@@ -389,7 +123,7 @@ struct AgentToolFailureTests {
             CompletionResponse(
                 content: nil,
                 refusal: nil,
-                toolCalls: [ToolCall(id: "call-2", name: "simple_tool", arguments: #"{"value":"correct"}"#)],
+                toolCalls: [ToolCall(id: "call-2", name: "simple_tool", arguments: #"{"input":"correct"}"#)],
                 stopReason: .toolUse,
                 usage: Usage(inputTokens: 20, outputTokens: 10)
             ),
@@ -406,7 +140,10 @@ struct AgentToolFailureTests {
         let agent = Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(RetryRequestingTool()), AnyAgentTool(SimpleTool())],
+            tools: [
+                AnyAgentTool(ConfigurableTool.retrying("Invalid input, please try with a different value", name: "retry_tool")),
+                AnyAgentTool(ConfigurableTool.succeeding("Processed: correct", name: "simple_tool"))
+            ],
             maxIterations: 5
         )
 
@@ -420,7 +157,11 @@ struct AgentToolFailureTests {
     @Test("Tool fails then succeeds on retry")
     func toolFailsThenSucceeds() async throws {
         let model = TestMockModel()
-        let countingTool = CountingTool(failUntilCall: 1, successResult: "Finally worked!")
+        let countingTool = RetryStatefulTool(
+            name: "counting_tool",
+            failUntilCall: 1,
+            successResult: "Finally worked!"
+        )
 
         await model.setResponses([
             // First call - tool will request retry
@@ -458,10 +199,12 @@ struct AgentToolFailureTests {
 
         let result = try await agent.run("Use the counting tool", deps: ())
 
-        let toolCallCount = await countingTool.callCount
-        // Tool should be called at least twice: once for retry, once for success
+        let toolCallCount = await countingTool.currentCallCount
+        // Tool should be called at least twice (once for retry, once for success)
+        // May be called more times depending on agent retry logic
         #expect(toolCallCount >= 2, "Expected at least 2 tool calls, got \(toolCallCount)")
-        #expect(result.output.contains("worked"))
+        // Agent should complete with exact response from mock
+        #expect(result.output == "The tool finally worked!")
     }
 
     @Test("Max iterations reached when all tools fail")
@@ -482,7 +225,7 @@ struct AgentToolFailureTests {
         let agent = Agent<Void, String>(
             model: model,
             systemPrompt: "Use the tool.",
-            tools: [AnyAgentTool(FailingTool())],
+            tools: [AnyAgentTool(ConfigurableTool.failing(TestToolError.processingFailed("data")))],
             maxIterations: 3
         )
 
@@ -530,7 +273,7 @@ struct AgentModelResponseFailureTests {
         let agent = Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(SimpleTool())],
+            tools: [AnyAgentTool(ConfigurableTool.succeeding("Processed: test", name: "simple_tool"))],
             maxIterations: 5
         )
 
@@ -540,6 +283,44 @@ struct AgentModelResponseFailureTests {
         #expect(!result.output.isEmpty)
         let callCount = await model.callCount
         #expect(callCount == 2)
+    }
+
+    @Test("Model returns malformed tool call arguments")
+    func modelReturnsMalformedToolCall() async throws {
+        let model = TestMockModel()
+
+        await model.setResponses([
+            // Model calls a tool with invalid JSON arguments
+            CompletionResponse(
+                content: nil,
+                refusal: nil,
+                toolCalls: [ToolCall(id: "call-1", name: "simple_tool", arguments: #"not valid json {"#)],
+                stopReason: .toolUse,
+                usage: Usage(inputTokens: 10, outputTokens: 10)
+            ),
+            // Model receives error and responds with text
+            CompletionResponse(
+                content: "I apologize for the malformed tool call.",
+                refusal: nil,
+                toolCalls: [],
+                stopReason: .endTurn,
+                usage: Usage(inputTokens: 20, outputTokens: 10)
+            )
+        ])
+
+        let agent = Agent<Void, String>(
+            model: model,
+            systemPrompt: "You are helpful.",
+            tools: [AnyAgentTool(ConfigurableTool.succeeding("Success", name: "simple_tool"))],
+            maxIterations: 5
+        )
+
+        let result = try await agent.run("Use the tool", deps: ())
+
+        // Agent should complete after model receives parse error and responds
+        #expect(!result.output.isEmpty)
+        let callCount = await model.callCount
+        #expect(callCount == 2, "Expected 2 model calls (initial + retry after error)")
     }
 
     @Test("Model returns maxTokens triggers error")
@@ -661,7 +442,7 @@ struct AgentUsageLimitTests {
             CompletionResponse(
                 content: nil,
                 refusal: nil,
-                toolCalls: [ToolCall(id: "call-\(i)", name: "simple_tool", arguments: #"{"value":"test"}"#)],
+                toolCalls: [ToolCall(id: "call-\(i)", name: "simple_tool", arguments: #"{"input":"test"}"#)],
                 stopReason: .toolUse,
                 usage: Usage(inputTokens: 10, outputTokens: 10)
             )
@@ -670,7 +451,7 @@ struct AgentUsageLimitTests {
         let agent = Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(SimpleTool())],
+            tools: [AnyAgentTool(ConfigurableTool.succeeding("Processed: test", name: "simple_tool"))],
             maxIterations: 10,
             usageLimits: UsageLimits(maxRequests: 2)
         )
@@ -701,9 +482,9 @@ struct AgentUsageLimitTests {
                 content: nil,
                 refusal: nil,
                 toolCalls: [
-                    ToolCall(id: "call-1", name: "simple_tool", arguments: #"{"value":"a"}"#),
-                    ToolCall(id: "call-2", name: "simple_tool", arguments: #"{"value":"b"}"#),
-                    ToolCall(id: "call-3", name: "simple_tool", arguments: #"{"value":"c"}"#)
+                    ToolCall(id: "call-1", name: "simple_tool", arguments: #"{"input":"a"}"#),
+                    ToolCall(id: "call-2", name: "simple_tool", arguments: #"{"input":"b"}"#),
+                    ToolCall(id: "call-3", name: "simple_tool", arguments: #"{"input":"c"}"#)
                 ],
                 stopReason: .toolUse,
                 usage: Usage(inputTokens: 10, outputTokens: 10)
@@ -713,7 +494,7 @@ struct AgentUsageLimitTests {
         let agent = Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(SimpleTool())],
+            tools: [AnyAgentTool(ConfigurableTool.succeeding("Processed: test", name: "simple_tool"))],
             maxIterations: 10,
             usageLimits: UsageLimits(maxToolCalls: 2)
         )
@@ -743,7 +524,7 @@ struct AgentUsageLimitTests {
             CompletionResponse(
                 content: nil,
                 refusal: nil,
-                toolCalls: [ToolCall(id: "call-1", name: "simple_tool", arguments: #"{"value":"test"}"#)],
+                toolCalls: [ToolCall(id: "call-1", name: "simple_tool", arguments: #"{"input":"test"}"#)],
                 stopReason: .toolUse,
                 usage: Usage(inputTokens: 1000, outputTokens: 500)
             )
@@ -752,7 +533,7 @@ struct AgentUsageLimitTests {
         let agent = Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(SimpleTool())],
+            tools: [AnyAgentTool(ConfigurableTool.succeeding("Processed: test", name: "simple_tool"))],
             maxIterations: 10,
             usageLimits: UsageLimits(maxTotalTokens: 100)
         )
@@ -881,7 +662,7 @@ struct AgentStreamingFailureTests {
         let agent = Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(ThrowingTool())],
+            tools: [AnyAgentTool(ConfigurableTool.throwing(TestToolError.crashed("test")))],
             maxIterations: 5
         )
 
@@ -931,6 +712,41 @@ struct AgentStreamingFailureTests {
             }
         }
     }
+
+    @Test("Stream interrupted mid-response throws error")
+    func streamInterrupted() async throws {
+        let model = StreamInterruptingModel()
+
+        let agent = Agent<Void, String>(
+            model: model,
+            systemPrompt: "You are helpful.",
+            tools: [],
+            maxIterations: 3
+        )
+
+        var deltasReceived: [String] = []
+        var errorThrown = false
+
+        do {
+            for try await event in agent.runStream("Hello", deps: ()) {
+                if case .contentDelta(let delta) = event {
+                    deltasReceived.append(delta)
+                }
+            }
+            Issue.record("Expected stream interruption error")
+        } catch let error as LLMError {
+            errorThrown = true
+            if case .networkError(let msg) = error {
+                #expect(msg.contains("interrupted") || msg.contains("connection"))
+            } else {
+                Issue.record("Expected networkError, got \(error)")
+            }
+        }
+
+        // Should have received some deltas before interruption
+        #expect(!deltasReceived.isEmpty, "Expected partial content before interruption")
+        #expect(errorThrown, "Expected error to be thrown")
+    }
 }
 
 // MARK: - Cancellation Tests
@@ -947,7 +763,7 @@ struct AgentCancellationTests {
             CompletionResponse(
                 content: nil,
                 refusal: nil,
-                toolCalls: [ToolCall(id: "call-1", name: "simple_tool", arguments: #"{"value":"test"}"#)],
+                toolCalls: [ToolCall(id: "call-1", name: "simple_tool", arguments: #"{"input":"test"}"#)],
                 stopReason: .toolUse,
                 usage: Usage(inputTokens: 10, outputTokens: 10)
             )
@@ -956,7 +772,7 @@ struct AgentCancellationTests {
         let agent = Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(SimpleTool())],
+            tools: [AnyAgentTool(ConfigurableTool.succeeding("Processed: test", name: "simple_tool"))],
             maxIterations: 5
         )
 
@@ -1157,7 +973,7 @@ struct AgentToolTimeoutTests {
             CompletionResponse(
                 content: nil,
                 refusal: nil,
-                toolCalls: [ToolCall(id: "call-1", name: "slow_tool", arguments: #"{"value":"test"}"#)],
+                toolCalls: [ToolCall(id: "call-1", name: "slow_tool", arguments: #"{"input":"test"}"#)],
                 stopReason: .toolUse,
                 usage: Usage(inputTokens: 10, outputTokens: 10)
             ),
@@ -1198,7 +1014,7 @@ struct AgentToolTimeoutTests {
             CompletionResponse(
                 content: nil,
                 refusal: nil,
-                toolCalls: [ToolCall(id: "call-1", name: "slow_tool", arguments: #"{"value":"test"}"#)],
+                toolCalls: [ToolCall(id: "call-1", name: "slow_tool", arguments: #"{"input":"test"}"#)],
                 stopReason: .toolUse,
                 usage: Usage(inputTokens: 10, outputTokens: 10)
             ),
@@ -1219,7 +1035,8 @@ struct AgentToolTimeoutTests {
         )
 
         let result = try await agent.run("Use the slow tool", deps: ())
-        #expect(result.output.contains("completed"))
+        // Agent should complete with exact response from mock
+        #expect(result.output == "Tool completed successfully")
     }
 }
 
@@ -1271,25 +1088,33 @@ actor RetryTestModel: Model {
     }
 }
 
-// MARK: - Helper: SlowTool
+// MARK: - Helper: StreamInterruptingModel
 
-@Schema(description: "Slow tool arguments")
-struct SlowToolArgs {
-    let value: String
-}
+/// Model that starts streaming then throws an error mid-stream.
+/// Simulates network disconnection or stream interruption.
+actor StreamInterruptingModel: Model {
+    nonisolated let name: String = "stream-interrupting-model"
+    nonisolated let capabilities = ModelCapabilities.claude35
 
-/// Tool that takes a configurable amount of time.
-struct SlowTool: AgentTool {
-    typealias Deps = Void
-    typealias Args = SlowToolArgs
+    nonisolated func complete(_ request: CompletionRequest) async throws -> CompletionResponse {
+        throw LLMError.networkError("Connection interrupted")
+    }
 
-    let delay: Duration
+    nonisolated func stream(_ request: CompletionRequest) -> AsyncThrowingStream<StreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                // Send some partial content first
+                continuation.yield(.contentDelta("Hello, I'm starting to "))
+                continuation.yield(.contentDelta("respond to your "))
 
-    var name: String { "slow_tool" }
-    var description: String { "A tool that takes time" }
+                // Brief delay to simulate partial stream
+                try? await Task.sleep(for: .milliseconds(10))
 
-    func call(context: AgentContext<Void>, arguments: Args) async throws -> ToolResult<String> {
-        try await Task.sleep(for: delay)
-        return .success("Completed after delay: \(arguments.value)")
+                // Then fail mid-stream
+                continuation.finish(throwing: LLMError.networkError("Connection interrupted"))
+            }
+        }
     }
 }
+
+// SlowTool is now defined in AgentTestHelpers.swift

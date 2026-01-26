@@ -315,29 +315,26 @@ extension Value {
 ///   - isError: Whether the tool returned an error
 /// - Returns: Formatted string for display
 public func formatMCPToolResult(_ content: [MCP.Tool.Content], isError: Bool?) -> String {
-    var result = ""
-
-    for item in content {
+    // Map each content item to its string representation
+    let parts = content.map { item -> String in
         switch item {
         case .text(let text):
-            result += text + "\n"
+            return text
         case .image(let data, let mimeType, _):
-            result += "[Image: \(mimeType), \(data.count) bytes]\n"
+            return "[Image: \(mimeType), \(data.count) bytes]"
         case .audio(let data, let mimeType):
-            result += "[Audio: \(mimeType), \(data.count) bytes]\n"
+            return "[Audio: \(mimeType), \(data.count) bytes]"
         case .resource(let uri, let mimeType, let text):
             if let text = text {
-                result += text + "\n"
+                return text
             } else {
-                result += "[Resource: \(uri), \(mimeType)]\n"
+                return "[Resource: \(uri), \(mimeType)]"
             }
         }
     }
 
-    // Remove trailing newline
-    if result.hasSuffix("\n") {
-        result.removeLast()
-    }
+    // Join with newlines
+    var result = parts.joined(separator: "\n")
 
     // Handle empty result
     if result.isEmpty {

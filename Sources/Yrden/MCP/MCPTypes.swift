@@ -172,6 +172,55 @@ public enum CancellationReason: Sendable, Equatable {
     case appShutdown
 }
 
+// MARK: - MCP Alerts
+
+/// User-facing alerts for MCP connection and tool events.
+///
+/// These alerts are intended for UI notification to inform users
+/// about connection status changes and issues that may require attention.
+public enum MCPAlert: Identifiable, Sendable {
+    /// Connection attempt failed.
+    case connectionFailed(serverID: String, error: Error)
+
+    /// Previously connected server lost connection.
+    case connectionLost(serverID: String)
+
+    /// Attempting to reconnect to server.
+    case reconnecting(serverID: String, attempt: Int)
+
+    /// Successfully reconnected to server.
+    case reconnected(serverID: String)
+
+    /// Tool call timed out.
+    case toolTimedOut(serverID: String, tool: String)
+
+    /// Server health check failed.
+    case serverUnhealthy(serverID: String, reason: String)
+
+    public var id: String {
+        switch self {
+        case .connectionFailed(let id, _): return "connectionFailed-\(id)"
+        case .connectionLost(let id): return "connectionLost-\(id)"
+        case .reconnecting(let id, let attempt): return "reconnecting-\(id)-\(attempt)"
+        case .reconnected(let id): return "reconnected-\(id)"
+        case .toolTimedOut(let id, let tool): return "toolTimedOut-\(id)-\(tool)"
+        case .serverUnhealthy(let id, _): return "serverUnhealthy-\(id)"
+        }
+    }
+
+    /// The server ID associated with this alert.
+    public var serverID: String {
+        switch self {
+        case .connectionFailed(let id, _): return id
+        case .connectionLost(let id): return id
+        case .reconnecting(let id, _): return id
+        case .reconnected(let id): return id
+        case .toolTimedOut(let id, _): return id
+        case .serverUnhealthy(let id, _): return id
+        }
+    }
+}
+
 // MARK: - Deprecated Type Aliases
 
 /// Deprecated: Use `MCPEvent` instead.

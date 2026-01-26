@@ -58,7 +58,7 @@ final class ProtocolMCPManager: ObservableObject {
     @Published private(set) var activeToolCalls: [ActiveToolCall] = []
 
     /// Pending alerts for user attention.
-    @Published private(set) var pendingAlerts: [MCPAlert] = []
+    @Published private(set) var pendingAlerts: [MCPAlertView] = []
 
     // MARK: - Configuration
 
@@ -210,7 +210,7 @@ final class ProtocolMCPManager: ObservableObject {
     // MARK: - Alert Management
 
     /// Dismiss an alert.
-    func dismissAlert(_ alert: MCPAlert) {
+    func dismissAlert(_ alert: MCPAlertView) {
         pendingAlerts.removeAll { $0.id == alert.id }
     }
 
@@ -289,7 +289,7 @@ final class ProtocolMCPManager: ObservableObject {
             view.status = .failed(message: message)
             view.lastErrorMessage = message
             removeToolsForServer(serverID: id)
-            addAlert(serverID: id, kind: .connectionFailed, message: message)
+            addAlertView(serverID: id, kind: .connectionFailed, message: message)
 
         case .reconnecting(let attempt, let max, _):
             view.status = .reconnecting(attempt: attempt, maxAttempts: max)
@@ -338,8 +338,8 @@ final class ProtocolMCPManager: ObservableObject {
         servers[serverID] = view
     }
 
-    private func addAlert(serverID: String, kind: MCPAlert.AlertKind, message: String) {
-        pendingAlerts.append(MCPAlert(
+    private func addAlertView(serverID: String, kind: MCPAlertView.AlertKind, message: String) {
+        pendingAlerts.append(MCPAlertView(
             id: UUID(),
             serverID: serverID,
             kind: kind,
@@ -425,8 +425,8 @@ struct ActiveToolCall: Identifiable, Sendable {
     }
 }
 
-/// Alert for user attention.
-struct MCPAlert: Identifiable, Sendable {
+/// Alert view model for UI display.
+struct MCPAlertView: Identifiable, Sendable {
     public let id: UUID
     public let serverID: String
     public let kind: AlertKind
@@ -446,5 +446,9 @@ struct MCPAlert: Identifiable, Sendable {
         case authExpired
         case disconnected
         case authRequired
+        case reconnecting
+        case reconnected
+        case toolTimedOut
+        case serverUnhealthy
     }
 }

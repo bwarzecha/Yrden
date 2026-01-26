@@ -201,7 +201,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             continuation.yield(.usage(state.usage))
 
             // Add assistant message
-            state.messages.append(.fromResponse(response))
+            state.addResponse(response)
 
             // Handle response with streaming callback for tool results
             let action = try await handleModelResponse(
@@ -419,7 +419,8 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             case .approved:
                 // Execute the tool now
                 guard let tool = tools.first(where: { $0.name == pending.toolCall.name }) else {
-                    toolResults.append((pending.toolCall, .error("Tool not found: \(pending.toolCall.name)")))
+                    let errorMsg = ToolExecutionError.toolNotFound(pending.toolCall.name).localizedDescription
+                    toolResults.append((pending.toolCall, .error(errorMsg)))
                     continue
                 }
 
@@ -475,18 +476,11 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             }
         }
 
-        // Build state to continue from
-        var state = RunState(
-            runID: paused.runID,
-            deps: deps,
-            messages: paused.messages,
-            usage: paused.usage,
-            requestCount: paused.requestCount,
-            toolCallCount: paused.toolCallCount
-        )
+        // Resume from the paused state
+        var state = RunState.resume(from: paused, deps: deps)
 
         // Add tool results to messages
-        state.messages.append(.fromToolResults(toolResults))
+        state.addToolResults(toolResults)
 
         // Continue the agent loop
         while state.requestCount < maxIterations {
@@ -497,7 +491,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             let response = try await completeWithRetry(request: request)
             state.requestCount += 1
             state.usage = accumulateUsage(current: state.usage, new: response.usage)
-            state.messages.append(.fromResponse(response))
+            state.addResponse(response)
 
             // Handle response
             switch try await handleModelResponse(response: response, state: &state) {
@@ -522,6 +516,18 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         var toolCallCount: Int = 0
         var pendingCalls: [PendingToolCall] = []
 
+        /// Resume from a paused agent run.
+        static func resume(from paused: PausedAgentRun, deps: Deps) -> RunState {
+            RunState(
+                runID: paused.runID,
+                deps: deps,
+                messages: paused.messages,
+                usage: paused.usage,
+                requestCount: paused.requestCount,
+                toolCallCount: paused.toolCallCount
+            )
+        }
+
         /// Build an AgentResult from current state with the given output.
         func makeResult(output: Output, outputToolUsed: String?) -> AgentResult<Output> {
             AgentResult(
@@ -533,6 +539,16 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
                 requestCount: requestCount,
                 toolCallCount: toolCallCount
             )
+        }
+
+        /// Add a model response to the message history.
+        mutating func addResponse(_ response: CompletionResponse) {
+            messages.append(.fromResponse(response))
+        }
+
+        /// Add tool results to the message history.
+        mutating func addToolResults(_ results: [(ToolCall, ToolOutput)]) {
+            messages.append(.fromToolResults(results))
         }
     }
 
@@ -597,7 +613,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             observer.onModelResponse(response: response, usage: state.usage)
 
             // Add assistant message
-            state.messages.append(.fromResponse(response))
+            state.addResponse(response)
 
             // Handle response with observer callbacks
             toolResults.removeAll()
@@ -807,7 +823,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
                     if endStrategy == .early {
                         // Add tool results to messages and return early
                         if !toolResults.isEmpty {
-                            state.messages.append(.fromToolResults(toolResults))
+                            state.addToolResults(toolResults)
                         }
                         return ToolProcessingResult(
                             output: outputResult,
@@ -860,7 +876,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         // Check for deferred tools
         if !pendingCalls.isEmpty {
             if !toolResults.isEmpty {
-                state.messages.append(.fromToolResults(toolResults))
+                state.addToolResults(toolResults)
             }
 
             let paused = PausedAgentRun(
@@ -876,7 +892,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
 
         // Add tool results to messages
         if !toolResults.isEmpty {
-            state.messages.append(.fromToolResults(toolResults))
+            state.addToolResults(toolResults)
         }
 
         return ToolProcessingResult(

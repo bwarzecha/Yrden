@@ -114,6 +114,9 @@ protocol MCPCoordinatorProtocol: Sendable, Actor {
     /// Event stream for coordinator-level events (nonisolated for subscription).
     nonisolated var events: AsyncStream<CoordinatorEvent> { get }
 
+    /// Alert stream for user-facing notifications (nonisolated for subscription).
+    nonisolated var alerts: AsyncStream<MCPAlert> { get }
+
     /// Start all servers in parallel.
     func startAll(specs: [ServerSpec]) async
 
@@ -145,6 +148,18 @@ protocol MCPCoordinatorProtocol: Sendable, Actor {
 
     /// Get current state snapshot.
     var snapshot: CoordinatorSnapshot { get async }
+
+    /// Trigger auto-reconnect for a failed server.
+    func triggerAutoReconnect(serverID: String) async
+
+    /// Start periodic health checks for all connections.
+    func startHealthChecks() async
+
+    /// Get tools from connected servers only.
+    func availableTools() async -> [AvailableTool]
+
+    /// Emit a connection lost alert (for testing).
+    func emitConnectionLost(serverID: String) async
 }
 
 // MARK: - Clock Protocol
@@ -172,6 +187,30 @@ struct RealClock: ClockProtocol, Sendable {
 
     func now() -> Date {
         Date()
+    }
+}
+
+// MARK: - Available Tool
+
+/// Tool available from a connected server.
+struct AvailableTool: Sendable {
+    /// Server ID this tool belongs to.
+    let serverID: String
+
+    /// Tool name.
+    let name: String
+
+    /// Tool description.
+    let description: String?
+
+    /// Tool input schema.
+    let inputSchema: JSONValue
+
+    init(serverID: String, toolInfo: ToolInfo) {
+        self.serverID = serverID
+        self.name = toolInfo.name
+        self.description = toolInfo.description
+        self.inputSchema = JSONValue(mcpValue: toolInfo.inputSchema)
     }
 }
 

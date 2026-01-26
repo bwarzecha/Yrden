@@ -83,6 +83,27 @@ extension ToolMode {
 
 // MARK: - ToolFilter
 
+/// Thread-safe cache for compiled regexes to avoid recompilation on each match.
+private final class RegexCache: @unchecked Sendable {
+    static let shared = RegexCache()
+    private var cache: [String: NSRegularExpression] = [:]
+    private let lock = NSLock()
+
+    func regex(for pattern: String) -> NSRegularExpression? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if let cached = cache[pattern] {
+            return cached
+        }
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return nil
+        }
+        cache[pattern] = regex
+        return regex
+    }
+}
+
 /// Filter criteria for selecting tools.
 ///
 /// Filters can be combined with logical operators (.and, .or, .not)
@@ -136,8 +157,8 @@ public enum ToolFilter: Codable, Sendable, Equatable {
         case .toolIDs(let ids):
             return ids.contains(entry.id)
 
-        case .pattern(let regex):
-            guard let regex = try? NSRegularExpression(pattern: regex, options: []) else {
+        case .pattern(let pattern):
+            guard let regex = RegexCache.shared.regex(for: pattern) else {
                 return false
             }
             let range = NSRange(entry.name.startIndex..., in: entry.name)

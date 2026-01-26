@@ -19,6 +19,11 @@ public actor MockCoordinator: MCPCoordinatorProtocol {
     public nonisolated let events: AsyncStream<MCPEvent>
     private let eventContinuation: AsyncStream<MCPEvent>.Continuation
 
+    // MARK: - Alerts
+
+    public nonisolated let alerts: AsyncStream<MCPAlert>
+    private let alertContinuation: AsyncStream<MCPAlert>.Continuation
+
     // MARK: - Behavior Configuration
 
     /// Snapshot to return from snapshot property.
@@ -59,12 +64,26 @@ public actor MockCoordinator: MCPCoordinatorProtocol {
     /// Request IDs passed to cancelToolCall.
     public private(set) var cancelToolCallCalls: [String] = []
 
+    // MARK: - New Protocol Fields
+
+    /// Available tools to return.
+    public var availableToolsToReturn: [AvailableTool] = []
+
+    /// Recording for new methods
+    public private(set) var triggerAutoReconnectCalls: [String] = []
+    public private(set) var startHealthChecksCalled = false
+    public private(set) var emitConnectionLostCalls: [String] = []
+
     // MARK: - Initialization
 
     public init() {
-        var continuation: AsyncStream<MCPEvent>.Continuation!
-        self.events = AsyncStream { continuation = $0 }
-        self.eventContinuation = continuation
+        var eventCont: AsyncStream<MCPEvent>.Continuation!
+        self.events = AsyncStream { eventCont = $0 }
+        self.eventContinuation = eventCont
+
+        var alertCont: AsyncStream<MCPAlert>.Continuation!
+        self.alerts = AsyncStream { alertCont = $0 }
+        self.alertContinuation = alertCont
     }
 
     // MARK: - MCPCoordinatorProtocol
@@ -119,7 +138,29 @@ public actor MockCoordinator: MCPCoordinatorProtocol {
         get async { snapshotToReturn }
     }
 
+    public func triggerAutoReconnect(serverID: String) async {
+        triggerAutoReconnectCalls.append(serverID)
+    }
+
+    public func startHealthChecks() async {
+        startHealthChecksCalled = true
+    }
+
+    public func availableTools() async -> [AvailableTool] {
+        availableToolsToReturn
+    }
+
+    public func emitConnectionLost(serverID: String) async {
+        emitConnectionLostCalls.append(serverID)
+        alertContinuation.yield(.connectionLost(serverID: serverID))
+    }
+
     // MARK: - Test Helpers
+
+    /// Emit an alert (simulate coordinator activity).
+    public func emitAlert(_ alert: MCPAlert) {
+        alertContinuation.yield(alert)
+    }
 
     /// Set the result to return from startAllAndWait.
     public func setStartResult(_ result: StartResult) {
@@ -176,6 +217,9 @@ public actor MockCoordinator: MCPCoordinatorProtocol {
         toolCalls = []
         cancelToolCallCalls = []
         toolCallError = nil
+        triggerAutoReconnectCalls = []
+        startHealthChecksCalled = false
+        emitConnectionLostCalls = []
     }
 
     /// Check if reconnect was called for a specific server.
