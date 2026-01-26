@@ -2,7 +2,7 @@
 
 > Tracking document for extracting duplicate code and hard-coded strings from provider implementations.
 
-## Status: Phase 11 In Progress
+## Status: Complete
 
 ---
 
@@ -259,36 +259,43 @@ Combined with Phase 8 - `HTTPClient.streamJSONPOST` and `collectErrorData` handl
 ---
 
 ## Phase 11: Error Message Parsing
-**Status:** [ ] Not Started
+**Status:** [~] Kept Provider-Specific
 
 ### Problem
-Identical error parsing logic:
-- AnthropicModel:318-323
-- OpenAIModel:436-441
+Similar error parsing logic:
+- AnthropicModel parseErrorMessage (~5 lines)
+- OpenAIModel parseErrorMessage (~5 lines)
 
-### Solution
-Create generic error parser or add to HTTPClient.swift.
+### Decision
+After analysis, the functions are too simple to benefit from extraction:
+- Each is only 5 lines of code
+- They use different error types (AnthropicError, OpenAIError)
+- Extracting would add complexity (protocol or closure) for minimal benefit
+- The fallback logic (`String(data:encoding:) ?? "Unknown error"`) is already consistent
 
-### Files to Modify
-- [ ] `Sources/Yrden/Providers/HTTPClient.swift`
-- [ ] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
+The current approach is clean and maintainable.
 
 ---
 
 ## Phase 12: ToolCallAccumulator
-**Status:** [ ] Not Started
+**Status:** [~] Kept Provider-Specific
 
 ### Problem
 Similar structs in two files:
-- AnthropicModel:483-488
-- OpenAIModel:977-983
+- AnthropicModel: ToolCallAccumulator (id, name, blockIndex, arguments)
+- OpenAIModel: ToolCallAccumulator (id, name, arguments, started, ended)
 
-### Solution
-Create shared `Sources/Yrden/Providers/ToolCallAccumulator.swift` or keep provider-specific (they have slightly different fields).
+### Decision
+After analysis, these structs serve different purposes:
+- **Anthropic**: Uses `blockIndex` for SSE content block positioning
+- **OpenAI**: Uses `started`/`ended` flags for explicit state tracking
 
-### Decision Needed
-- [ ] Decide: Merge into shared struct with optional fields, or keep separate?
+The streaming protocols differ significantly:
+- Anthropic sends content_block_start/delta/stop events with indices
+- OpenAI sends incremental deltas with implicit start/end detection
+
+Merging would require awkward optional fields or protocol abstraction.
+The current approach keeps each provider's streaming logic self-contained and clear.
 
 ---
 
