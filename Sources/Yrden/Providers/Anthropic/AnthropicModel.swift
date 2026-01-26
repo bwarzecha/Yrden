@@ -208,7 +208,7 @@ public struct AnthropicModel: Model, Sendable {
 
         for block in response.content {
             switch block.type {
-            case "text":
+            case AnthropicBlockType.text:
                 if let text = block.text {
                     if textContent == nil {
                         textContent = text

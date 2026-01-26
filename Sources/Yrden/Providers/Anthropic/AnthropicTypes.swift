@@ -29,6 +29,28 @@ enum AnthropicBlockType {
     static let toolUse = "tool_use"
 }
 
+// MARK: - Stream Event Types
+
+/// SSE event type identifiers from Anthropic streaming.
+enum AnthropicEventType {
+    static let messageStart = "message_start"
+    static let contentBlockStart = "content_block_start"
+    static let contentBlockDelta = "content_block_delta"
+    static let contentBlockStop = "content_block_stop"
+    static let messageDelta = "message_delta"
+    static let messageStop = "message_stop"
+    static let ping = "ping"
+    static let error = "error"
+}
+
+// MARK: - Delta Types
+
+/// Delta type identifiers in streaming content blocks.
+enum AnthropicDeltaType {
+    static let textDelta = "text_delta"
+    static let inputJsonDelta = "input_json_delta"
+}
+
 // MARK: - Request Types
 
 /// Request body for the Anthropic Messages API.
@@ -254,10 +276,10 @@ enum AnthropicStreamDelta: Decodable {
         let type = try container.decode(String.self, forKey: .type)
 
         switch type {
-        case "text_delta":
+        case AnthropicDeltaType.textDelta:
             let text = try container.decode(String.self, forKey: .text)
             self = .textDelta(text)
-        case "input_json_delta":
+        case AnthropicDeltaType.inputJsonDelta:
             let json = try container.decode(String.self, forKey: .partial_json)
             self = .inputJsonDelta(json)
         default:
@@ -291,48 +313,48 @@ extension AnthropicSSEEvent {
     /// Parse SSE event into typed stream event.
     func parse() throws -> AnthropicStreamEvent {
         switch event {
-        case "message_start":
+        case AnthropicEventType.messageStart:
             let wrapper = try JSONDecoder().decode(
                 MessageStartWrapper.self,
                 from: Data(data.utf8)
             )
             return .messageStart(response: wrapper.message)
 
-        case "content_block_start":
+        case AnthropicEventType.contentBlockStart:
             let wrapper = try JSONDecoder().decode(
                 ContentBlockStartWrapper.self,
                 from: Data(data.utf8)
             )
             return .contentBlockStart(index: wrapper.index, block: wrapper.content_block)
 
-        case "content_block_delta":
+        case AnthropicEventType.contentBlockDelta:
             let wrapper = try JSONDecoder().decode(
                 ContentBlockDeltaWrapper.self,
                 from: Data(data.utf8)
             )
             return .contentBlockDelta(index: wrapper.index, delta: wrapper.delta)
 
-        case "content_block_stop":
+        case AnthropicEventType.contentBlockStop:
             let wrapper = try JSONDecoder().decode(
                 ContentBlockStopWrapper.self,
                 from: Data(data.utf8)
             )
             return .contentBlockStop(index: wrapper.index)
 
-        case "message_delta":
+        case AnthropicEventType.messageDelta:
             let wrapper = try JSONDecoder().decode(
                 MessageDeltaWrapper.self,
                 from: Data(data.utf8)
             )
             return .messageDelta(delta: wrapper.delta, usage: wrapper.usage)
 
-        case "message_stop":
+        case AnthropicEventType.messageStop:
             return .messageStop
 
-        case "ping":
+        case AnthropicEventType.ping:
             return .ping
 
-        case "error":
+        case AnthropicEventType.error:
             let wrapper = try JSONDecoder().decode(
                 ErrorWrapper.self,
                 from: Data(data.utf8)

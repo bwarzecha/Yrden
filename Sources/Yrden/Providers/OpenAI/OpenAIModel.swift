@@ -844,7 +844,7 @@ public struct OpenAIModel: Model, Sendable {
 
             // Output item added - capture the item_id -> call_id mapping
             case "response.output_item.added":
-                if let item = event.item, item.type == "function_call" {
+                if let item = event.item, item.type == ResponsesOutputType.functionCall {
                     if let itemId = item.id, let callId = item.call_id, let name = item.name {
                         itemIdToCallId[itemId] = callId
                         accumulatedToolCalls[callId] = (name: name, arguments: "")
@@ -853,7 +853,7 @@ public struct OpenAIModel: Model, Sendable {
                 }
 
             case "response.output_item.done":
-                if let item = event.item, item.type == "function_call" {
+                if let item = event.item, item.type == ResponsesOutputType.functionCall {
                     let itemId = item.id
                     if let itemId = itemId, let callId = itemIdToCallId[itemId] {
                         continuation.yield(.toolCallEnd(id: callId))

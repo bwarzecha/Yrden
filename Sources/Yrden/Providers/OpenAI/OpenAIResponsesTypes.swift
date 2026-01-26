@@ -14,6 +14,28 @@
 
 import Foundation
 
+// MARK: - Type Constants
+
+/// Output item type identifiers in Responses API.
+enum ResponsesOutputType {
+    static let message = "message"
+    static let functionCall = "function_call"
+    static let reasoning = "reasoning"
+}
+
+/// Content type identifiers in Responses API.
+enum ResponsesContentType {
+    static let inputText = "input_text"
+    static let outputText = "output_text"
+    static let inputImage = "input_image"
+    static let refusal = "refusal"
+}
+
+/// Input item type identifiers in Responses API.
+enum ResponsesInputType {
+    static let functionCallOutput = "function_call_output"
+}
+
 // MARK: - Request Types
 
 /// Request body for the OpenAI Responses API.
@@ -91,7 +113,7 @@ enum ResponsesInputItem: Encodable {
             try container.encode(content, forKey: .content)
 
         case .functionCallOutput(let callId, let output):
-            try container.encode("function_call_output", forKey: .type)
+            try container.encode(ResponsesInputType.functionCallOutput, forKey: .type)
             try container.encode(callId, forKey: .call_id)
             try container.encode(output, forKey: .output)
         }
@@ -114,15 +136,15 @@ enum ResponsesContentPart: Encodable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .inputText(let text):
-            try container.encode("input_text", forKey: .type)
+            try container.encode(ResponsesContentType.inputText, forKey: .type)
             try container.encode(text, forKey: .text)
 
         case .outputText(let text):
-            try container.encode("output_text", forKey: .type)
+            try container.encode(ResponsesContentType.outputText, forKey: .type)
             try container.encode(text, forKey: .text)
 
         case .inputImage(let url):
-            try container.encode("input_image", forKey: .type)
+            try container.encode(ResponsesContentType.inputImage, forKey: .type)
             try container.encode(url, forKey: .image_url)
         }
     }
@@ -277,20 +299,20 @@ enum ResponsesOutputItem: Decodable {
         let type = try container.decode(String.self, forKey: .type)
 
         switch type {
-        case "message":
+        case ResponsesOutputType.message:
             let id = try container.decode(String.self, forKey: .id)
             let role = try container.decode(String.self, forKey: .role)
             let content = try container.decode([ResponsesOutputContent].self, forKey: .content)
             self = .message(id: id, role: role, content: content)
 
-        case "function_call":
+        case ResponsesOutputType.functionCall:
             let id = try container.decode(String.self, forKey: .id)
             let callId = try container.decode(String.self, forKey: .call_id)
             let name = try container.decode(String.self, forKey: .name)
             let arguments = try container.decode(String.self, forKey: .arguments)
             self = .functionCall(id: id, callId: callId, name: name, arguments: arguments)
 
-        case "reasoning":
+        case ResponsesOutputType.reasoning:
             let id = try container.decode(String.self, forKey: .id)
             let content = try container.decodeIfPresent([String].self, forKey: .content)
             let summary = try container.decodeIfPresent([String].self, forKey: .summary)
@@ -320,12 +342,12 @@ enum ResponsesOutputContent: Decodable {
         let type = try container.decode(String.self, forKey: .type)
 
         switch type {
-        case "output_text":
+        case ResponsesContentType.outputText:
             let text = try container.decode(String.self, forKey: .text)
             let annotations = try container.decodeIfPresent([String].self, forKey: .annotations)
             self = .outputText(text: text, annotations: annotations)
 
-        case "refusal":
+        case ResponsesContentType.refusal:
             let refusal = try container.decode(String.self, forKey: .refusal)
             self = .refusal(text: refusal)
 

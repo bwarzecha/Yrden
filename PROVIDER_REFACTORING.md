@@ -2,7 +2,7 @@
 
 > Tracking document for extracting duplicate code and hard-coded strings from provider implementations.
 
-## Status: Phase 7 In Progress
+## Status: Phase 8 In Progress
 
 ---
 
@@ -163,24 +163,32 @@ Create provider-specific constants in each provider's Types file or a shared con
 ---
 
 ## Phase 7: Content Block Type Constants
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 
 ### Problem
 Content block type strings:
 
 **Anthropic:**
 - `"text"`, `"image"`, `"tool_use"`, `"tool_result"`, `"base64"`
+- Stream event types: `"message_start"`, `"content_block_start"`, etc.
+- Delta types: `"text_delta"`, `"input_json_delta"`
 
 **OpenAI:**
 - `"text"`, `"image_url"`, `"input_text"`, `"output_text"`, `"input_image"`, `"message"`, `"function_call"`, `"reasoning"`, `"refusal"`
 
 ### Solution
-Add constants to each provider's Types file.
+Added constants to each provider's Types file:
+- `AnthropicEventType` - SSE event type identifiers
+- `AnthropicDeltaType` - Delta type identifiers
+- `ResponsesOutputType` - Output item type identifiers
+- `ResponsesContentType` - Content type identifiers
+- `ResponsesInputType` - Input item type identifiers
 
-### Files to Modify
-- [ ] `Sources/Yrden/Providers/Anthropic/AnthropicTypes.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAITypes.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAIResponsesTypes.swift`
+### Files Modified
+- [x] `Sources/Yrden/Providers/Anthropic/AnthropicTypes.swift` - Added AnthropicEventType, AnthropicDeltaType
+- [x] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift` - Fixed remaining "text" usage
+- [x] `Sources/Yrden/Providers/OpenAI/OpenAIResponsesTypes.swift` - Added ResponsesOutputType, ResponsesContentType, ResponsesInputType
+- [x] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift` - Updated function_call usage
 
 ---
 
