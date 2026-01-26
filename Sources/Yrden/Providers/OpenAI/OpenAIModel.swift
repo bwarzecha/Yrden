@@ -358,7 +358,7 @@ public struct OpenAIModel: Model, Sendable {
         stopSequences: [String]? = nil
     ) -> StopReason {
         switch reason {
-        case "stop":
+        case OpenAIFinishReason.stop:
             // OpenAI returns "stop" for both natural end and stop sequence
             // OpenAI removes the stop sequence from content, so we can't detect it by suffix
             // If stop sequences were provided, assume it stopped due to one of them
@@ -366,11 +366,11 @@ public struct OpenAIModel: Model, Sendable {
                 return .stopSequence
             }
             return .endTurn
-        case "tool_calls":
+        case OpenAIFinishReason.toolCalls:
             return .toolUse
-        case "length":
+        case OpenAIFinishReason.length:
             return .maxTokens
-        case "content_filter":
+        case OpenAIFinishReason.contentFilter:
             return .contentFiltered
         default:
             return .endTurn
@@ -734,9 +734,9 @@ public struct OpenAIModel: Model, Sendable {
         if !toolCalls.isEmpty {
             stopReason = .toolUse
         } else if response.status == "incomplete" {
-            if response.incomplete_details?.reason == "max_output_tokens" {
+            if response.incomplete_details?.reason == OpenAIIncompleteReason.maxOutputTokens {
                 stopReason = .maxTokens
-            } else if response.incomplete_details?.reason == "content_filter" {
+            } else if response.incomplete_details?.reason == OpenAIIncompleteReason.contentFilter {
                 stopReason = .contentFiltered
             } else {
                 stopReason = .endTurn
@@ -887,9 +887,9 @@ public struct OpenAIModel: Model, Sendable {
         if !toolCalls.isEmpty {
             stopReason = .toolUse
         } else if responseStatus == "incomplete" {
-            if incompleteReason == "max_output_tokens" {
+            if incompleteReason == OpenAIIncompleteReason.maxOutputTokens {
                 stopReason = .maxTokens
-            } else if incompleteReason == "content_filter" {
+            } else if incompleteReason == OpenAIIncompleteReason.contentFilter {
                 stopReason = .contentFiltered
             } else {
                 stopReason = .endTurn

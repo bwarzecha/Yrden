@@ -11,6 +11,22 @@
 
 import Foundation
 
+// MARK: - Stop Reason Constants
+
+/// Finish reason values returned by the OpenAI Chat Completions API.
+enum OpenAIFinishReason {
+    static let stop = "stop"
+    static let toolCalls = "tool_calls"
+    static let length = "length"
+    static let contentFilter = "content_filter"
+}
+
+/// Incomplete details reason values.
+enum OpenAIIncompleteReason {
+    static let maxOutputTokens = "max_output_tokens"
+    static let contentFilter = "content_filter"
+}
+
 // MARK: - Request Types
 
 /// Request body for the OpenAI Chat Completions API.

@@ -2,7 +2,7 @@
 
 > Tracking document for extracting duplicate code and hard-coded strings from provider implementations.
 
-## Status: Phase 6 In Progress
+## Status: Phase 7 In Progress
 
 ---
 
@@ -137,7 +137,7 @@ Add endpoint constants to each provider or create `Sources/Yrden/Providers/APIEn
 ---
 
 ## Phase 6: Stop Reason Constants
-**Status:** [ ] Not Started
+**Status:** [x] Completed
 
 ### Problem
 Provider-specific stop reason strings:
@@ -149,16 +149,16 @@ Provider-specific stop reason strings:
 - `"stop"`, `"tool_calls"`, `"length"`, `"content_filter"`
 
 **Anthropic Stream Events:**
-- `"message_start"`, `"content_block_start"`, `"content_block_delta"`, `"content_block_stop"`, `"message_delta"`, `"message_stop"`, `"error"`, `"text_delta"`, `"input_json_delta"`
+- `"message_start"`, `"content_block_start"`, `"content_block_delta"`, `"content_block_stop"`, `"message_delta"`, `"message_stop"`, `"error"`, `"text_delta"`, `"input_json_delta"` (deferred to Phase 7)
 
 ### Solution
 Create provider-specific constants in each provider's Types file or a shared constants file.
 
 ### Files to Modify
-- [ ] `Sources/Yrden/Providers/Anthropic/AnthropicTypes.swift`
-- [ ] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAITypes.swift`
-- [ ] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
+- [x] `Sources/Yrden/Providers/Anthropic/AnthropicTypes.swift`
+- [x] `Sources/Yrden/Providers/Anthropic/AnthropicModel.swift`
+- [x] `Sources/Yrden/Providers/OpenAI/OpenAITypes.swift`
+- [x] `Sources/Yrden/Providers/OpenAI/OpenAIModel.swift`
 
 ---
 

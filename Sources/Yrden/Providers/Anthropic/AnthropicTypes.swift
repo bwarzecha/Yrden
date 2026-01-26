@@ -11,6 +11,24 @@
 
 import Foundation
 
+// MARK: - Stop Reason Constants
+
+/// Stop reason values returned by the Anthropic API.
+enum AnthropicStopReason {
+    static let endTurn = "end_turn"
+    static let toolUse = "tool_use"
+    static let maxTokens = "max_tokens"
+    static let stopSequence = "stop_sequence"
+}
+
+// MARK: - Content Block Types
+
+/// Content block type identifiers used in Anthropic API.
+enum AnthropicBlockType {
+    static let text = "text"
+    static let toolUse = "tool_use"
+}
+
 // MARK: - Request Types
 
 /// Request body for the Anthropic Messages API.

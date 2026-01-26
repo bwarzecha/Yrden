@@ -217,7 +217,7 @@ public struct AnthropicModel: Model, Sendable {
                     }
                 }
 
-            case "tool_use":
+            case AnthropicBlockType.toolUse:
                 if let id = block.id, let name = block.name, let input = block.input {
                     let arguments = try encodeToolInput(input)
                     toolCalls.append(ToolCall(id: id, name: name, arguments: arguments))
@@ -252,13 +252,13 @@ public struct AnthropicModel: Model, Sendable {
 
     private func mapStopReason(_ reason: String?) -> StopReason {
         switch reason {
-        case "end_turn":
+        case AnthropicStopReason.endTurn:
             return .endTurn
-        case "tool_use":
+        case AnthropicStopReason.toolUse:
             return .toolUse
-        case "max_tokens":
+        case AnthropicStopReason.maxTokens:
             return .maxTokens
-        case "stop_sequence":
+        case AnthropicStopReason.stopSequence:
             return .stopSequence
         default:
             return .endTurn
@@ -398,7 +398,7 @@ public struct AnthropicModel: Model, Sendable {
             outputTokens = response.usage.output_tokens
 
         case .contentBlockStart(let index, let block):
-            if block.type == "tool_use", let id = block.id, let name = block.name {
+            if block.type == AnthropicBlockType.toolUse, let id = block.id, let name = block.name {
                 continuation.yield(.toolCallStart(id: id, name: name))
                 accumulatedToolCalls.append(ToolCallAccumulator(id: id, name: name, blockIndex: index))
             }
