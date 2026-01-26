@@ -55,12 +55,23 @@ struct ChatView: View {
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
             }
 
-            // Approval banner
+            // Approval banner (for deferred tools)
             if let approval = viewModel.pendingApproval {
                 ApprovalBanner(
                     approval: approval,
                     onApprove: { Task { await viewModel.approveToolCall() } },
                     onReject: { viewModel.rejectToolCall() }
+                )
+            }
+
+            // Iteration limit banner (for max iterations reached)
+            if let iterInfo = viewModel.pausedForIterations {
+                IterationLimitBanner(
+                    info: iterInfo,
+                    onContinue: { count in
+                        Task { await viewModel.continueWithIterations(count) }
+                    },
+                    onStop: { viewModel.cancelPausedRun() }
                 )
             }
 
@@ -219,6 +230,89 @@ struct ApprovalBanner: View {
         .cornerRadius(8)
         .padding(.horizontal)
         .padding(.vertical, 8)
+    }
+}
+
+// MARK: - Iteration Limit Banner
+
+/// Banner shown when agent pauses due to max iterations reached.
+struct IterationLimitBanner: View {
+    let info: PausedIterationInfo
+    let onContinue: (Int) -> Void
+    let onStop: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            HStack {
+                Image(systemName: "arrow.counterclockwise.circle.fill")
+                    .foregroundColor(.blue)
+                Text("Iteration limit reached")
+                    .font(.headline)
+                Spacer()
+            }
+
+            // Stats
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Iterations used:")
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(info.iterationsUsed) / \(info.iterationLimit)")
+                        .monospacedDigit()
+                }
+                HStack {
+                    Text("Tokens consumed:")
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(formatTokens(info.tokensUsed))
+                        .monospacedDigit()
+                }
+                HStack {
+                    Text("Tool calls made:")
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text("\(info.toolCallsUsed)")
+                        .monospacedDigit()
+                }
+            }
+            .font(.subheadline)
+
+            Divider()
+
+            // Continue options
+            Text("Continue with additional iterations?")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 12) {
+                // Quick options
+                ForEach([5, 10, 20], id: \.self) { count in
+                    Button("+\(count)") {
+                        onContinue(count)
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                Spacer()
+
+                // Stop button
+                Button("Stop", role: .destructive, action: onStop)
+                    .buttonStyle(.bordered)
+            }
+        }
+        .padding()
+        .background(Color.blue.opacity(0.1))
+        .cornerRadius(8)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
+
+    private func formatTokens(_ count: Int) -> String {
+        if count >= 1000 {
+            return String(format: "%.1fK", Double(count) / 1000)
+        }
+        return "\(count)"
     }
 }
 

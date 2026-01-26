@@ -7,6 +7,7 @@ class ChatViewModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
     @Published var isProcessing = false
     @Published var pendingApproval: PendingApprovalInfo?
+    @Published var pausedForIterations: PausedIterationInfo?  // When max iterations reached
     @Published var error: Error?
     @Published var logs: [LogEntry] = []
 
@@ -170,13 +171,30 @@ class ChatViewModel: ObservableObject {
                 updateTotalUsage(with: streamingUsage)
             }
             currentTurnUsage = nil
-            if case .hasDeferredTools(let paused) = e {
+
+            switch e {
+            case .hasDeferredTools(let paused):
                 pausedRun = paused
                 if let p = paused.pendingCalls.first {
                     pendingApproval = PendingApprovalInfo(id: p.deferral.id, toolName: p.toolCall.name,
                                                           arguments: p.toolCall.arguments, reason: p.deferral.reason)
                 }
-            } else { error = e; messages.append(.error(e.localizedDescription)) }
+
+            case .maxIterationsExceeded(let paused):
+                // Agent hit iteration limit - allow user to continue
+                pausedRun = paused
+                pausedForIterations = PausedIterationInfo(
+                    iterationsUsed: paused.requestCount,
+                    iterationLimit: paused.reason.iterationLimit ?? paused.requestCount,
+                    tokensUsed: paused.usage.totalTokens,
+                    toolCallsUsed: paused.toolCallCount
+                )
+                log(.warning, "Max iterations reached", details: "Used \(paused.requestCount) iterations, \(paused.usage.totalTokens) tokens")
+
+            default:
+                error = e
+                messages.append(.error(e.localizedDescription))
+            }
         } catch {
             log(.error, "Error", details: String(describing: error))
             // Preserve any streaming usage we captured before the error
@@ -222,12 +240,113 @@ class ChatViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Iteration Continuation
+
+    /// Continue agent run with additional iterations after max iterations was reached.
+    func continueWithIterations(_ additionalIterations: Int) async {
+        guard let paused = pausedRun, let agent else { return }
+
+        log(.info, "Continuing run", details: "Adding \(additionalIterations) iterations")
+        pausedForIterations = nil
+        isProcessing = true
+
+        // Mark message as streaming again
+        if !messages.isEmpty {
+            messages[messages.count - 1].isStreaming = true
+        }
+
+        do {
+            for try await event in agent.continueRunStream(
+                paused: paused,
+                additionalIterations: additionalIterations,
+                deps: deps
+            ) {
+                switch event {
+                case .contentDelta(let t):
+                    messages[messages.count - 1].appendText(t)
+                case .toolCallStart(let name, let id):
+                    log(.info, "Tool call start", details: "[\(id)] \(name)")
+                    messages[messages.count - 1].appendToolCall(ToolCallInfo(id: id, name: name, status: .running))
+                case .toolCallDelta(let id, let delta):
+                    log(.debug, "Tool args delta", details: "[\(id)] \(delta)")
+                case .toolCallEnd(let id):
+                    log(.info, "Tool call end", details: "[\(id)]")
+                case .toolResult(let id, let result):
+                    let resultStr = String(describing: result)
+                    log(.info, "Tool result", details: "[\(id)] \(resultStr.prefix(1000))\(resultStr.count > 1000 ? "..." : "")")
+                    messages[messages.count - 1].updateToolCall(id: id) { info in
+                        info.result = result
+                        info.status = .completed
+                    }
+                case .usage(let usage):
+                    currentTurnUsage = usage
+                    log(.debug, "Usage (streaming)", details: "Input: \(usage.inputTokens), Output: \(usage.outputTokens)")
+                case .result(let r):
+                    log(.info, "Continuation complete", details: "Output length: \(r.output.count)")
+                    messageHistory = r.messages
+                    updateTotalUsage(with: r.usage)
+                    currentTurnUsage = nil
+                    if messages.last?.content.isEmpty == true {
+                        messages[messages.count - 1].appendText(r.output)
+                    }
+                }
+            }
+            pausedRun = nil
+        } catch let e as AgentError {
+            log(.error, "Continuation error", details: String(describing: e))
+            if let streamingUsage = currentTurnUsage {
+                updateTotalUsage(with: streamingUsage)
+            }
+            currentTurnUsage = nil
+
+            if case .maxIterationsExceeded(let newPaused) = e {
+                // Still not done - show pause UI again
+                pausedRun = newPaused
+                pausedForIterations = PausedIterationInfo(
+                    iterationsUsed: newPaused.requestCount,
+                    iterationLimit: newPaused.reason.iterationLimit ?? newPaused.requestCount,
+                    tokensUsed: newPaused.usage.totalTokens,
+                    toolCallsUsed: newPaused.toolCallCount
+                )
+                log(.warning, "Max iterations reached again", details: "Used \(newPaused.requestCount) total iterations")
+            } else {
+                pausedRun = nil
+                error = e
+                messages.append(.error(e.localizedDescription))
+            }
+        } catch {
+            log(.error, "Continuation failed", details: String(describing: error))
+            if let streamingUsage = currentTurnUsage {
+                updateTotalUsage(with: streamingUsage)
+            }
+            currentTurnUsage = nil
+            pausedRun = nil
+            self.error = error
+            messages.append(.error(error.localizedDescription))
+        }
+
+        isProcessing = false
+        if !messages.isEmpty { messages[messages.count - 1].isStreaming = false }
+    }
+
+    /// Cancel a paused run without continuing.
+    func cancelPausedRun() {
+        pausedRun = nil
+        pausedForIterations = nil
+        if !messages.isEmpty {
+            messages[messages.count - 1].appendText("\n\n[Run stopped by user after reaching iteration limit]")
+            messages[messages.count - 1].isStreaming = false
+        }
+        log(.info, "Paused run cancelled by user")
+    }
+
     func clearConversation() {
         messages.removeAll()
         messageHistory.removeAll()  // Clear agent history too
         error = nil
         pausedRun = nil
         pendingApproval = nil
+        pausedForIterations = nil
         // Reset usage tracking
         currentTurnUsage = nil
         totalUsage = nil
@@ -252,6 +371,16 @@ class ChatViewModel: ObservableObject {
     func clearError() {
         error = nil
     }
+}
+
+// MARK: - PausedIterationInfo
+
+/// Information about a paused agent run due to max iterations.
+struct PausedIterationInfo {
+    let iterationsUsed: Int
+    let iterationLimit: Int
+    let tokensUsed: Int
+    let toolCallsUsed: Int
 }
 
 // MARK: - LogEntry

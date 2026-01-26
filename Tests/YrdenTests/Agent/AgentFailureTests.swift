@@ -231,13 +231,18 @@ struct AgentToolFailureTests {
 
         do {
             _ = try await agent.run("Keep trying", deps: ())
-            Issue.record("Expected maxIterationsReached error")
+            Issue.record("Expected maxIterationsExceeded error")
         } catch let error as AgentError {
-            guard case .maxIterationsReached(let count) = error else {
-                Issue.record("Expected maxIterationsReached, got \(error)")
+            guard case .maxIterationsExceeded(let paused) = error else {
+                Issue.record("Expected maxIterationsExceeded, got \(error)")
                 return
             }
-            #expect(count == 3)
+            // Verify the paused state contains correct information
+            #expect(paused.requestCount == 3)
+            #expect(paused.toolCallCount == 3)
+            #expect(paused.reason == .maxIterationsReached(limit: 3))
+            // Verify messages were preserved (should have user + 3 rounds of assistant+toolResults)
+            #expect(paused.messages.count == 7) // 1 user + 3*(assistant + toolResults)
         }
     }
 }

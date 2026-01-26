@@ -496,14 +496,36 @@ public struct ResolvedTool: Sendable {
     }
 }
 
+// MARK: - PauseReason
+
+/// Reason why an agent run was paused.
+public enum PauseReason: Sendable, Equatable {
+    /// Paused due to deferred tool calls awaiting resolution.
+    case deferredTools
+
+    /// Paused because max iterations was reached.
+    /// The associated value is the iteration limit that was hit.
+    case maxIterationsReached(limit: Int)
+
+    /// Helper to extract iteration limit if applicable.
+    public var iterationLimit: Int? {
+        if case .maxIterationsReached(let limit) = self {
+            return limit
+        }
+        return nil
+    }
+}
+
 // MARK: - PausedAgentRun
 
-/// State captured when an agent pauses due to deferred tools.
+/// State captured when an agent pauses.
 ///
 /// This struct contains all information needed to resume execution
-/// after deferred tool calls are resolved by an external process.
+/// after the pause condition is resolved. Pauses can occur due to:
+/// - Deferred tool calls awaiting user approval
+/// - Maximum iteration limit reached
 ///
-/// ## Human-in-the-Loop Pattern
+/// ## Human-in-the-Loop Pattern (Deferred Tools)
 /// ```swift
 /// do {
 ///     let result = try await agent.run("Execute risky operation", deps: myDeps)
@@ -523,11 +545,30 @@ public struct ResolvedTool: Sendable {
 ///     }
 /// }
 /// ```
+///
+/// ## Iteration Limit Continuation
+/// ```swift
+/// do {
+///     let result = try await agent.run("Complex task", deps: myDeps)
+/// } catch let error as AgentError {
+///     if case .maxIterationsExceeded(let paused) = error {
+///         print("Paused after \(paused.requestCount) iterations")
+///         print("Tokens used: \(paused.usage.totalTokens)")
+///
+///         // Continue with more iterations
+///         let result = try await agent.continueRun(
+///             paused: paused,
+///             additionalIterations: 10,
+///             deps: myDeps
+///         )
+///     }
+/// }
+/// ```
 public struct PausedAgentRun: Sendable {
     /// Unique identifier for this run.
     public let runID: String
 
-    /// Conversation messages up to the point of deferral.
+    /// Conversation messages up to the point of pause.
     public let messages: [Message]
 
     /// Accumulated token usage.
@@ -539,8 +580,11 @@ public struct PausedAgentRun: Sendable {
     /// Number of tool calls executed so far.
     public let toolCallCount: Int
 
-    /// Pending tool calls that need resolution.
+    /// Pending tool calls that need resolution (empty for iteration limit pauses).
     public let pendingCalls: [PendingToolCall]
+
+    /// Why the agent was paused.
+    public let reason: PauseReason
 
     public init(
         runID: String,
@@ -548,7 +592,8 @@ public struct PausedAgentRun: Sendable {
         usage: Usage,
         requestCount: Int,
         toolCallCount: Int,
-        pendingCalls: [PendingToolCall]
+        pendingCalls: [PendingToolCall],
+        reason: PauseReason = .deferredTools
     ) {
         self.runID = runID
         self.messages = messages
@@ -556,6 +601,7 @@ public struct PausedAgentRun: Sendable {
         self.requestCount = requestCount
         self.toolCallCount = toolCallCount
         self.pendingCalls = pendingCalls
+        self.reason = reason
     }
 
     /// Get all deferred calls (for display purposes).
