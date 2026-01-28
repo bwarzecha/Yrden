@@ -45,6 +45,9 @@ struct MCPToolProxy: Sendable {
     /// Maximum retry attempts (default: 1).
     let maxRetries: Int
 
+    /// Whether this tool requires human approval before execution.
+    let requiresApproval: Bool
+
     /// The coordinator to route calls through.
     private let coordinator: any MCPCoordinatorProtocol
 
@@ -59,12 +62,14 @@ struct MCPToolProxy: Sendable {
     ///   - coordinator: Coordinator to route calls through
     ///   - timeout: Optional timeout override
     ///   - maxRetries: Maximum retry attempts (default: 1)
+    ///   - requiresApproval: Whether this tool requires human approval before execution
     init(
         serverID: String,
         toolInfo: ToolInfo,
         coordinator: any MCPCoordinatorProtocol,
         timeout: Duration? = nil,
-        maxRetries: Int = 1
+        maxRetries: Int = 1,
+        requiresApproval: Bool = false
     ) {
         self.serverID = serverID
         self.name = toolInfo.name
@@ -77,6 +82,7 @@ struct MCPToolProxy: Sendable {
         self.coordinator = coordinator
         self.timeout = timeout
         self.maxRetries = maxRetries
+        self.requiresApproval = requiresApproval
     }
 
     /// Create a tool proxy from components.
@@ -89,6 +95,7 @@ struct MCPToolProxy: Sendable {
     ///   - coordinator: Coordinator to route calls through
     ///   - timeout: Optional timeout override
     ///   - maxRetries: Maximum retry attempts (default: 1)
+    ///   - requiresApproval: Whether this tool requires human approval before execution
     init(
         serverID: String,
         name: String,
@@ -96,7 +103,8 @@ struct MCPToolProxy: Sendable {
         inputSchema: JSONValue,
         coordinator: any MCPCoordinatorProtocol,
         timeout: Duration? = nil,
-        maxRetries: Int = 1
+        maxRetries: Int = 1,
+        requiresApproval: Bool = false
     ) {
         self.serverID = serverID
         self.name = name
@@ -109,6 +117,7 @@ struct MCPToolProxy: Sendable {
         self.coordinator = coordinator
         self.timeout = timeout
         self.maxRetries = maxRetries
+        self.requiresApproval = requiresApproval
     }
 
     // MARK: - Tool Execution
@@ -243,7 +252,8 @@ struct MCPToolProxy: Sendable {
             name: name,
             description: description,
             definition: definition,
-            maxRetries: maxRetries
+            maxRetries: maxRetries,
+            requiresApproval: requiresApproval
         ) { _, args in
             try await self.call(argumentsJSON: args)
         }

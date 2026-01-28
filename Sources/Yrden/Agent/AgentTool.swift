@@ -268,14 +268,24 @@ public struct AnyAgentTool<Deps: Sendable>: Sendable {
     public let maxRetries: Int
     public let definition: ToolDefinition
 
+    /// Whether this tool requires human approval before execution.
+    /// When `true`, the tool execution engine will return a `.deferred` result
+    /// with kind `.approval` instead of executing the tool directly.
+    public let requiresApproval: Bool
+
     private let _call: @Sendable (AgentContext<Deps>, String) async throws -> AnyToolResult
 
     /// Create a type-erased wrapper from a concrete tool.
-    public init<T: AgentTool>(_ tool: T) where T.Deps == Deps {
+    ///
+    /// - Parameters:
+    ///   - tool: The concrete tool to wrap
+    ///   - requiresApproval: Whether this tool requires human approval before execution
+    public init<T: AgentTool>(_ tool: T, requiresApproval: Bool = false) where T.Deps == Deps {
         self.name = tool.name
         self.description = tool.description
         self.maxRetries = tool.maxRetries
         self.definition = tool.definition
+        self.requiresApproval = requiresApproval
 
         self._call = { context, argumentsJSON in
             // ToolCall.init guarantees arguments is valid JSON (empty normalized to "{}")
@@ -306,6 +316,22 @@ public struct AnyAgentTool<Deps: Sendable>: Sendable {
         try await _call(context, argumentsJSON)
     }
 
+    /// Returns a copy of this tool with the specified `requiresApproval` flag.
+    ///
+    /// Use this to mark tools as requiring human approval after they've been created.
+    /// - Parameter requiresApproval: Whether the tool requires human approval
+    /// - Returns: A new tool with the updated flag
+    public func withRequiresApproval(_ requiresApproval: Bool) -> AnyAgentTool<Deps> {
+        AnyAgentTool<Deps>(
+            name: name,
+            description: description,
+            definition: definition,
+            maxRetries: maxRetries,
+            requiresApproval: requiresApproval,
+            call: _call
+        )
+    }
+
     /// Create a type-erased tool from components.
     ///
     /// This initializer is useful for creating tools from external sources
@@ -316,18 +342,21 @@ public struct AnyAgentTool<Deps: Sendable>: Sendable {
     ///   - description: Tool description
     ///   - definition: Tool definition with schema
     ///   - maxRetries: Maximum retry attempts (default: 1)
+    ///   - requiresApproval: Whether this tool requires human approval before execution
     ///   - call: Execution closure that takes context and JSON arguments
     public init(
         name: String,
         description: String,
         definition: ToolDefinition,
         maxRetries: Int = 1,
+        requiresApproval: Bool = false,
         call: @escaping @Sendable (AgentContext<Deps>, String) async throws -> AnyToolResult
     ) {
         self.name = name
         self.description = description
         self.maxRetries = maxRetries
         self.definition = definition
+        self.requiresApproval = requiresApproval
         self._call = call
     }
 }
@@ -454,7 +483,8 @@ extension AnyAgentTool where Deps == Void {
             name: name,
             description: description,
             definition: definition,
-            maxRetries: maxRetries
+            maxRetries: maxRetries,
+            requiresApproval: requiresApproval
         ) { context, args in
             // Create a void context passing through the context metadata
             let voidContext = AgentContext<Void>(

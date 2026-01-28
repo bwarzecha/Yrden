@@ -60,6 +60,15 @@ public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
             return .failure(ToolExecutionError.toolNotFound(call.name))
         }
 
+        // Check if tool requires human approval before execution
+        if tool.requiresApproval {
+            return .deferred(DeferredToolCall(
+                id: call.id,
+                reason: "Tool '\(call.name)' requires approval before execution",
+                kind: .approval
+            ))
+        }
+
         return try await executeWithRetries(
             tool: tool,
             call: call,
@@ -90,8 +99,10 @@ public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
 
     /// Execute multiple tool calls.
     ///
-    /// Executes tools in order. Stops early if any tool returns a deferred result.
-    /// Each tool receives a context derived from `baseContext` with the tool call info added.
+    /// First checks if any tools require approval. If so, returns deferred results for ALL
+    /// tools that need approval without executing any. This ensures that when parallel tool
+    /// calls are made and some need approval, we collect all deferrals so the API receives
+    /// tool_result for every tool_use.
     ///
     /// - Parameters:
     ///   - calls: Tool calls to execute
@@ -102,8 +113,30 @@ public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
         calls: [ToolCall],
         baseContext: AgentContext<Deps>
     ) async throws -> BatchResult {
+        // First pass: check which tools need approval
+        var toolsNeedingApproval: [(call: ToolCall, tool: AnyAgentTool<Deps>)] = []
+        for call in calls {
+            if let tool = tools.first(where: { $0.name == call.name }), tool.requiresApproval {
+                toolsNeedingApproval.append((call, tool))
+            }
+        }
+
+        // If any tools need approval, return deferred results for ALL of them
+        // without executing any tools
+        if !toolsNeedingApproval.isEmpty {
+            let results: [(call: ToolCall, result: AnyToolResult, duration: Duration)] = toolsNeedingApproval.map { item in
+                let deferral = DeferredToolCall(
+                    id: item.call.id,
+                    reason: "Tool '\(item.call.name)' requires approval before execution",
+                    kind: .approval
+                )
+                return (item.call, .deferred(deferral), Duration.zero)
+            }
+            return BatchResult(results: results, stoppedOnDeferral: true)
+        }
+
+        // No approvals needed - execute all tools
         var results: [(call: ToolCall, result: AnyToolResult, duration: Duration)] = []
-        var stoppedOnDeferral = false
 
         for call in calls {
             let startTime = ContinuousClock.now
@@ -113,14 +146,13 @@ public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
 
             results.append((call, result, duration))
 
-            // Stop on deferral
+            // Stop on deferral (for non-approval deferrals like resource limits)
             if result.isDeferred {
-                stoppedOnDeferral = true
                 break
             }
         }
 
-        return BatchResult(results: results, stoppedOnDeferral: stoppedOnDeferral)
+        return BatchResult(results: results, stoppedOnDeferral: results.last?.result.isDeferred ?? false)
     }
 
     // MARK: - Private: Retry Logic

@@ -176,7 +176,7 @@ struct MCPSettingsSection: View {
 
         do {
             let toolNames: [String]
-            let agentTools: [AnyAgentTool<AppDependencies>]
+            var agentTools: [AnyAgentTool<AppDependencies>]
             let connection: MCPServerConnection
 
             switch server.mode {
@@ -200,8 +200,16 @@ struct MCPSettingsSection: View {
                 }
             }
 
+            // Apply requiresApproval flag from server config to all tools
+            if server.requiresApproval {
+                agentTools = agentTools.map { $0.withRequiresApproval(true) }
+            }
+
             // Register tools with viewModel (pass the already-discovered tools)
             viewModel.registerMCPTools(serverId: server.id, tools: agentTools)
+
+            // Reconfigure agent with updated tools
+            viewModel.reconfigureTools()
 
             let connectedServer = ConnectedMCPServer(config: server, connection: connection, tools: toolNames)
             store.addConnectedServer(connectedServer)
@@ -217,6 +225,8 @@ struct MCPSettingsSection: View {
     private func disconnect(_ server: MCPServerConfig) async {
         viewModel.unregisterMCPTools(serverId: server.id)
         await store.removeConnectedServer(id: server.id)
+        // Reconfigure agent with updated tools
+        viewModel.reconfigureTools()
     }
 }
 
@@ -234,6 +244,7 @@ struct MCPServerEditor: View {
     @State private var arguments: String = ""
     @State private var serverURL: String = ""
     @State private var redirectScheme: String = "yrden-example"
+    @State private var requiresApproval: Bool = false
 
     var body: some View {
         VStack(spacing: 16) {
@@ -256,6 +267,9 @@ struct MCPServerEditor: View {
                     TextField("Server URL", text: $serverURL)
                     TextField("Redirect Scheme", text: $redirectScheme)
                 }
+
+                Toggle("Require approval for tool calls", isOn: $requiresApproval)
+                    .help("When enabled, tool calls from this server will require your approval before execution")
             }
             .formStyle(.grouped)
 
@@ -271,7 +285,8 @@ struct MCPServerEditor: View {
                         command: mode == .stdio ? command : nil,
                         arguments: mode == .stdio ? arguments : nil,
                         serverURL: mode == .oauth ? serverURL : nil,
-                        redirectScheme: mode == .oauth ? redirectScheme : nil
+                        redirectScheme: mode == .oauth ? redirectScheme : nil,
+                        requiresApproval: requiresApproval
                     )
                     onSave(config)
                 }
@@ -289,6 +304,7 @@ struct MCPServerEditor: View {
                 arguments = server.arguments ?? ""
                 serverURL = server.serverURL ?? ""
                 redirectScheme = server.redirectScheme ?? "yrden-example"
+                requiresApproval = server.requiresApproval
             }
         }
     }

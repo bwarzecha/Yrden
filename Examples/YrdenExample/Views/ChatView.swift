@@ -59,8 +59,9 @@ struct ChatView: View {
             if let approval = viewModel.pendingApproval {
                 ApprovalBanner(
                     approval: approval,
-                    onApprove: { Task { await viewModel.approveToolCall() } },
-                    onReject: { viewModel.rejectToolCall() }
+                    isProcessing: viewModel.isProcessing,
+                    onApprove: { viewModel.approveToolCall() },
+                    onReject: { reason in viewModel.rejectToolCall(reason: reason) }
                 )
             }
 
@@ -201,28 +202,67 @@ struct ErrorBanner: View {
 
 struct ApprovalBanner: View {
     let approval: PendingApprovalInfo
+    let isProcessing: Bool
     let onApprove: () -> Void
-    let onReject: () -> Void
+    let onReject: (String) -> Void
+
+    @State private var showRejectReason = false
+    @State private var rejectReason = ""
 
     var body: some View {
+        let toolCount = approval.tools.count
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
-                Text("Tool requires approval")
+                Text(toolCount == 1 ? "Tool requires approval" : "\(toolCount) tools require approval")
                     .font(.headline)
                 Spacer()
+                if isProcessing {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                }
             }
 
-            Text("\(approval.toolName): \(approval.reason)")
-                .font(.subheadline)
+            Text(approval.toolName)
+                .font(.subheadline.bold())
+            Text(approval.reason)
+                .font(.caption)
                 .foregroundColor(.secondary)
 
-            HStack {
-                Button("Reject", role: .destructive, action: onReject)
+            if showRejectReason {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Reason for rejection (sent to LLM):")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField("e.g., Use a different approach...", text: $rejectReason)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                }
+
+                HStack {
+                    Button("Cancel") {
+                        showRejectReason = false
+                        rejectReason = ""
+                    }
                     .buttonStyle(.bordered)
-                Button("Approve", action: onApprove)
+                    Button("Confirm Rejection", role: .destructive) {
+                        onReject(rejectReason.isEmpty ? "User rejected this tool call" : rejectReason)
+                    }
                     .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                }
+            } else {
+                HStack {
+                    Button("Reject...") {
+                        showRejectReason = true
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isProcessing)
+                    Button(toolCount == 1 ? "Approve" : "Approve All", action: onApprove)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isProcessing)
+                }
             }
         }
         .padding()

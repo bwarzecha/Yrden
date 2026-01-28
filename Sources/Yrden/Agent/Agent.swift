@@ -505,6 +505,172 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         throw AgentError.maxIterationsExceeded(state.makePausedForIterations(limit: maxIterations))
     }
 
+    /// Resume a paused agent run with resolved tool calls, streaming events.
+    ///
+    /// Streaming variant of `resume` that provides real-time visibility into
+    /// the agent's continued execution after tools are approved.
+    ///
+    /// - Parameters:
+    ///   - paused: The paused run state from `AgentError.hasDeferredTools`
+    ///   - resolutions: Resolution for each deferred tool call
+    ///   - deps: Dependencies to pass to tools
+    /// - Returns: Async stream of agent events ending with `.result` on success
+    public nonisolated func resumeStream(
+        paused: PausedAgentRun,
+        resolutions: [ResolvedTool],
+        deps: Deps
+    ) -> AsyncThrowingStream<AgentStreamEvent<Output>, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let result = try await self.resumeStreamInternal(
+                        paused: paused,
+                        resolutions: resolutions,
+                        deps: deps,
+                        continuation: continuation
+                    )
+                    continuation.yield(.result(result))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func resumeStreamInternal(
+        paused: PausedAgentRun,
+        resolutions: [ResolvedTool],
+        deps: Deps,
+        continuation: AsyncThrowingStream<AgentStreamEvent<Output>, Error>.Continuation
+    ) async throws -> AgentResult<Output> {
+        // Build resolution lookup by deferral ID
+        let resolutionMap = Dictionary(uniqueKeysWithValues: resolutions.map { ($0.id, $0.resolution) })
+
+        // Process each pending call with its resolution
+        var toolResults: [(ToolCall, ToolOutput)] = []
+
+        for pending in paused.pendingCalls {
+            guard let resolution = resolutionMap[pending.deferral.id] else {
+                toolResults.append((pending.toolCall, .error("No resolution provided for deferred tool")))
+                continuation.yield(.toolResult(id: pending.toolCall.id, result: "Error: No resolution provided"))
+                continue
+            }
+
+            switch resolution {
+            case .approved:
+                guard let tool = tools.first(where: { $0.name == pending.toolCall.name }) else {
+                    let errorMsg = ToolExecutionError.toolNotFound(pending.toolCall.name).localizedDescription
+                    toolResults.append((pending.toolCall, .error(errorMsg)))
+                    continuation.yield(.toolResult(id: pending.toolCall.id, result: "Error: \(errorMsg)"))
+                    continue
+                }
+
+                // Note: We don't emit toolCallStart here because these pending tools
+                // were already announced during the initial stream. The UI already
+                // knows about them. We only emit toolResult to complete them.
+
+                let context = AgentContext(
+                    deps: deps,
+                    model: model,
+                    usage: paused.usage,
+                    retries: 0,
+                    toolCallID: pending.toolCall.id,
+                    toolName: pending.toolCall.name,
+                    runStep: paused.requestCount,
+                    runID: paused.runID,
+                    messages: paused.messages
+                )
+
+                do {
+                    let result = try await tool.call(context: context, argumentsJSON: pending.toolCall.arguments)
+                    switch result {
+                    case .success(let value):
+                        toolResults.append((pending.toolCall, .text(value)))
+                        continuation.yield(.toolResult(id: pending.toolCall.id, result: value))
+                    case .retry(let message):
+                        let errorMsg = "Tool requested retry: \(message)"
+                        toolResults.append((pending.toolCall, .error(errorMsg)))
+                        continuation.yield(.toolResult(id: pending.toolCall.id, result: "Error: \(errorMsg)"))
+                    case .failure(let error):
+                        let errorMsg = error.localizedDescription
+                        toolResults.append((pending.toolCall, .error(errorMsg)))
+                        continuation.yield(.toolResult(id: pending.toolCall.id, result: "Error: \(errorMsg)"))
+                    case .deferred(let newDeferral):
+                        throw AgentError.hasDeferredTools(PausedAgentRun(
+                            runID: paused.runID,
+                            messages: paused.messages,
+                            usage: paused.usage,
+                            requestCount: paused.requestCount,
+                            toolCallCount: paused.toolCallCount,
+                            pendingCalls: [PendingToolCall(toolCall: pending.toolCall, deferral: newDeferral)]
+                        ))
+                    }
+                } catch {
+                    if error is AgentError {
+                        throw error
+                    }
+                    let errorMsg = error.localizedDescription
+                    toolResults.append((pending.toolCall, .error(errorMsg)))
+                    continuation.yield(.toolResult(id: pending.toolCall.id, result: "Error: \(errorMsg)"))
+                }
+
+            case .denied(let reason):
+                let errorMsg = "Tool denied: \(reason)"
+                toolResults.append((pending.toolCall, .error(errorMsg)))
+                continuation.yield(.toolResult(id: pending.toolCall.id, result: errorMsg))
+
+            case .completed(let result):
+                toolResults.append((pending.toolCall, .text(result)))
+                continuation.yield(.toolResult(id: pending.toolCall.id, result: result))
+
+            case .failed(let errorMsg):
+                let fullError = "External operation failed: \(errorMsg)"
+                toolResults.append((pending.toolCall, .error(fullError)))
+                continuation.yield(.toolResult(id: pending.toolCall.id, result: fullError))
+            }
+        }
+
+        // Resume from the paused state
+        var state = RunState.resume(from: paused, deps: deps)
+        state.addToolResults(toolResults)
+
+        // Continue the agent loop with streaming
+        while state.requestCount < maxIterations {
+            try Task.checkCancellation()
+            try checkUsageLimits(state: state)
+
+            let request = buildRequest(state: state)
+
+            // Stream the model response
+            let response = try await streamModelResponse(
+                request: request,
+                continuation: continuation
+            )
+            state.requestCount += 1
+            state.usage = accumulateUsage(current: state.usage, new: response.usage)
+            continuation.yield(.usage(state.usage))
+            state.addResponse(response)
+
+            // Handle response with streaming callback for tool results
+            let action = try await handleModelResponse(
+                response: response,
+                state: &state
+            ) { call, toolResult, _ in
+                continuation.yield(.toolResult(id: call.id, result: self.formatToolResult(toolResult)))
+            }
+
+            switch action {
+            case .returnOutput(let output, let outputToolUsed):
+                return state.makeResult(output: output, outputToolUsed: outputToolUsed)
+            case .continueLoop:
+                continue
+            }
+        }
+
+        throw AgentError.maxIterationsExceeded(state.makePausedForIterations(limit: maxIterations))
+    }
+
     // MARK: - Iteration Continuation
 
     /// Continue a paused agent run with additional iterations.

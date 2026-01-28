@@ -137,10 +137,26 @@ enum ToolCallStatus: String, Sendable {
     case needsApproval
 }
 
-/// Information about a pending approval.
-struct PendingApprovalInfo: Identifiable, Sendable {
+/// Information about a single tool pending approval.
+struct PendingToolInfo: Identifiable, Sendable {
     let id: String
     let toolName: String
     let arguments: String
+}
+
+/// Information about pending approval(s) - may contain multiple tools.
+struct PendingApprovalInfo: Identifiable, Sendable {
+    let id: String  // ID of first tool (for Identifiable)
+    let tools: [PendingToolInfo]
     let reason: String
+
+    /// Convenience for single tool name display
+    var toolName: String {
+        tools.map { $0.toolName }.joined(separator: ", ")
+    }
+
+    /// Convenience for single tool (backward compat)
+    var arguments: String {
+        tools.first?.arguments ?? ""
+    }
 }

@@ -32,6 +32,7 @@ struct MCPServerConfig: Codable, Identifiable, Equatable {
     var arguments: String?
     var serverURL: String?
     var redirectScheme: String?
+    var requiresApproval: Bool
 
     init(
         id: UUID = UUID(),
@@ -40,7 +41,8 @@ struct MCPServerConfig: Codable, Identifiable, Equatable {
         command: String? = nil,
         arguments: String? = nil,
         serverURL: String? = nil,
-        redirectScheme: String? = nil
+        redirectScheme: String? = nil,
+        requiresApproval: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -49,6 +51,7 @@ struct MCPServerConfig: Codable, Identifiable, Equatable {
         self.arguments = arguments
         self.serverURL = serverURL
         self.redirectScheme = redirectScheme
+        self.requiresApproval = requiresApproval
     }
 
     static func stdioPreset(name: String, command: String, arguments: String) -> MCPServerConfig {
