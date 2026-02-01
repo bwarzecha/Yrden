@@ -31,9 +31,14 @@ let package = Package(
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
             ]
         ),
+        .target(
+            name: "YrdenTestSupport",
+            dependencies: ["Yrden"],
+            path: "Tests/YrdenTestSupport"
+        ),
         .testTarget(
             name: "YrdenTests",
-            dependencies: ["Yrden"]
+            dependencies: ["Yrden", "YrdenTestSupport"]
         ),
         .testTarget(
             name: "YrdenMacrosTests",
