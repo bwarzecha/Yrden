@@ -575,8 +575,13 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
 
                     // Stream tool execution
                     for try await event in ctx.stream() {
-                        if case .toolCompleted(let call, let result, _) = event {
+                        switch event {
+                        case .toolCompleted(let call, let result, _):
                             continuation.yield(.toolResult(id: call.id, result: result))
+                        case .toolFailed(let call, let error, _):
+                            continuation.yield(.toolResult(id: call.id, result: error))
+                        case .toolStarted, .toolDenied, .toolProgress:
+                            break
                         }
                     }
 

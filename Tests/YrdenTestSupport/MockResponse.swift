@@ -102,4 +102,78 @@ public enum MockResponse {
             usage: Usage(inputTokens: 10, outputTokens: 0)
         )
     }
+
+    /// Creates a response with thinking followed by text content.
+    public static func withThinking(
+        thinking: String,
+        text: String,
+        provider: String = "anthropic",
+        signature: String = "test-signature",
+        usage: Usage = Usage(inputTokens: 10, outputTokens: 20, reasoningTokens: 10)
+    ) -> CompletionResponse {
+        CompletionResponse(
+            contentBlocks: [
+                .thinking(ThinkingBlock(content: thinking, providerData: signature, provider: provider)),
+                .text(text)
+            ],
+            stopReason: .endTurn,
+            usage: usage
+        )
+    }
+
+    /// Creates a response with thinking followed by tool calls.
+    public static func withThinkingAndToolCall(
+        thinking: String,
+        toolName: String,
+        toolArguments: String,
+        toolId: String,
+        provider: String = "anthropic",
+        signature: String = "test-signature",
+        usage: Usage = Usage(inputTokens: 10, outputTokens: 20, reasoningTokens: 10)
+    ) -> CompletionResponse {
+        CompletionResponse(
+            contentBlocks: [
+                .thinking(ThinkingBlock(content: thinking, providerData: signature, provider: provider)),
+                .toolUse(ToolCall(id: toolId, name: toolName, arguments: toolArguments))
+            ],
+            stopReason: .toolUse,
+            usage: usage
+        )
+    }
+
+    /// Creates a response with filtered (redacted) thinking followed by text.
+    public static func withFilteredThinking(
+        text: String,
+        provider: String = "anthropic",
+        providerData: String = "encrypted-data",
+        usage: Usage = Usage(inputTokens: 10, outputTokens: 20, reasoningTokens: 10)
+    ) -> CompletionResponse {
+        CompletionResponse(
+            contentBlocks: [
+                .thinking(ThinkingBlock(content: nil, providerData: providerData, provider: provider)),
+                .text(text)
+            ],
+            stopReason: .endTurn,
+            usage: usage
+        )
+    }
+
+    /// Creates a response with filtered (redacted) thinking followed by a tool call.
+    public static func withFilteredThinkingAndToolCall(
+        toolName: String,
+        toolArguments: String,
+        toolId: String,
+        provider: String = "anthropic",
+        providerData: String = "encrypted-data",
+        usage: Usage = Usage(inputTokens: 10, outputTokens: 20, reasoningTokens: 10)
+    ) -> CompletionResponse {
+        CompletionResponse(
+            contentBlocks: [
+                .thinking(ThinkingBlock(content: nil, providerData: providerData, provider: provider)),
+                .toolUse(ToolCall(id: toolId, name: toolName, arguments: toolArguments))
+            ],
+            stopReason: .toolUse,
+            usage: usage
+        )
+    }
 }

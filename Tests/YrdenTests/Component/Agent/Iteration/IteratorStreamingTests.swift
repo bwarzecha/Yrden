@@ -589,7 +589,147 @@ struct IteratorStreamingTests {
         }
     }
 
-    // MARK: - Test 6.15: Model stream respects cancellation
+    // MARK: - Test 6.15: Thinking deltas via stream()
+
+    @Test("stream() yields thinking deltas with correct kind")
+    func streamYieldsThinkingDeltas() async throws {
+        let response = MockResponse.withThinking(
+            thinking: "Let me reason about this",
+            text: "The answer"
+        )
+        let model = FakeModel(
+            streamEventSequences: [[
+                .contentDelta("Let me reason", kind: .thinking),
+                .contentDelta(" about this", kind: .thinking),
+                .contentDelta("The answer"),
+                .done(response)
+            ]]
+        )
+        let agent = try Agent<Void, String>(model: model)
+
+        var thinkingDeltas: [String] = []
+        var textDeltas: [String] = []
+
+        for try await node in agent.iter("Hi", deps: ()) {
+            if case .beforeModel(let ctx) = node {
+                for try await event in ctx.stream() {
+                    switch event {
+                    case .contentDelta(let text, let kind):
+                        switch kind {
+                        case .thinking: thinkingDeltas.append(text)
+                        case .text: textDeltas.append(text)
+                        }
+                    default:
+                        break
+                    }
+                }
+            }
+        }
+
+        #expect(thinkingDeltas == ["Let me reason", " about this"])
+        #expect(textDeltas == ["The answer"])
+    }
+
+    @Test("thinking blocks in response are available in afterModel context")
+    func thinkingBlocksAvailableInAfterModel() async throws {
+        let response = MockResponse.withThinking(
+            thinking: "Step 1: analyze the problem",
+            text: "Here is the answer"
+        )
+        let model = FakeModel(
+            streamEventSequences: [[
+                .contentDelta("Step 1: analyze the problem", kind: .thinking),
+                .contentDelta("Here is the answer"),
+                .done(response)
+            ]]
+        )
+        let agent = try Agent<Void, String>(model: model)
+
+        var responseThinking: String?
+        var responseContent: String?
+
+        for try await node in agent.iter("Hi", deps: ()) {
+            switch node {
+            case .beforeModel(let ctx):
+                for try await _ in ctx.stream() { }
+
+            case .afterModel(let ctx):
+                responseThinking = ctx.response.thinking
+                responseContent = ctx.response.content
+
+            default:
+                break
+            }
+        }
+
+        #expect(responseThinking == "Step 1: analyze the problem")
+        #expect(responseContent == "Here is the answer")
+    }
+
+    @Test("thinking blocks preserved through tool use round-trip")
+    func thinkingBlocksPreservedThroughToolUse() async throws {
+        let tool = ConfigurableTool.succeeding("result", name: "my_tool")
+
+        let toolCallResponse = MockResponse.withThinkingAndToolCall(
+            thinking: "I should use the tool",
+            toolName: "my_tool",
+            toolArguments: #"{"input":"test"}"#,
+            toolId: "tc-1"
+        )
+        let textResponse = MockResponse.text("Done")
+
+        actor RequestCapture {
+            var request: CompletionRequest?
+            func capture(_ r: CompletionRequest) { request = r }
+        }
+        let capture = RequestCapture()
+        let counter = CallCounter()
+
+        let model = FakeModel(
+            onStream: { request in
+                switch await counter.increment() {
+                case 1:
+                    return [
+                        .contentDelta("I should use the tool", kind: .thinking),
+                        .toolCallStart(id: "tc-1", name: "my_tool"),
+                        .toolCallDelta(argumentsDelta: #"{"input":"test"}"#),
+                        .toolCallEnd(id: "tc-1"),
+                        .done(toolCallResponse)
+                    ]
+                default:
+                    await capture.capture(request)
+                    return [.contentDelta("Done"), .done(textResponse)]
+                }
+            }
+        )
+
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+
+        for try await node in agent.iter("Use tool", deps: ()) {
+            if case .beforeModel(let ctx) = node {
+                for try await _ in ctx.stream() { }
+            }
+        }
+
+        // Verify the second request contains the thinking block from the first response
+        let capturedRequest = await capture.request
+        let assistantMessages = capturedRequest?.messages.filter {
+            if case .assistant = $0 { return true }
+            return false
+        } ?? []
+
+        #expect(assistantMessages.count >= 1)
+        if let firstAssistant = assistantMessages.first,
+           let blocks = firstAssistant.assistantBlocks {
+            let thinkingBlocks = blocks.filter { $0.isThinking }
+            #expect(thinkingBlocks.count == 1, "Thinking block should be preserved in messages")
+            #expect(thinkingBlocks.first?.thinkingContent == "I should use the tool")
+        } else {
+            Issue.record("Expected assistant message with blocks")
+        }
+    }
+
+    // MARK: - Test 6.18: Model stream respects cancellation
 
     @Test("model stream stops when task is cancelled", .timeLimit(.minutes(1)))
     func modelStreamRespectsCancellation() async throws {
