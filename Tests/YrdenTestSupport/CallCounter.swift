@@ -15,6 +15,7 @@ public actor CallCounter {
     public init() {}
 
     /// Increment and return the new count (1-based).
+    @discardableResult
     public func increment() -> Int {
         count += 1
         return count

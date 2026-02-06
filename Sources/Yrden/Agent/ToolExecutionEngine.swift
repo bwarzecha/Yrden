@@ -1,8 +1,9 @@
-/// Tool execution engine with retry and timeout support.
+/// Tool execution engine with timeout support.
 ///
 /// This engine handles the mechanics of executing tool calls without knowing
 /// about output tools or agent-level semantics. The Agent filters output tool
 /// calls before delegating regular tools here.
+///
 ///
 /// ## Usage
 /// ```swift
@@ -22,7 +23,7 @@ import Foundation
 
 // MARK: - ToolExecutionEngine
 
-/// Executes tool calls with retry and timeout support.
+/// Executes tool calls with timeout support.
 public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
     /// Available tools for execution.
     private let tools: [AnyAgentTool<Deps>]
@@ -44,14 +45,14 @@ public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
 
     /// Execute a single tool call.
     ///
-    /// Looks up the tool by name, executes it with retry support, and applies
-    /// timeout if configured.
+    /// Looks up the tool by name, executes it with timeout if configured.
+    /// All errors are contained and returned as `.failure` results — they
+    /// are never propagated as thrown errors.
     ///
     /// - Parameters:
     ///   - call: The tool call to execute
     ///   - context: Execution context with dependencies
-    /// - Returns: Execution result
-    /// - Throws: `AgentError.toolTimeout` if timeout exceeded, `AgentError.cancelled` on cancellation
+    /// - Returns: Execution result (never throws from tool errors)
     public func execute(
         call: ToolCall,
         context: AgentContext<Deps>
@@ -69,11 +70,17 @@ public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
             ))
         }
 
-        return try await executeWithRetries(
-            tool: tool,
-            call: call,
-            context: context
-        )
+        let toolContext = context.forToolCall(id: call.id, name: call.name)
+        do {
+            return try await executeWithTimeout(
+                tool: tool,
+                context: toolContext,
+                argumentsJSON: call.arguments
+            )
+        } catch {
+            // All tool errors are contained — sent to model as error results
+            return .failure(error)
+        }
     }
 
     // MARK: - Batch Execution
@@ -108,7 +115,6 @@ public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
     ///   - calls: Tool calls to execute
     ///   - baseContext: Base context to derive per-call contexts from
     /// - Returns: Batch result containing all execution results
-    /// - Throws: `AgentError` for unrecoverable errors (timeout, cancellation)
     public func executeAll(
         calls: [ToolCall],
         baseContext: AgentContext<Deps>
@@ -155,54 +161,6 @@ public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
         return BatchResult(results: results, stoppedOnDeferral: results.last?.result.isDeferred ?? false)
     }
 
-    // MARK: - Private: Retry Logic
-
-    /// Execute a tool with retry support.
-    private func executeWithRetries(
-        tool: AnyAgentTool<Deps>,
-        call: ToolCall,
-        context: AgentContext<Deps>
-    ) async throws -> AnyToolResult {
-        var retries = 0
-        var lastResult: AnyToolResult?
-
-        while retries <= tool.maxRetries {
-            let retryContext = context.forToolCall(
-                id: call.id,
-                name: call.name,
-                retries: retries
-            )
-
-            do {
-                let result = try await executeWithTimeout(
-                    tool: tool,
-                    context: retryContext,
-                    argumentsJSON: call.arguments
-                )
-                lastResult = result
-
-                // Return immediately if not a retry
-                if !result.needsRetry {
-                    return result
-                }
-
-                retries += 1
-            } catch {
-                // Re-throw agent errors (timeout, cancellation)
-                if error is AgentError {
-                    throw error
-                }
-                return .failure(error)
-            }
-        }
-
-        // Return last result (will be a retry that exceeded max)
-        return lastResult ?? .failure(ToolExecutionError.maxRetriesExceeded(
-            toolName: tool.name,
-            attempts: retries
-        ))
-    }
-
     // MARK: - Private: Timeout Logic
 
     /// Execute a tool with optional timeout.
@@ -225,7 +183,7 @@ public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
 
                 group.addTask {
                     try await Task.sleep(for: timeout)
-                    throw AgentError.toolTimeout(toolName: tool.name, timeout: timeout)
+                    throw ToolTimeoutError(toolName: tool.name, timeout: timeout)
                 }
 
                 // Return whichever completes first
@@ -234,10 +192,11 @@ public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
                     return result
                 }
 
-                throw AgentError.toolTimeout(toolName: tool.name, timeout: timeout)
+                throw ToolTimeoutError(toolName: tool.name, timeout: timeout)
             }
         } catch is CancellationError {
-            throw AgentError.cancelled
+            // Re-throw cancellation - let the caller handle it with proper state
+            throw CancellationError()
         }
     }
 }

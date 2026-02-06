@@ -29,11 +29,23 @@ import Foundation
 /// })
 /// ```
 public actor FakeModel: Model {
+    public static let providerId = "fake"
+
     public nonisolated let name: String
     public nonisolated let capabilities: ModelCapabilities
 
+    /// Whether to record requests (disabled by default to avoid memory issues in parallel tests).
+    private let recordRequests: Bool
+
     /// Every request received (both complete and stream), in order.
+    /// Only populated when `recordRequests: true` is passed to init.
     public private(set) var requests: [CompletionRequest] = []
+
+    /// Number of complete() calls received.
+    public private(set) var completeCallCount: Int = 0
+
+    /// Number of stream() calls received.
+    public private(set) var streamCallCount: Int = 0
 
     // --- complete() path ---
     private var responses: [CompletionResponse]
@@ -51,7 +63,8 @@ public actor FakeModel: Model {
         responses: [CompletionResponse] = [],
         streamEventSequences: [[StreamEvent]] = [],
         onComplete: (@Sendable (CompletionRequest) async throws -> CompletionResponse)? = nil,
-        onStream: (@Sendable (CompletionRequest) async throws -> [StreamEvent])? = nil
+        onStream: (@Sendable (CompletionRequest) async throws -> [StreamEvent])? = nil,
+        recordRequests: Bool = false
     ) {
         self.name = name
         self.capabilities = capabilities
@@ -59,6 +72,7 @@ public actor FakeModel: Model {
         self.streamEventSequences = streamEventSequences
         self.onComplete = onComplete
         self.onStream = onStream
+        self.recordRequests = recordRequests
     }
 
     public nonisolated func complete(
@@ -70,7 +84,10 @@ public actor FakeModel: Model {
     private func _complete(
         _ request: CompletionRequest
     ) async throws -> CompletionResponse {
-        requests.append(request)
+        completeCallCount += 1
+        if recordRequests {
+            requests.append(request)
+        }
 
         if let onComplete {
             return try await onComplete(request)
@@ -79,7 +96,7 @@ public actor FakeModel: Model {
         guard responseIndex < responses.count else {
             throw LLMError.serverError(
                 "FakeModel.complete(): no more responses "
-                + "(\(requests.count) calls, \(responses.count) available)"
+                + "(\(completeCallCount) calls, \(responses.count) available)"
             )
         }
         defer { responseIndex += 1 }
@@ -90,7 +107,7 @@ public actor FakeModel: Model {
         _ request: CompletionRequest
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     let events = try await self._nextStreamEvents(request)
                     for event in events {
@@ -101,13 +118,19 @@ public actor FakeModel: Model {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
         }
     }
 
     private func _nextStreamEvents(
         _ request: CompletionRequest
     ) async throws -> [StreamEvent] {
-        requests.append(request)
+        streamCallCount += 1
+        if recordRequests {
+            requests.append(request)
+        }
 
         if let onStream {
             return try await onStream(request)

@@ -20,7 +20,6 @@ struct ConfigurableTool: AgentTool {
         case success(String)
         case failure(Error)
         case throwError(Error)
-        case retry(String)
     }
 
     let toolName: String
@@ -41,8 +40,6 @@ struct ConfigurableTool: AgentTool {
             return .failure(error)
         case .throwError(let error):
             throw error
-        case .retry(let message):
-            return .retry(message: message)
         }
     }
 }
@@ -83,16 +80,6 @@ extension ConfigurableTool {
         )
     }
 
-    static func retrying(
-        _ message: String,
-        name: String = "retry_tool"
-    ) -> ConfigurableTool {
-        ConfigurableTool(
-            toolName: name,
-            toolDescription: "A test tool that requests retry",
-            behavior: .retry(message)
-        )
-    }
 }
 
 // MARK: - Test Errors

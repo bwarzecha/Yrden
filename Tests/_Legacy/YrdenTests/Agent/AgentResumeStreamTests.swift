@@ -149,7 +149,7 @@ struct AgentResumeStreamTests {
         do {
             _ = try await agent.run("Use the tool", deps: ())
             Issue.record("Expected hasDeferredTools error")
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             guard case .hasDeferredTools(let p) = error else {
                 Issue.record("Expected hasDeferredTools, got \(error)")
                 return
@@ -230,7 +230,7 @@ struct AgentResumeStreamTests {
         var paused: PausedAgentRun?
         do {
             _ = try await agent.run("Use tools", deps: ())
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             if case .hasDeferredTools(let p) = error {
                 paused = p
             }
@@ -297,7 +297,7 @@ struct AgentResumeStreamTests {
         var paused: PausedAgentRun?
         do {
             _ = try await agent.run("Use the tool", deps: ())
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             if case .hasDeferredTools(let p) = error {
                 paused = p
             }
@@ -357,7 +357,7 @@ struct AgentResumeStreamDeferralTests {
         var paused: PausedAgentRun?
         do {
             _ = try await agent.run("Use tools", deps: ())
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             if case .hasDeferredTools(let p) = error {
                 paused = p
             }
@@ -377,7 +377,7 @@ struct AgentResumeStreamDeferralTests {
                 // Consume events
             }
             Issue.record("Expected hasDeferredTools when model calls second approvable tool")
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             if case .hasDeferredTools(let p) = error {
                 secondPaused = p
             } else {

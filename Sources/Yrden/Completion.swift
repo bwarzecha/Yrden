@@ -62,6 +62,11 @@ public struct CompletionConfig: Codable, Sendable, Equatable, Hashable {
     /// - `extended`: 24-hour extended caching for longer retention
     public let promptCacheRetention: PromptCacheRetention?
 
+    /// Override foreign thinking behavior for this request.
+    /// When nil, uses the model's default behavior.
+    /// See `ForeignThinkingBehavior` for options.
+    public let foreignThinkingBehavior: ForeignThinkingBehavior?
+
     public init(
         temperature: Double? = nil,
         topP: Double? = nil,
@@ -69,7 +74,8 @@ public struct CompletionConfig: Codable, Sendable, Equatable, Hashable {
         stopSequences: [String]? = nil,
         store: Bool? = nil,
         promptCacheKey: String? = nil,
-        promptCacheRetention: PromptCacheRetention? = nil
+        promptCacheRetention: PromptCacheRetention? = nil,
+        foreignThinkingBehavior: ForeignThinkingBehavior? = nil
     ) {
         self.temperature = temperature
         self.topP = topP
@@ -78,6 +84,7 @@ public struct CompletionConfig: Codable, Sendable, Equatable, Hashable {
         self.store = store
         self.promptCacheKey = promptCacheKey
         self.promptCacheRetention = promptCacheRetention
+        self.foreignThinkingBehavior = foreignThinkingBehavior
     }
 
     /// Default configuration with no overrides.
@@ -91,6 +98,34 @@ public enum PromptCacheRetention: String, Codable, Sendable, Equatable, Hashable
     case inMemory = "in-memory"
     /// Extended 24-hour caching for longer retention.
     case extended = "24h"
+}
+
+// MARK: - ForeignThinkingBehavior
+
+/// How to handle thinking blocks from other providers.
+///
+/// When resuming a conversation with a different provider than the one that
+/// generated the thinking blocks, this determines what happens to those blocks.
+///
+/// ## Example
+/// ```swift
+/// // Drop foreign thinking blocks (default for most models)
+/// let model = AnthropicModel(foreignThinkingBehavior: .drop)
+///
+/// // Convert visible thinking to text, useful for debugging
+/// let model = OpenAIModel(foreignThinkingBehavior: .convertToText)
+///
+/// // Override per-request
+/// let config = CompletionConfig(foreignThinkingBehavior: .convertToText)
+/// ```
+public enum ForeignThinkingBehavior: String, Sendable, Codable, Equatable, Hashable {
+    /// Drop all foreign thinking blocks entirely.
+    /// This is the safest option for production use.
+    case drop
+
+    /// Convert visible thinking content to text blocks, drop filtered blocks.
+    /// Useful for debugging or when you want to preserve reasoning context.
+    case convertToText
 }
 
 // MARK: - CompletionRequest
@@ -290,12 +325,20 @@ public struct Usage: Codable, Sendable, Equatable, Hashable {
 
 /// Response from an LLM completion request.
 ///
-/// A response can contain:
-/// - Text content (the model's response)
+/// A response contains ordered content blocks that preserve the exact structure
+/// from the provider, enabling cache compatibility on subsequent requests.
+///
+/// Content blocks can include:
+/// - Text content (the model's visible response)
+/// - Thinking blocks (reasoning/chain-of-thought, may be filtered)
 /// - Tool calls (requests to invoke tools)
-/// - Refusal (the model declined to respond)
-/// - Both text + tool calls
-/// - Neither (rare, usually an error)
+///
+/// Blocks can be interleaved in any order. For example, a model might:
+/// 1. Think about the problem
+/// 2. Output some text
+/// 3. Call a tool
+/// 4. Think more
+/// 5. Output final text
 ///
 /// ## Example
 /// ```swift
@@ -307,32 +350,37 @@ public struct Usage: Codable, Sendable, Equatable, Hashable {
 ///     return
 /// }
 ///
-/// // Check for tool calls
-/// if !response.toolCalls.isEmpty {
-///     for call in response.toolCalls {
+/// // Process all content blocks in order
+/// for block in response.contentBlocks {
+///     switch block {
+///     case .text(let text):
+///         print(text)
+///     case .thinking(let thinking):
+///         if let content = thinking.content {
+///             print("[Thinking] \(content)")
+///         }
+///     case .toolUse(let call):
 ///         let result = try await executeTool(call)
-///         // Add result to conversation and continue
 ///     }
 /// }
 ///
-/// // Check for text content
+/// // Or use convenience properties
 /// if let content = response.content {
 ///     print(content)
 /// }
+/// for call in response.toolCalls {
+///     // Execute tools...
+/// }
 /// ```
 public struct CompletionResponse: Codable, Sendable, Equatable, Hashable {
-    /// Text content of the response.
-    /// May be nil if the model only made tool calls or refused.
-    public let content: String?
+    /// Ordered content blocks from the model.
+    /// Preserves exact structure for cache compatibility.
+    public let contentBlocks: [AssistantContentBlock]
 
     /// Refusal explanation from the model.
     /// When set, the model declined to fulfill the request.
     /// This is different from content filtering (stopReason = .contentFiltered).
     public let refusal: String?
-
-    /// Tool calls requested by the model.
-    /// Empty array if no tools were called.
-    public let toolCalls: [ToolCall]
 
     /// Reason the model stopped generating.
     public let stopReason: StopReason
@@ -341,16 +389,62 @@ public struct CompletionResponse: Codable, Sendable, Equatable, Hashable {
     public let usage: Usage
 
     public init(
-        content: String?,
+        contentBlocks: [AssistantContentBlock],
         refusal: String? = nil,
-        toolCalls: [ToolCall],
         stopReason: StopReason,
         usage: Usage
     ) {
-        self.content = content
+        self.contentBlocks = contentBlocks
         self.refusal = refusal
-        self.toolCalls = toolCalls
         self.stopReason = stopReason
         self.usage = usage
+    }
+
+    /// Convenience initializer for simple text responses.
+    public init(
+        content: String?,
+        refusal: String? = nil,
+        toolCalls: [ToolCall] = [],
+        stopReason: StopReason,
+        usage: Usage
+    ) {
+        var blocks: [AssistantContentBlock] = []
+        if let text = content, !text.isEmpty {
+            blocks.append(.text(text))
+        }
+        blocks.append(contentsOf: toolCalls.map { .toolUse($0) })
+        self.contentBlocks = blocks
+        self.refusal = refusal
+        self.stopReason = stopReason
+        self.usage = usage
+    }
+}
+
+// MARK: - CompletionResponse Computed Properties
+
+extension CompletionResponse {
+    /// Combined text content from the response (excludes thinking).
+    /// Returns nil if no text blocks are present.
+    public var content: String? {
+        let texts = contentBlocks.compactMap { $0.textContent }
+        return texts.isEmpty ? nil : texts.joined()
+    }
+
+    /// Combined thinking content from the response.
+    /// Returns nil if no thinking blocks with visible content are present.
+    public var thinking: String? {
+        let thoughts = contentBlocks.compactMap { $0.thinkingContent }
+        return thoughts.isEmpty ? nil : thoughts.joined()
+    }
+
+    /// All tool calls from the response.
+    /// Returns empty array if no tool calls are present.
+    public var toolCalls: [ToolCall] {
+        contentBlocks.compactMap { $0.toolCall }
+    }
+
+    /// All thinking blocks from the response (including filtered ones).
+    public var thinkingBlocks: [ThinkingBlock] {
+        contentBlocks.compactMap { $0.thinkingBlock }
     }
 }

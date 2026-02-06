@@ -231,7 +231,7 @@ class ChatViewModel: ObservableObject {
                     }
                     break processingLoop  // Success - exit loop
                 }
-            } catch let e as AgentError {
+            } catch let e as AgentError<String> {
                 log(.error, "AgentError", details: String(describing: e))
                 if let streamingUsage = currentTurnUsage {
                     updateTotalUsage(with: streamingUsage)
@@ -330,7 +330,7 @@ class ChatViewModel: ObservableObject {
                                 }
                             }
                             break processingLoop  // Success - exit loop
-                        } catch let rejectionError as AgentError {
+                        } catch let rejectionError as AgentError<String> {
                             // If model calls another tool that needs approval, set up for next iteration
                             if case .hasDeferredTools(let newPaused) = rejectionError {
                                 log(.info, "Model called another tool after rejection", details: newPaused.pendingCalls.map { $0.toolCall.name }.joined(separator: ", "))
@@ -492,7 +492,7 @@ class ChatViewModel: ObservableObject {
                 }
             }
             pausedRun = nil
-        } catch let e as AgentError {
+        } catch let e as AgentError<String> {
             log(.error, "Continuation error", details: String(describing: e))
             if let streamingUsage = currentTurnUsage {
                 updateTotalUsage(with: streamingUsage)

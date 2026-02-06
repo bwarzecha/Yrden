@@ -257,8 +257,11 @@ extension ModelCapabilities {
 ///
 /// ```swift
 /// struct AnthropicModel: Model {
+///     static let providerId = "anthropic"
+///
 ///     let name: String
 ///     let capabilities: ModelCapabilities
+///     let foreignThinkingBehavior: ForeignThinkingBehavior
 ///     let provider: AnthropicProvider
 ///
 ///     func complete(_ request: CompletionRequest) async throws -> CompletionResponse {
@@ -274,11 +277,19 @@ extension ModelCapabilities {
 /// }
 /// ```
 public protocol Model: Sendable {
+    /// Provider identifier (e.g., "anthropic", "openai", "bedrock").
+    /// Used to determine how to handle thinking blocks when switching providers.
+    static var providerId: String { get }
+
     /// The model identifier (e.g., "claude-3-5-sonnet-20241022", "gpt-4o").
     var name: String { get }
 
     /// Capabilities this model supports.
     var capabilities: ModelCapabilities { get }
+
+    /// How to handle thinking blocks from other providers.
+    /// Defaults to `.drop` for safety.
+    var foreignThinkingBehavior: ForeignThinkingBehavior { get }
 
     /// Execute a completion request and return the full response.
     ///
@@ -292,6 +303,13 @@ public protocol Model: Sendable {
     /// - Parameter request: The completion request
     /// - Returns: Stream of events, ending with `.done`
     func stream(_ request: CompletionRequest) -> AsyncThrowingStream<StreamEvent, Error>
+}
+
+// MARK: - Model Default Implementations
+
+extension Model {
+    /// Default foreign thinking behavior is to drop foreign blocks.
+    public var foreignThinkingBehavior: ForeignThinkingBehavior { .drop }
 }
 
 // MARK: - Model Convenience Extensions

@@ -3,8 +3,8 @@
 /// This module contains:
 /// - `UsageLimits`: Constraints on agent resource consumption
 /// - `EndStrategy`: How to handle multiple tool calls
-/// - `AgentNode`: Steps in the agent execution graph
-/// - `AgentResult`: Final output of an agent run
+/// - `AgentStreamEvent`: Events emitted during streaming execution
+/// - `ToolCallResult`: Result of a single tool call
 /// - `OutputValidator`: Validation/transformation of agent output
 
 import Foundation
@@ -14,7 +14,7 @@ import Foundation
 /// Limits on agent resource consumption.
 ///
 /// Set limits to prevent runaway costs or infinite loops.
-/// When any limit is exceeded, the agent throws `AgentError.usageLimitExceeded`.
+/// When any limit is exceeded, the agent returns `.usageLimitReached` status.
 ///
 /// ## Example
 /// ```swift
@@ -62,6 +62,33 @@ public struct UsageLimits: Sendable, Equatable, Hashable {
 
     /// No limits.
     public static let none = UsageLimits()
+
+    /// Check if any limit is violated and return the first violation found.
+    ///
+    /// - Parameters:
+    ///   - usage: Current token usage
+    ///   - iteration: Current iteration number (0-indexed)
+    ///   - toolCallCount: Total tool calls executed so far
+    /// - Returns: The first limit violation found, or nil if all limits are satisfied
+    public func violation(usage: Usage, iteration: Int, toolCallCount: Int) -> UsageLimit? {
+        if let max = maxInputTokens, usage.inputTokens > max {
+            return .inputTokens(used: usage.inputTokens, limit: max)
+        }
+        if let max = maxOutputTokens, usage.outputTokens > max {
+            return .outputTokens(used: usage.outputTokens, limit: max)
+        }
+        if let max = maxTotalTokens, usage.totalTokens > max {
+            return .totalTokens(used: usage.totalTokens, limit: max)
+        }
+        // For requests, we check iteration + 1 because iteration is 0-indexed
+        if let max = maxRequests, iteration + 1 > max {
+            return .requests(used: iteration + 1, limit: max)
+        }
+        if let max = maxToolCalls, toolCallCount > max {
+            return .toolCalls(used: toolCallCount, limit: max)
+        }
+        return nil
+    }
 }
 
 // MARK: - RetryPolicy
@@ -232,8 +259,10 @@ public enum EndStrategy: String, Sendable, Codable, Equatable, Hashable {
 ///         print("\n[Calling \(name)...]")
 ///     case .toolResult(let id, let result):
 ///         print("[Tool returned: \(result.prefix(50))...]")
-///     case .result(let result):
-///         print("\n\nFinal: \(result.output)")
+///     case .finished(let run):
+///         if let output = run.output {
+///             print("\n\nFinal: \(output)")
+///         }
 ///     default:
 ///         break
 ///     }
@@ -241,10 +270,13 @@ public enum EndStrategy: String, Sendable, Codable, Equatable, Hashable {
 /// ```
 public enum AgentStreamEvent<Output: SchemaType>: Sendable {
     /// Text content delta from the model.
-    case contentDelta(String)
+    /// - Parameters:
+    ///   - content: The text delta
+    ///   - kind: Type of content (text or thinking)
+    case contentDelta(String, kind: ContentKind = .text)
 
     /// Tool call started.
-    case toolCallStart(name: String, id: String)
+    case toolCallStart(id: String, name: String)
 
     /// Tool call arguments delta.
     case toolCallDelta(id: String, delta: String)
@@ -258,60 +290,15 @@ public enum AgentStreamEvent<Output: SchemaType>: Sendable {
     /// Usage update (tokens consumed so far).
     case usage(Usage)
 
-    /// Final result (always last event on success).
-    case result(AgentResult<Output>)
-}
-
-// MARK: - AgentNode
-
-/// A node in the agent execution graph.
-///
-/// Used for iteration over agent execution. Each node represents
-/// a step that the agent will take or has taken.
-///
-/// ## Iteration Example
-/// ```swift
-/// for try await node in agent.iter("Query data", deps: myDeps) {
-///     switch node {
-///     case .userPrompt(let prompt):
-///         print("Starting with: \(prompt)")
-///     case .modelRequest(let request):
-///         print("Sending \(request.messages.count) messages to model")
-///     case .modelResponse(let response):
-///         print("Model responded: \(response.content ?? "no content")")
-///     case .toolExecution(let calls):
-///         print("Executing \(calls.count) tools")
-///     case .toolResults(let results):
-///         print("Got \(results.count) tool results")
-///     case .end(let result):
-///         print("Done: \(result.output)")
-///     }
-/// }
-/// ```
-public enum AgentNode<Deps: Sendable, Output: SchemaType>: Sendable {
-    /// Initial user prompt.
-    case userPrompt(String)
-
-    /// About to send request to model.
-    case modelRequest(CompletionRequest)
-
-    /// Model responded.
-    case modelResponse(CompletionResponse)
-
-    /// About to execute tool calls.
-    case toolExecution([ToolCall])
-
-    /// Tool execution completed.
-    case toolResults([ToolCallResult])
-
-    /// Run completed with final output.
-    case end(AgentResult<Output>)
+    /// Agent run finished (always last event).
+    /// Contains the full `AgentRun` with status indicating how it ended.
+    case finished(AgentRun<Output>)
 }
 
 // MARK: - ToolCallResult
 
 /// Result of a single tool call execution.
-public struct ToolCallResult: Sendable {
+public struct ToolCallResult: Sendable, Codable {
     /// The original tool call.
     public let call: ToolCall
 
@@ -321,56 +308,45 @@ public struct ToolCallResult: Sendable {
     /// Duration of execution.
     public let duration: Duration
 
+    /// Convenience: the output string regardless of result type.
+    ///
+    /// Per design doc, formats are:
+    /// - `.success(s)` → `s`
+    /// - `.denied(m)` → `"Tool denied: {m}"`
+    /// - `.replaced(r)` → `r`
+    /// - `.failed(e)` → `"Tool failed: {e}"`
+    public var output: String {
+        result.output
+    }
+
     public init(call: ToolCall, result: AnyToolResult, duration: Duration) {
         self.call = call
         self.result = result
         self.duration = duration
     }
-}
 
-// MARK: - AgentResult
+    // Custom Codable to handle Duration (encode as nanoseconds)
+    private enum CodingKeys: String, CodingKey {
+        case call
+        case result
+        case durationNanoseconds
+    }
 
-/// Final result of an agent run.
-///
-/// Contains the typed output plus metadata about the run.
-public struct AgentResult<Output: SchemaType>: Sendable {
-    /// The typed output.
-    public let output: Output
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.call = try container.decode(ToolCall.self, forKey: .call)
+        self.result = try container.decode(AnyToolResult.self, forKey: .result)
+        let nanoseconds = try container.decode(Int64.self, forKey: .durationNanoseconds)
+        self.duration = .nanoseconds(nanoseconds)
+    }
 
-    /// Total token usage for the run.
-    public let usage: Usage
-
-    /// All messages in the conversation.
-    public let messages: [Message]
-
-    /// Name of tool that produced output (nil if from text).
-    public let outputToolName: String?
-
-    /// Unique identifier for this run.
-    public let runID: String
-
-    /// Number of model requests made.
-    public let requestCount: Int
-
-    /// Number of tool calls executed.
-    public let toolCallCount: Int
-
-    public init(
-        output: Output,
-        usage: Usage,
-        messages: [Message],
-        outputToolName: String? = nil,
-        runID: String,
-        requestCount: Int,
-        toolCallCount: Int
-    ) {
-        self.output = output
-        self.usage = usage
-        self.messages = messages
-        self.outputToolName = outputToolName
-        self.runID = runID
-        self.requestCount = requestCount
-        self.toolCallCount = toolCallCount
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(call, forKey: .call)
+        try container.encode(result, forKey: .result)
+        let (seconds, attoseconds) = duration.components
+        let nanoseconds = seconds * 1_000_000_000 + attoseconds / 1_000_000_000
+        try container.encode(nanoseconds, forKey: .durationNanoseconds)
     }
 }
 
@@ -433,198 +409,5 @@ public struct ValidationRetry: Error, Sendable {
 extension ValidationRetry: LocalizedError {
     public var errorDescription: String? {
         "Validation retry requested: \(message)"
-    }
-}
-
-// MARK: - Pending Approvals
-
-/// Collection of deferred tool calls awaiting resolution.
-///
-/// When tools return `.deferred`, the agent pauses and provides
-/// this information for external resolution.
-public struct PendingApprovals: Sendable {
-    /// Tools awaiting human approval.
-    public let approvals: [DeferredToolCall]
-
-    /// Tools awaiting external results.
-    public let external: [DeferredToolCall]
-
-    /// All pending deferrals.
-    public var all: [DeferredToolCall] {
-        approvals + external
-    }
-
-    /// Whether there are any pending items.
-    public var isEmpty: Bool {
-        approvals.isEmpty && external.isEmpty
-    }
-
-    public init(approvals: [DeferredToolCall] = [], external: [DeferredToolCall] = []) {
-        self.approvals = approvals
-        self.external = external
-    }
-}
-
-// MARK: - Resolved Tool
-
-/// A resolved deferred tool call.
-public struct ResolvedTool: Sendable {
-    /// ID of the deferred call (must match DeferredToolCall.id).
-    public let id: String
-
-    /// Resolution result.
-    public let resolution: Resolution
-
-    public init(id: String, resolution: Resolution) {
-        self.id = id
-        self.resolution = resolution
-    }
-
-    /// Resolution outcomes.
-    public enum Resolution: Sendable {
-        /// Tool was approved and should proceed.
-        case approved
-
-        /// Tool was denied.
-        case denied(reason: String)
-
-        /// External operation completed with result.
-        case completed(result: String)
-
-        /// External operation failed.
-        case failed(error: String)
-    }
-}
-
-// MARK: - PauseReason
-
-/// Reason why an agent run was paused.
-public enum PauseReason: Sendable, Equatable {
-    /// Paused due to deferred tool calls awaiting resolution.
-    case deferredTools
-
-    /// Paused because max iterations was reached.
-    /// The associated value is the iteration limit that was hit.
-    case maxIterationsReached(limit: Int)
-
-    /// Helper to extract iteration limit if applicable.
-    public var iterationLimit: Int? {
-        if case .maxIterationsReached(let limit) = self {
-            return limit
-        }
-        return nil
-    }
-}
-
-// MARK: - PausedAgentRun
-
-/// State captured when an agent pauses.
-///
-/// This struct contains all information needed to resume execution
-/// after the pause condition is resolved. Pauses can occur due to:
-/// - Deferred tool calls awaiting user approval
-/// - Maximum iteration limit reached
-///
-/// ## Human-in-the-Loop Pattern (Deferred Tools)
-/// ```swift
-/// do {
-///     let result = try await agent.run("Execute risky operation", deps: myDeps)
-/// } catch let error as AgentError {
-///     if case .hasDeferredTools(let paused) = error {
-///         // Present to user for approval
-///         print("Tools need approval:")
-///         for pending in paused.pendingCalls {
-///             print("- \(pending.toolCall.name): \(pending.deferral.reason)")
-///         }
-///
-///         // Get user decisions
-///         let resolutions = await getUserApprovals(paused.pendingCalls)
-///
-///         // Resume with resolutions
-///         let result = try await agent.resume(paused: paused, resolutions: resolutions, deps: myDeps)
-///     }
-/// }
-/// ```
-///
-/// ## Iteration Limit Continuation
-/// ```swift
-/// do {
-///     let result = try await agent.run("Complex task", deps: myDeps)
-/// } catch let error as AgentError {
-///     if case .maxIterationsExceeded(let paused) = error {
-///         print("Paused after \(paused.requestCount) iterations")
-///         print("Tokens used: \(paused.usage.totalTokens)")
-///
-///         // Continue with more iterations
-///         let result = try await agent.continueRun(
-///             paused: paused,
-///             additionalIterations: 10,
-///             deps: myDeps
-///         )
-///     }
-/// }
-/// ```
-public struct PausedAgentRun: Sendable {
-    /// Unique identifier for this run.
-    public let runID: String
-
-    /// Conversation messages up to the point of pause.
-    public let messages: [Message]
-
-    /// Accumulated token usage.
-    public let usage: Usage
-
-    /// Number of model requests made so far.
-    public let requestCount: Int
-
-    /// Number of tool calls executed so far.
-    public let toolCallCount: Int
-
-    /// Pending tool calls that need resolution (empty for iteration limit pauses).
-    public let pendingCalls: [PendingToolCall]
-
-    /// Why the agent was paused.
-    public let reason: PauseReason
-
-    public init(
-        runID: String,
-        messages: [Message],
-        usage: Usage,
-        requestCount: Int,
-        toolCallCount: Int,
-        pendingCalls: [PendingToolCall],
-        reason: PauseReason = .deferredTools
-    ) {
-        self.runID = runID
-        self.messages = messages
-        self.usage = usage
-        self.requestCount = requestCount
-        self.toolCallCount = toolCallCount
-        self.pendingCalls = pendingCalls
-        self.reason = reason
-    }
-
-    /// Get all deferred calls (for display purposes).
-    public var deferrals: [DeferredToolCall] {
-        pendingCalls.map { $0.deferral }
-    }
-}
-
-// MARK: - PendingToolCall
-
-/// A tool call that is pending resolution.
-///
-/// Pairs the original LLM tool call with the deferral information
-/// returned by the tool.
-public struct PendingToolCall: Sendable {
-    /// The original tool call from the LLM.
-    public let toolCall: ToolCall
-
-    /// Deferral information from the tool.
-    public let deferral: DeferredToolCall
-
-    public init(toolCall: ToolCall, deferral: DeferredToolCall) {
-        self.toolCall = toolCall
-        self.deferral = deferral
     }
 }

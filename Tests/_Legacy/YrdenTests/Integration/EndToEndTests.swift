@@ -538,7 +538,7 @@ struct EndToEndTests {
         do {
             _ = try await agent.run("Call the retry_tool repeatedly.", deps: ())
             Issue.record("Should have thrown maxIterationsReached")
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             guard case .maxIterationsReached = error else {
                 Issue.record("Expected maxIterationsReached, got \(error)")
                 return

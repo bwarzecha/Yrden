@@ -42,9 +42,6 @@ struct MCPToolProxy: Sendable {
     /// Tool definition with JSON schema.
     let definition: ToolDefinition
 
-    /// Maximum retry attempts (default: 1).
-    let maxRetries: Int
-
     /// Whether this tool requires human approval before execution.
     let requiresApproval: Bool
 
@@ -61,14 +58,12 @@ struct MCPToolProxy: Sendable {
     ///   - toolInfo: Tool information from MCP
     ///   - coordinator: Coordinator to route calls through
     ///   - timeout: Optional timeout override
-    ///   - maxRetries: Maximum retry attempts (default: 1)
     ///   - requiresApproval: Whether this tool requires human approval before execution
     init(
         serverID: String,
         toolInfo: ToolInfo,
         coordinator: any MCPCoordinatorProtocol,
         timeout: Duration? = nil,
-        maxRetries: Int = 1,
         requiresApproval: Bool = false
     ) {
         self.serverID = serverID
@@ -81,7 +76,6 @@ struct MCPToolProxy: Sendable {
         )
         self.coordinator = coordinator
         self.timeout = timeout
-        self.maxRetries = maxRetries
         self.requiresApproval = requiresApproval
     }
 
@@ -94,7 +88,6 @@ struct MCPToolProxy: Sendable {
     ///   - inputSchema: JSON schema for input
     ///   - coordinator: Coordinator to route calls through
     ///   - timeout: Optional timeout override
-    ///   - maxRetries: Maximum retry attempts (default: 1)
     ///   - requiresApproval: Whether this tool requires human approval before execution
     init(
         serverID: String,
@@ -103,7 +96,6 @@ struct MCPToolProxy: Sendable {
         inputSchema: JSONValue,
         coordinator: any MCPCoordinatorProtocol,
         timeout: Duration? = nil,
-        maxRetries: Int = 1,
         requiresApproval: Bool = false
     ) {
         self.serverID = serverID
@@ -116,7 +108,6 @@ struct MCPToolProxy: Sendable {
         )
         self.coordinator = coordinator
         self.timeout = timeout
-        self.maxRetries = maxRetries
         self.requiresApproval = requiresApproval
     }
 
@@ -173,8 +164,11 @@ struct MCPToolProxy: Sendable {
             return .failure(MCPToolError.serverDisconnected(serverID: id))
 
         case .toolTimeout(let id, let tool, let timeout):
-            // Return retry on timeout - LLM can try simpler request
-            return .retry(message: "Tool '\(tool)' on server '\(id)' timed out after \(timeout). Try a simpler request or break into steps.")
+            return .failure(MCPToolError.executionFailed(
+                name: tool,
+                server: id,
+                message: "Timed out after \(timeout). Try a simpler request or break into steps."
+            ))
 
         case .toolCancelled(let id, let tool):
             return .failure(MCPToolError.toolCancelled(serverID: id, tool: tool))
@@ -195,50 +189,6 @@ struct MCPToolProxy: Sendable {
         }
     }
 
-    /// Call the tool with retry logic.
-    ///
-    /// Retries failed tool calls up to `maxRetries` times before surfacing
-    /// the error to the model. This allows transient failures to be handled
-    /// transparently.
-    ///
-    /// - Parameter argumentsJSON: JSON-encoded arguments string
-    /// - Returns: Tool result after retries
-    func callWithRetry(argumentsJSON: String) async throws -> AnyToolResult {
-        var lastResult: AnyToolResult = .failure(MCPToolError.executionFailed(
-            name: name,
-            server: serverID,
-            message: "No attempts made"
-        ))
-
-        for attempt in 1...maxRetries {
-            lastResult = try await call(argumentsJSON: argumentsJSON)
-
-            switch lastResult {
-            case .success:
-                return lastResult
-            case .retry:
-                // Retry indicates recoverable - try again
-                if attempt < maxRetries {
-                    continue
-                }
-                return lastResult
-            case .failure:
-                // Failure might be transient - retry
-                if attempt < maxRetries {
-                    // Small delay before retry
-                    try? await Task.sleep(for: .milliseconds(100 * attempt))
-                    continue
-                }
-                return lastResult
-            case .deferred:
-                // Deferred tools don't retry - return immediately
-                return lastResult
-            }
-        }
-
-        return lastResult
-    }
-
     // MARK: - Conversion
 
     /// Convert to type-erased AnyAgentTool for use with Agent.
@@ -252,7 +202,6 @@ struct MCPToolProxy: Sendable {
             name: name,
             description: description,
             definition: definition,
-            maxRetries: maxRetries,
             requiresApproval: requiresApproval
         ) { _, args in
             try await self.call(argumentsJSON: args)

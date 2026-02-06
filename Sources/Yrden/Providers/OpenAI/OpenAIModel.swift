@@ -29,11 +29,17 @@ import Foundation
 
 /// Model implementation for the OpenAI Chat Completions API.
 public struct OpenAIModel: Model, Sendable {
+    /// Provider identifier for cross-provider thinking block handling.
+    public static let providerId = "openai"
+
     /// Model identifier (e.g., "gpt-4o", "o1-mini").
     public let name: String
 
     /// Capabilities of this model.
     public let capabilities: ModelCapabilities
+
+    /// How to handle thinking blocks from other providers.
+    public let foreignThinkingBehavior: ForeignThinkingBehavior
 
     /// Provider for authentication and connection.
     private let provider: any Provider & OpenAICompatibleProvider
@@ -51,16 +57,19 @@ public struct OpenAIModel: Model, Sendable {
     ///   - provider: Provider for authentication
     ///   - defaultMaxTokens: Default max tokens (default: 4096)
     ///   - retryConfig: Retry configuration for transient errors (default: 2 retries)
+    ///   - foreignThinkingBehavior: How to handle thinking blocks from other providers (default: .drop)
     public init(
         name: String,
         provider: any Provider & OpenAICompatibleProvider,
         defaultMaxTokens: Int = 4096,
-        retryConfig: RetryConfig = .default
+        retryConfig: RetryConfig = .default,
+        foreignThinkingBehavior: ForeignThinkingBehavior = .drop
     ) {
         self.name = name
         self.provider = provider
         self.defaultMaxTokens = defaultMaxTokens
         self.retryConfig = retryConfig
+        self.foreignThinkingBehavior = foreignThinkingBehavior
         self.capabilities = Self.capabilities(for: name)
     }
 
@@ -141,8 +150,11 @@ public struct OpenAIModel: Model, Sendable {
 
         // Check if request has assistant messages with tool calls
         let hasAssistantToolCalls = request.messages.contains { message in
-            if case .assistant(_, let toolCalls) = message {
-                return !toolCalls.isEmpty
+            if case .assistant(let blocks) = message {
+                return blocks.contains { block in
+                    if case .toolUse = block { return true }
+                    return false
+                }
             }
             return false
         }
@@ -238,19 +250,46 @@ public struct OpenAIModel: Model, Sendable {
                 )
             }
 
-        case .assistant(let text, let toolCalls):
-            // ToolCall.init guarantees arguments is valid JSON (empty normalized to "{}")
-            let openAIToolCalls: [OpenAIToolCall]? = toolCalls.isEmpty ? nil : toolCalls.map { call in
-                OpenAIToolCall(
-                    id: call.id,
-                    type: ToolType.function,
-                    function: OpenAIFunctionCall(name: call.name, arguments: call.arguments)
-                )
+        case .assistant(let blocks):
+            var textContent = ""
+            var toolCalls: [OpenAIToolCall] = []
+
+            for block in blocks {
+                switch block {
+                case .text(let text):
+                    textContent += text
+                case .thinking(let thinkingBlock):
+                    // Handle thinking blocks based on provider
+                    if thinkingBlock.provider == Self.providerId {
+                        // Native OpenAI thinking - no special handling needed
+                        if let content = thinkingBlock.content, !content.isEmpty {
+                            textContent += content
+                        }
+                    } else {
+                        // Foreign thinking block
+                        switch foreignThinkingBehavior {
+                        case .drop:
+                            // Skip entirely
+                            break
+                        case .convertToText:
+                            if let content = thinkingBlock.content, !content.isEmpty {
+                                textContent += content
+                            }
+                        }
+                    }
+                case .toolUse(let call):
+                    toolCalls.append(OpenAIToolCall(
+                        id: call.id,
+                        type: ToolType.function,
+                        function: OpenAIFunctionCall(name: call.name, arguments: call.arguments)
+                    ))
+                }
             }
+
             return OpenAIMessage(
                 role: MessageRole.assistant,
-                content: text.isEmpty ? nil : .text(text),
-                tool_calls: openAIToolCalls
+                content: textContent.isEmpty ? nil : .text(textContent),
+                tool_calls: toolCalls.isEmpty ? nil : toolCalls
             )
 
         case .toolResult(let toolCallId, let content):
@@ -325,15 +364,22 @@ public struct OpenAIModel: Model, Sendable {
             throw LLMError.decodingError("No choices in response")
         }
 
-        // Extract content and tool calls
-        let content = choice.message.content
-        let toolCalls = choice.message.tool_calls?.map { call in
-            ToolCall(
-                id: call.id,
-                name: call.function.name,
-                arguments: call.function.arguments
-            )
-        } ?? []
+        // Build content blocks preserving order
+        var contentBlocks: [AssistantContentBlock] = []
+
+        if let content = choice.message.content, !content.isEmpty {
+            contentBlocks.append(.text(content))
+        }
+
+        if let toolCalls = choice.message.tool_calls {
+            for call in toolCalls {
+                contentBlocks.append(.toolUse(ToolCall(
+                    id: call.id,
+                    name: call.function.name,
+                    arguments: call.function.arguments
+                )))
+            }
+        }
 
         let hasStopSequences = stopSequences?.isEmpty == false
         let stopReason = StopReason.from(openAIReason: choice.finish_reason, hasStopSequences: hasStopSequences)
@@ -343,8 +389,7 @@ public struct OpenAIModel: Model, Sendable {
         )
 
         return CompletionResponse(
-            content: content,
-            toolCalls: toolCalls,
+            contentBlocks: contentBlocks,
             stopReason: stopReason,
             usage: usage
         )
@@ -489,15 +534,18 @@ public struct OpenAIModel: Model, Sendable {
             continuation.yield(.toolCallEnd(id: toolCall.id))
         }
 
-        // Build final response
-        let toolCalls = accumulatedToolCalls.map { acc in
-            ToolCall(id: acc.id, name: acc.name, arguments: acc.arguments)
+        // Build final response with content blocks
+        var contentBlocks: [AssistantContentBlock] = []
+        if !accumulatedContent.isEmpty {
+            contentBlocks.append(.text(accumulatedContent))
+        }
+        for acc in accumulatedToolCalls {
+            contentBlocks.append(.toolUse(ToolCall(id: acc.id, name: acc.name, arguments: acc.arguments)))
         }
 
         let hasStopSequences = stopSequences?.isEmpty == false
         let completionResponse = CompletionResponse(
-            content: accumulatedContent.isEmpty ? nil : accumulatedContent,
-            toolCalls: toolCalls,
+            contentBlocks: contentBlocks,
             stopReason: StopReason.from(openAIReason: lastFinishReason, hasStopSequences: hasStopSequences),
             usage: Usage(inputTokens: inputTokens, outputTokens: outputTokens)
         )
@@ -577,11 +625,35 @@ public struct OpenAIModel: Model, Sendable {
                 }
                 return .message(role: MessageRole.user, content: contentParts)
 
-            case .assistant(let text, _):
+            case .assistant(let blocks):
                 // For assistant messages, use output_text content type
                 // Tool calls are implicit in the conversation flow
-                if !text.isEmpty {
-                    return .message(role: MessageRole.assistant, content: [.outputText(text)])
+                var textContent = ""
+                for block in blocks {
+                    switch block {
+                    case .text(let text):
+                        textContent += text
+                    case .thinking(let thinkingBlock):
+                        // Handle foreign thinking for Responses API
+                        if thinkingBlock.provider != Self.providerId {
+                            switch foreignThinkingBehavior {
+                            case .drop:
+                                break
+                            case .convertToText:
+                                if let content = thinkingBlock.content, !content.isEmpty {
+                                    textContent += content
+                                }
+                            }
+                        } else if let content = thinkingBlock.content, !content.isEmpty {
+                            textContent += content
+                        }
+                    case .toolUse:
+                        // Tool calls are implicit in the conversation flow
+                        break
+                    }
+                }
+                if !textContent.isEmpty {
+                    return .message(role: MessageRole.assistant, content: [.outputText(textContent)])
                 }
                 return nil
 
@@ -658,10 +730,9 @@ public struct OpenAIModel: Model, Sendable {
             throw LLMError.invalidRequest(error.message)
         }
 
-        // Extract content, refusal, and tool calls from output items
-        var content: String?
+        // Build content blocks preserving order
+        var contentBlocks: [AssistantContentBlock] = []
         var refusal: String?
-        var toolCalls: [ToolCall] = []
 
         for item in response.output {
             switch item {
@@ -669,7 +740,9 @@ public struct OpenAIModel: Model, Sendable {
                 for contentItem in contentItems {
                     switch contentItem {
                     case .outputText(let text, _):
-                        content = (content ?? "") + text
+                        if !text.isEmpty {
+                            contentBlocks.append(.text(text))
+                        }
                     case .refusal(let text):
                         refusal = (refusal ?? "") + text
                     case .unknown:
@@ -678,17 +751,29 @@ public struct OpenAIModel: Model, Sendable {
                 }
 
             case .functionCall(_, let callId, let name, let arguments):
-                toolCalls.append(ToolCall(id: callId, name: name, arguments: arguments))
+                contentBlocks.append(.toolUse(ToolCall(id: callId, name: name, arguments: arguments)))
 
-            case .reasoning, .unknown:
-                // Reasoning items are internal; we don't expose them
+            case .reasoning(_, _, let summary):
+                // Extract reasoning summary as thinking block
+                if let summaryTexts = summary {
+                    let combinedSummary = summaryTexts.joined(separator: "\n")
+                    if !combinedSummary.isEmpty {
+                        contentBlocks.append(.thinking(ThinkingBlock(
+                            content: combinedSummary,
+                            providerData: nil,
+                            provider: Self.providerId
+                        )))
+                    }
+                }
+
+            case .unknown:
                 break
             }
         }
 
         // Determine stop reason from response status and incomplete_details
         let stopReason: StopReason
-        if !toolCalls.isEmpty {
+        if contentBlocks.contains(where: { if case .toolUse = $0 { return true } else { return false } }) {
             stopReason = .toolUse
         } else if response.status == "incomplete" {
             if response.incomplete_details?.reason == OpenAIIncompleteReason.maxOutputTokens {
@@ -711,9 +796,8 @@ public struct OpenAIModel: Model, Sendable {
         )
 
         return CompletionResponse(
-            content: content,
+            contentBlocks: contentBlocks,
             refusal: refusal,
-            toolCalls: toolCalls,
             stopReason: stopReason,
             usage: usage
         )
@@ -827,14 +911,18 @@ public struct OpenAIModel: Model, Sendable {
             }
         }
 
-        // Build final response
-        let toolCalls = accumulatedToolCalls.map { callId, data in
-            ToolCall(id: callId, name: data.name, arguments: data.arguments)
+        // Build final response with content blocks
+        var contentBlocks: [AssistantContentBlock] = []
+        if !accumulatedContent.isEmpty {
+            contentBlocks.append(.text(accumulatedContent))
+        }
+        for (callId, data) in accumulatedToolCalls {
+            contentBlocks.append(.toolUse(ToolCall(id: callId, name: data.name, arguments: data.arguments)))
         }
 
         // Determine stop reason from response status and incomplete_details
         let stopReason: StopReason
-        if !toolCalls.isEmpty {
+        if !accumulatedToolCalls.isEmpty {
             stopReason = .toolUse
         } else if responseStatus == "incomplete" {
             if incompleteReason == OpenAIIncompleteReason.maxOutputTokens {
@@ -849,9 +937,8 @@ public struct OpenAIModel: Model, Sendable {
         }
 
         let completionResponse = CompletionResponse(
-            content: accumulatedContent.isEmpty ? nil : accumulatedContent,
+            contentBlocks: contentBlocks,
             refusal: accumulatedRefusal.isEmpty ? nil : accumulatedRefusal,
-            toolCalls: toolCalls,
             stopReason: stopReason,
             usage: Usage(
                 inputTokens: inputTokens,

@@ -62,28 +62,16 @@ public protocol AgentTool<Deps>: Sendable {
     /// Should clearly explain when and how to use the tool.
     var description: String { get }
 
-    /// Maximum retry attempts when tool returns `.retry`.
-    /// After this many retries, the agent will use `.failure` instead.
-    /// Default is 1 (allow one retry attempt).
-    var maxRetries: Int { get }
-
     /// Execute the tool with the given arguments.
     ///
     /// - Parameters:
     ///   - context: Agent context with dependencies and run state
     ///   - arguments: Parsed and validated arguments from the LLM
-    /// - Returns: Result of execution (success, retry, failure, or deferred)
+    /// - Returns: Result of execution (success, failure, or deferred)
     func call(
         context: AgentContext<Deps>,
         arguments: Args
     ) async throws -> ToolResult<Output>
-}
-
-// MARK: - Default Implementations
-
-extension AgentTool {
-    /// Default max retries is 1.
-    public var maxRetries: Int { 1 }
 }
 
 // MARK: - Tool Definition Generation
@@ -103,18 +91,13 @@ extension AgentTool {
 
 /// Result of a tool execution.
 ///
-/// Tools return one of four outcomes:
+/// Tools return one of three outcomes:
 /// - `.success`: Tool executed successfully with output
-/// - `.retry`: Tool failed but LLM should retry with feedback
 /// - `.failure`: Tool failed permanently
 /// - `.deferred`: Tool needs external resolution (human approval, async operation)
 public enum ToolResult<T: Sendable>: Sendable {
     /// Tool succeeded with output.
     case success(T)
-
-    /// Tool failed, ask LLM to retry with feedback.
-    /// The message is sent back to the LLM to help it correct its approach.
-    case retry(message: String)
 
     /// Tool failed permanently with an error.
     case failure(Error)
@@ -146,7 +129,7 @@ extension ToolResult {
 ///
 /// When a tool returns `.deferred`, the agent pauses and provides
 /// this information for external resolution.
-public struct DeferredToolCall: Sendable, Equatable, Hashable {
+public struct DeferredToolCall: Sendable, Codable, Equatable, Hashable {
     /// Unique identifier for this deferred call.
     public let id: String
 
@@ -231,9 +214,6 @@ public enum ToolExecutionError: Error, Sendable, Equatable {
 
     /// Tool not found.
     case toolNotFound(String)
-
-    /// Maximum retries exceeded.
-    case maxRetriesExceeded(toolName: String, attempts: Int)
 }
 
 extension ToolExecutionError: LocalizedError {
@@ -247,8 +227,6 @@ extension ToolExecutionError: LocalizedError {
             return "Tool argument validation failed: \(details)"
         case .toolNotFound(let name):
             return "Tool not found: \(name)"
-        case .maxRetriesExceeded(let name, let attempts):
-            return "Tool '\(name)' failed after \(attempts) retry attempts"
         }
     }
 }
@@ -265,7 +243,6 @@ extension ToolExecutionError: LocalizedError {
 public struct AnyAgentTool<Deps: Sendable>: Sendable {
     public let name: String
     public let description: String
-    public let maxRetries: Int
     public let definition: ToolDefinition
 
     /// Whether this tool requires human approval before execution.
@@ -283,7 +260,6 @@ public struct AnyAgentTool<Deps: Sendable>: Sendable {
     public init<T: AgentTool>(_ tool: T, requiresApproval: Bool = false) where T.Deps == Deps {
         self.name = tool.name
         self.description = tool.description
-        self.maxRetries = tool.maxRetries
         self.definition = tool.definition
         self.requiresApproval = requiresApproval
 
@@ -326,7 +302,6 @@ public struct AnyAgentTool<Deps: Sendable>: Sendable {
             name: name,
             description: description,
             definition: definition,
-            maxRetries: maxRetries,
             requiresApproval: requiresApproval,
             call: _call
         )
@@ -341,20 +316,17 @@ public struct AnyAgentTool<Deps: Sendable>: Sendable {
     ///   - name: Tool name
     ///   - description: Tool description
     ///   - definition: Tool definition with schema
-    ///   - maxRetries: Maximum retry attempts (default: 1)
     ///   - requiresApproval: Whether this tool requires human approval before execution
     ///   - call: Execution closure that takes context and JSON arguments
     public init(
         name: String,
         description: String,
         definition: ToolDefinition,
-        maxRetries: Int = 1,
         requiresApproval: Bool = false,
         call: @escaping @Sendable (AgentContext<Deps>, String) async throws -> AnyToolResult
     ) {
         self.name = name
         self.description = description
-        self.maxRetries = maxRetries
         self.definition = definition
         self.requiresApproval = requiresApproval
         self._call = call
@@ -364,14 +336,32 @@ public struct AnyAgentTool<Deps: Sendable>: Sendable {
 // MARK: - AnyToolResult
 
 /// Type-erased tool result.
+///
+/// Cases per design doc:
+/// - `.success(String)` - Tool executed successfully
+/// - `.denied(String)` - Tool was denied by user, message explains why
+/// - `.replaced(String)` - Tool result was replaced with synthetic value
+/// - `.failed(Error)` - Tool execution failed with error
+/// - `.deferred(DeferredToolCall)` - Tool needs external resolution
 public enum AnyToolResult: Sendable {
     /// Tool succeeded with string output.
     case success(String)
 
-    /// Tool failed, ask LLM to retry with feedback.
-    case retry(message: String)
+    /// Tool was denied by user with message.
+    /// Per design doc: Model receives "Tool denied: {message}".
+    case denied(String)
+
+    /// Tool result was replaced with synthetic value.
+    /// Per design doc: Model receives the exact replacement string.
+    case replaced(String)
 
     /// Tool failed permanently.
+    /// Per design doc: Model receives "Tool failed: {error}".
+    case failed(Error)
+
+    /// Legacy alias for `.failed` - use `.failed` instead.
+    /// Kept for backward compatibility with existing pattern matching.
+    @available(*, deprecated, message: "Use .failed instead")
     case failure(Error)
 
     /// Tool is deferred.
@@ -382,25 +372,117 @@ public enum AnyToolResult: Sendable {
         switch self {
         case .success(let value):
             return .text(value)
-        case .retry(let message):
-            return .error(message)
-        case .failure(let error):
-            return .error(error.localizedDescription)
+        case .denied(let message):
+            return .error("Tool denied: \(message)")
+        case .replaced(let result):
+            return .text(result)
+        case .failed(let error), .failure(let error):
+            return .error("Tool failed: \(error.localizedDescription)")
         case .deferred(let call):
             return .error("Tool deferred: \(call.reason)")
         }
     }
 
-    /// Whether this result requires retry.
-    public var needsRetry: Bool {
-        if case .retry = self { return true }
-        return false
+    /// Convenience: the output string regardless of result type.
+    /// Per design doc, formats are:
+    /// - success: the value
+    /// - denied: "Tool denied: {message}"
+    /// - replaced: the replacement string
+    /// - failed: "Tool failed: {error}"
+    public var output: String {
+        switch self {
+        case .success(let value):
+            return value
+        case .denied(let message):
+            return "Tool denied: \(message)"
+        case .replaced(let result):
+            return result
+        case .failed(let error), .failure(let error):
+            return "Tool failed: \(error.localizedDescription)"
+        case .deferred(let call):
+            return "Tool deferred: \(call.reason)"
+        }
     }
 
     /// Whether this result is deferred.
     public var isDeferred: Bool {
         if case .deferred = self { return true }
         return false
+    }
+}
+
+// MARK: - AnyToolResult Codable
+
+/// Simple error wrapper for decoding serialized errors.
+private struct SerializedError: Error, LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+}
+
+extension AnyToolResult: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case value
+        case message
+        case error
+        case deferred
+    }
+
+    private enum ResultType: String, Codable {
+        case success
+        case denied
+        case replaced
+        case failed
+        case deferred
+        // Legacy support
+        case failure
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(ResultType.self, forKey: .type)
+
+        switch type {
+        case .success:
+            let value = try container.decode(String.self, forKey: .value)
+            self = .success(value)
+        case .denied:
+            let message = try container.decode(String.self, forKey: .message)
+            self = .denied(message)
+        case .replaced:
+            let value = try container.decode(String.self, forKey: .value)
+            self = .replaced(value)
+        case .failed, .failure:
+            // Support both new "failed" and legacy "failure" type
+            let errorMessage = try container.decode(String.self, forKey: .error)
+            self = .failed(SerializedError(message: errorMessage))
+        case .deferred:
+            let call = try container.decode(DeferredToolCall.self, forKey: .deferred)
+            self = .deferred(call)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        switch self {
+        case .success(let value):
+            try container.encode(ResultType.success, forKey: .type)
+            try container.encode(value, forKey: .value)
+        case .denied(let message):
+            try container.encode(ResultType.denied, forKey: .type)
+            try container.encode(message, forKey: .message)
+        case .replaced(let value):
+            try container.encode(ResultType.replaced, forKey: .type)
+            try container.encode(value, forKey: .value)
+        case .failed(let error), .failure(let error):
+            // Encode both as "failed" (canonical form)
+            try container.encode(ResultType.failed, forKey: .type)
+            try container.encode(error.localizedDescription, forKey: .error)
+        case .deferred(let call):
+            try container.encode(ResultType.deferred, forKey: .type)
+            try container.encode(call, forKey: .deferred)
+        }
     }
 }
 
@@ -431,8 +513,6 @@ extension ToolResult {
             } else {
                 return .success(String(describing: value))
             }
-        case .retry(let message):
-            return .retry(message: message)
         case .failure(let error):
             return .failure(error)
         case .deferred(let call):
@@ -483,7 +563,6 @@ extension AnyAgentTool where Deps == Void {
             name: name,
             description: description,
             definition: definition,
-            maxRetries: maxRetries,
             requiresApproval: requiresApproval
         ) { context, args in
             // Create a void context passing through the context metadata
@@ -491,7 +570,6 @@ extension AnyAgentTool where Deps == Void {
                 deps: (),
                 model: context.model,
                 usage: context.usage,
-                retries: context.retries,
                 toolCallID: context.toolCallID,
                 toolName: context.toolName,
                 runStep: context.runStep,

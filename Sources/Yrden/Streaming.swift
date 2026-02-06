@@ -9,7 +9,10 @@
 /// ```swift
 /// for await event in model.stream(request) {
 ///     switch event {
-///     case .contentDelta(let text):
+///     case .contentDelta(let text, let kind):
+///         if kind == .thinking {
+///             // Handle thinking content differently
+///         }
 ///         print(text, terminator: "")
 ///     case .toolCallStart(let id, let name):
 ///         print("Calling \(name)...")
@@ -24,6 +27,20 @@
 /// ```
 
 import Foundation
+
+// MARK: - ContentKind
+
+/// Kind of content in a stream delta.
+///
+/// Used to differentiate thinking/reasoning content from regular text.
+/// Defaults to `.text` for backward compatibility.
+public enum ContentKind: String, Sendable, Codable, Equatable, Hashable {
+    /// Regular text content visible to users.
+    case text
+    /// Internal reasoning/thinking content from extended thinking.
+    /// May be displayed differently in UIs (e.g., collapsed, styled).
+    case thinking
+}
 
 // MARK: - StreamEvent
 
@@ -62,9 +79,12 @@ import Foundation
 /// done(response)
 /// ```
 public enum StreamEvent: Sendable, Equatable, Hashable {
-    /// Incremental text content from the model.
-    /// Concatenate all deltas to build the full response.
-    case contentDelta(String)
+    /// Incremental content from the model.
+    /// Concatenate all deltas of the same kind to build the full response.
+    /// - Parameters:
+    ///   - content: The text delta
+    ///   - kind: Type of content (defaults to `.text` for backward compatibility)
+    case contentDelta(String, kind: ContentKind = .text)
 
     /// Start of a tool call.
     /// - Parameters:
@@ -92,6 +112,7 @@ extension StreamEvent: Codable {
     private enum CodingKeys: String, CodingKey {
         case type
         case content
+        case kind
         case id
         case name
         case argumentsDelta
@@ -113,7 +134,8 @@ extension StreamEvent: Codable {
         switch type {
         case .contentDelta:
             let content = try container.decode(String.self, forKey: .content)
-            self = .contentDelta(content)
+            let kind = try container.decodeIfPresent(ContentKind.self, forKey: .kind) ?? .text
+            self = .contentDelta(content, kind: kind)
 
         case .toolCallStart:
             let id = try container.decode(String.self, forKey: .id)
@@ -138,9 +160,12 @@ extension StreamEvent: Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         switch self {
-        case .contentDelta(let content):
+        case .contentDelta(let content, let kind):
             try container.encode(EventType.contentDelta, forKey: .type)
             try container.encode(content, forKey: .content)
+            if kind != .text {
+                try container.encode(kind, forKey: .kind)
+            }
 
         case .toolCallStart(let id, let name):
             try container.encode(EventType.toolCallStart, forKey: .type)

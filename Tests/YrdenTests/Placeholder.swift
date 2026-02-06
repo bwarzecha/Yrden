@@ -64,7 +64,7 @@ struct FakeModelSmokeTests {
         }
 
         #expect(events.count == 3)
-        if case .contentDelta(let text) = events[0] {
+        if case .contentDelta(let text, _) = events[0] {
             #expect(text == "Stre")
         }
     }

@@ -2,7 +2,7 @@
 ///
 /// AgentContext provides tools with access to:
 /// - User-provided dependencies (database clients, API clients, etc.)
-/// - Current execution state (usage, messages, retries)
+/// - Current execution state (usage, messages)
 /// - Run metadata (runID, step number)
 ///
 /// ## Example
@@ -14,12 +14,6 @@
 ///     ) async throws -> ToolResult<String> {
 ///         // Access dependencies
 ///         let results = try await context.deps.searchClient.search(arguments.query)
-///
-///         // Check usage
-///         if context.usage.totalTokens > 10000 {
-///             return .retry(message: "Token budget low, simplify query")
-///         }
-///
 ///         return .success(results.formatted())
 ///     }
 /// }
@@ -39,10 +33,6 @@ public struct AgentContext<Deps: Sendable>: Sendable {
 
     /// Accumulated token usage for this run.
     public let usage: Usage
-
-    /// Number of retry attempts for the current tool call.
-    /// Starts at 0, increments each time the tool returns `.retry`.
-    public let retries: Int
 
     /// ID of the current tool call (when executing inside a tool).
     /// nil when not in a tool execution context.
@@ -65,7 +55,6 @@ public struct AgentContext<Deps: Sendable>: Sendable {
         deps: Deps,
         model: any Model,
         usage: Usage = Usage(inputTokens: 0, outputTokens: 0),
-        retries: Int = 0,
         toolCallID: String? = nil,
         toolName: String? = nil,
         runStep: Int = 0,
@@ -75,7 +64,6 @@ public struct AgentContext<Deps: Sendable>: Sendable {
         self.deps = deps
         self.model = model
         self.usage = usage
-        self.retries = retries
         self.toolCallID = toolCallID
         self.toolName = toolName
         self.runStep = runStep
@@ -93,7 +81,6 @@ extension AgentContext {
             deps: deps,
             model: model,
             usage: usage,
-            retries: retries,
             toolCallID: toolCallID,
             toolName: toolName,
             runStep: runStep,
@@ -103,12 +90,11 @@ extension AgentContext {
     }
 
     /// Create a new context for a tool call.
-    func forToolCall(id: String, name: String, retries: Int = 0) -> AgentContext {
+    func forToolCall(id: String, name: String) -> AgentContext {
         AgentContext(
             deps: deps,
             model: model,
             usage: usage,
-            retries: retries,
             toolCallID: id,
             toolName: name,
             runStep: runStep,
@@ -123,7 +109,6 @@ extension AgentContext {
             deps: deps,
             model: model,
             usage: usage,
-            retries: retries,
             toolCallID: toolCallID,
             toolName: toolName,
             runStep: runStep + 1,
@@ -138,22 +123,6 @@ extension AgentContext {
             deps: deps,
             model: model,
             usage: usage,
-            retries: retries,
-            toolCallID: toolCallID,
-            toolName: toolName,
-            runStep: runStep,
-            runID: runID,
-            messages: messages
-        )
-    }
-
-    /// Create a new context with incremented retries.
-    func withRetry() -> AgentContext {
-        AgentContext(
-            deps: deps,
-            model: model,
-            usage: usage,
-            retries: retries + 1,
             toolCallID: toolCallID,
             toolName: toolName,
             runStep: runStep,
@@ -170,7 +139,6 @@ extension AgentContext where Deps == Void {
     public init(
         model: any Model,
         usage: Usage = Usage(inputTokens: 0, outputTokens: 0),
-        retries: Int = 0,
         toolCallID: String? = nil,
         toolName: String? = nil,
         runStep: Int = 0,
@@ -181,7 +149,6 @@ extension AgentContext where Deps == Void {
             deps: (),
             model: model,
             usage: usage,
-            retries: retries,
             toolCallID: toolCallID,
             toolName: toolName,
             runStep: runStep,

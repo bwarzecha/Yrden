@@ -550,7 +550,7 @@ struct AgentHumanInLoopTests {
         do {
             _ = try await agent.run("Please delete the file called 'important.txt'", deps: ())
             Issue.record("Expected hasDeferredTools error")
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             guard case .hasDeferredTools(let paused) = error else {
                 Issue.record("Expected hasDeferredTools, got \(error)")
                 return
@@ -594,7 +594,7 @@ struct AgentHumanInLoopTests {
         do {
             _ = try await agent.run("Please perform the 'backup' action", deps: ())
             Issue.record("Expected hasDeferredTools error")
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             guard case .hasDeferredTools(let p) = error else {
                 Issue.record("Expected hasDeferredTools, got \(error)")
                 return
@@ -645,7 +645,7 @@ struct AgentHumanInLoopTests {
         var paused: PausedAgentRun?
         do {
             _ = try await agent.run("Please delete 'secret.txt'", deps: ())
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             if case .hasDeferredTools(let p) = error {
                 paused = p
             }
@@ -696,7 +696,7 @@ struct AgentHumanInLoopTests {
         var paused: PausedAgentRun?
         do {
             _ = try await agent.run("Please run the 'data-sync' operation", deps: ())
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             if case .hasDeferredTools(let p) = error {
                 paused = p
             }
@@ -751,7 +751,7 @@ struct AgentHumanInLoopTests {
         var paused: PausedAgentRun?
         do {
             _ = try await agent.run("Please run the 'database-migration' operation", deps: ())
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             if case .hasDeferredTools(let p) = error {
                 paused = p
             }
@@ -811,7 +811,7 @@ struct AgentHumanInLoopTests {
                 "Please delete 'temp.log' AND run the 'cleanup' operation. Use both tools now.",
                 deps: ()
             )
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             if case .hasDeferredTools(let p) = error {
                 paused = p
             }
@@ -847,7 +847,7 @@ struct AgentHumanInLoopTests {
             )
             // If we get here, agent completed successfully
             #expect(!result.output.isEmpty)
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             // If tools defer again after approval, that's valid behavior
             if case .hasDeferredTools = error {
                 // This is acceptable - the test verified multiple tools were captured
@@ -886,7 +886,7 @@ struct AgentHumanInLoopTests {
                     break
                 }
             }
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             if case .hasDeferredTools(let p) = error {
                 sawDeferredError = true
                 pausedState = p
@@ -941,7 +941,7 @@ struct AgentHumanInLoopTests {
                     nodeTypes.append("end")
                 }
             }
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             if case .hasDeferredTools(let p) = error {
                 sawDeferredError = true
                 pausedState = p

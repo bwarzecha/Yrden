@@ -179,7 +179,7 @@ struct MCPToolErrorReproTest {
             // This was the original bug - should NOT happen after fix
             Issue.record("[\(subject.providerName)] BUG: DecodingError with empty args: \(error)")
 
-        } catch let error as AgentError {
+        } catch let error as AgentError<String> {
             // maxIterationsReached is acceptable (flaky LLM behavior)
             if case .maxIterationsReached = error {
                 print("[\(subject.providerName)] ⚠️ Max iterations (flaky, not bug)")

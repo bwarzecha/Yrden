@@ -215,7 +215,7 @@ struct ToolExecutionEngineBasicTests {
 @Suite("ToolExecutionEngine - Timeout")
 struct ToolExecutionEngineTimeoutTests {
 
-    @Test("respects timeout and throws error")
+    @Test("respects timeout and returns failure result")
     func timeoutEnforcement() async throws {
         let slowTool = TEESlowTool(delay: .seconds(5))
         let engine = ToolExecutionEngine(
@@ -225,16 +225,21 @@ struct ToolExecutionEngineTimeoutTests {
 
         let call = makeToolCall(name: "slow_tool")
 
-        do {
-            _ = try await engine.execute(call: call, context: makeContext())
-            Issue.record("Expected timeout error")
-        } catch let error as AgentError {
-            guard case .toolTimeout(let name, _) = error else {
-                Issue.record("Expected toolTimeout, got \(error)")
-                return
-            }
-            #expect(name == "slow_tool")
+        // Timeouts are contained as failure results, not thrown exceptions
+        let result = try await engine.execute(call: call, context: makeContext())
+
+        guard case .failure(let error) = result else {
+            Issue.record("Expected failure result from timeout, got \(result)")
+            return
         }
+
+        guard let timeoutError = error as? ToolTimeoutError else {
+            Issue.record("Expected ToolTimeoutError, got \(error)")
+            return
+        }
+
+        #expect(timeoutError.toolName == "slow_tool")
+        #expect(timeoutError.timeout == .milliseconds(50))
     }
 
     @Test("completes before timeout")
@@ -452,28 +457,27 @@ struct ToolExecutionEngineErrorTests {
         }
     }
 
-    @Test("propagates AgentError (does not catch)")
-    func propagatesAgentError() async throws {
+    @Test("propagates CancellationError (does not catch)")
+    func propagatesCancellationError() async throws {
         let tool = AnyAgentTool<Void>(
-            name: "agent_error_tool",
-            description: "Throws AgentError",
-            definition: ToolDefinition(name: "agent_error_tool", description: "Throws AgentError", inputSchema: [:]),
+            name: "cancellation_tool",
+            description: "Throws CancellationError",
+            definition: ToolDefinition(name: "cancellation_tool", description: "Throws CancellationError", inputSchema: [:]),
             call: { _, _ in
-                throw AgentError.cancelled
+                throw CancellationError()
             }
         )
 
         let engine = ToolExecutionEngine(tools: [tool], timeout: nil)
-        let call = makeToolCall(name: "agent_error_tool")
+        let call = makeToolCall(name: "cancellation_tool")
 
         do {
             _ = try await engine.execute(call: call, context: makeContext())
-            Issue.record("Expected AgentError to be thrown")
-        } catch let error as AgentError {
-            guard case .cancelled = error else {
-                Issue.record("Expected cancelled error, got \(error)")
-                return
-            }
+            Issue.record("Expected CancellationError to be thrown")
+        } catch is CancellationError {
+            // Expected - CancellationError propagates through
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
         }
     }
 }

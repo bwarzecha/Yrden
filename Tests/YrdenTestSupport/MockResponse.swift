@@ -51,6 +51,14 @@ public enum MockResponse {
         )
     }
 
+    /// Creates a multi-tool call response from tuple array (convenience).
+    public static func multipleToolCalls(
+        _ calls: [(name: String, arguments: String, id: String)],
+        usage: Usage = defaultUsage
+    ) -> CompletionResponse {
+        toolCalls(calls.map { ToolCall(id: $0.id, name: $0.name, arguments: $0.arguments) }, usage: usage)
+    }
+
     /// Creates a max tokens truncated response.
     public static func maxTokens(_ partialContent: String) -> CompletionResponse {
         CompletionResponse(

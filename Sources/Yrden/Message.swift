@@ -113,6 +113,171 @@ public struct ToolResultEntry: Sendable, Codable, Equatable, Hashable {
     }
 }
 
+// MARK: - ThinkingBlock
+
+/// Thinking/reasoning content from the model.
+///
+/// Represents internal reasoning from extended thinking features (Anthropic, OpenAI o-series).
+/// Provider-agnostic design handles both visible and filtered content.
+///
+/// ## Provider Behavior
+/// - **Anthropic**: Returns `providerData` containing signature for verification
+/// - **OpenAI**: Returns reasoning content, no signature
+/// - **Filtered content**: `content` is nil but `providerData` must be passed through
+///
+/// ## Example
+/// ```swift
+/// // Visible thinking from Anthropic
+/// let block = ThinkingBlock(
+///     content: "Let me analyze this step by step...",
+///     providerData: "signature_abc123",
+///     provider: "anthropic"
+/// )
+///
+/// // Filtered thinking (must pass through unchanged)
+/// let filtered = ThinkingBlock(
+///     content: nil,
+///     providerData: "encrypted_data",
+///     provider: "anthropic"
+/// )
+/// ```
+public struct ThinkingBlock: Sendable, Equatable, Hashable, Codable {
+    /// The thinking content. Nil if content was filtered/redacted by the provider.
+    public let content: String?
+
+    /// Opaque provider data that must be passed back unchanged for cache compatibility.
+    /// Contains verification signature (Anthropic) or encrypted content (filtered thinking).
+    public let providerData: String?
+
+    /// The provider that generated this thinking block.
+    /// Used to determine handling when switching providers.
+    public let provider: String
+
+    public init(content: String?, providerData: String?, provider: String) {
+        self.content = content
+        self.providerData = providerData
+        self.provider = provider
+    }
+
+    /// Whether the thinking content was filtered and is not available.
+    public var isFiltered: Bool { content == nil && providerData != nil }
+}
+
+// MARK: - AssistantContentBlock
+
+/// A content block within an assistant message.
+///
+/// Preserves block structure for cache compatibility across providers.
+/// Content blocks are ordered and their exact sequence must be maintained
+/// for prompt caching to work correctly.
+///
+/// ## Block Types
+/// - `.text`: Regular text content
+/// - `.thinking`: Reasoning/thinking content (extended thinking)
+/// - `.toolUse`: Tool invocation request
+///
+/// ## Example
+/// ```swift
+/// let blocks: [AssistantContentBlock] = [
+///     .thinking(ThinkingBlock(content: "Let me analyze...", providerData: "sig", provider: "anthropic")),
+///     .text("Based on my analysis..."),
+///     .toolUse(searchToolCall)
+/// ]
+/// ```
+public enum AssistantContentBlock: Sendable, Equatable, Hashable {
+    /// Regular text content.
+    case text(String)
+
+    /// Thinking/reasoning content.
+    case thinking(ThinkingBlock)
+
+    /// Tool use request from the model.
+    case toolUse(ToolCall)
+}
+
+// MARK: - AssistantContentBlock Convenience
+
+extension AssistantContentBlock {
+    /// Text content if this is a text block.
+    public var textContent: String? {
+        if case .text(let text) = self { return text }
+        return nil
+    }
+
+    /// The thinking block if this is a thinking block.
+    public var thinkingBlock: ThinkingBlock? {
+        if case .thinking(let block) = self { return block }
+        return nil
+    }
+
+    /// Thinking text content if this is a thinking block with visible content.
+    public var thinkingContent: String? {
+        thinkingBlock?.content
+    }
+
+    /// Tool call if this is a toolUse block.
+    public var toolCall: ToolCall? {
+        if case .toolUse(let call) = self { return call }
+        return nil
+    }
+
+    /// Whether this block is thinking content (visible or filtered).
+    public var isThinking: Bool {
+        if case .thinking = self { return true }
+        return false
+    }
+}
+
+// MARK: - AssistantContentBlock Codable
+
+extension AssistantContentBlock: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case text
+        case thinking
+        case toolCall
+    }
+
+    private enum BlockType: String, Codable {
+        case text
+        case thinking
+        case toolUse
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(BlockType.self, forKey: .type)
+
+        switch type {
+        case .text:
+            let text = try container.decode(String.self, forKey: .text)
+            self = .text(text)
+        case .thinking:
+            let block = try container.decode(ThinkingBlock.self, forKey: .thinking)
+            self = .thinking(block)
+        case .toolUse:
+            let call = try container.decode(ToolCall.self, forKey: .toolCall)
+            self = .toolUse(call)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+
+        switch self {
+        case .text(let text):
+            try container.encode(BlockType.text, forKey: .type)
+            try container.encode(text, forKey: .text)
+        case .thinking(let block):
+            try container.encode(BlockType.thinking, forKey: .type)
+            try container.encode(block, forKey: .thinking)
+        case .toolUse(let call):
+            try container.encode(BlockType.toolUse, forKey: .type)
+            try container.encode(call, forKey: .toolCall)
+        }
+    }
+}
+
 // MARK: - Message
 
 /// A single message in a conversation.
@@ -132,9 +297,9 @@ public struct ToolResultEntry: Sendable, Codable, Equatable, Hashable {
 /// let messages: [Message] = [
 ///     .system("You are a helpful assistant."),
 ///     .user("What's the weather in Paris?"),
-///     .assistant("", toolCalls: [weatherToolCall]),
+///     .assistant([.toolUse(weatherToolCall)]),
 ///     .toolResult(toolCallId: "call_123", content: "Paris: 18°C, sunny"),
-///     .assistant("The weather in Paris is 18°C and sunny.", toolCalls: [])
+///     .assistant("The weather in Paris is 18°C and sunny.")
 /// ]
 /// ```
 public enum Message: Sendable, Equatable, Hashable {
@@ -144,11 +309,13 @@ public enum Message: Sendable, Equatable, Hashable {
     /// User message with one or more content parts.
     case user([ContentPart])
 
-    /// Assistant (LLM) response with optional tool calls.
-    /// - Parameters:
-    ///   - content: Text response (may be empty if only tool calls)
-    ///   - toolCalls: Tools the LLM wants to invoke
-    case assistant(String, toolCalls: [ToolCall])
+    /// Assistant (LLM) response with content blocks.
+    ///
+    /// Content blocks preserve exact ordering for cache compatibility.
+    /// Blocks can include text, thinking content, and tool calls in any order.
+    ///
+    /// - Parameter blocks: Ordered content blocks (text, thinking, toolUse)
+    case assistant([AssistantContentBlock])
 
     /// Result of executing a tool, sent back to the LLM.
     /// - Parameters:
@@ -179,22 +346,72 @@ extension Message {
         .user([.text(text)])
     }
 
-    /// Creates an assistant message with text content and no tool calls.
+    /// Creates an assistant message with text content only.
     ///
     /// ```swift
     /// // Instead of:
-    /// let message = Message.assistant("Hello!", toolCalls: [])
+    /// let message = Message.assistant([.text("Hello!")])
     ///
     /// // You can write:
     /// let message = Message.assistant("Hello!")
     /// ```
     public static func assistant(_ content: String) -> Message {
-        .assistant(content, toolCalls: [])
+        .assistant(content.isEmpty ? [] : [.text(content)])
+    }
+
+    /// Creates an assistant message with text followed by tool calls.
+    ///
+    /// For interleaved content, use the array initializer directly.
+    ///
+    /// ```swift
+    /// let message = Message.assistant("I'll search for that", toolCalls: [searchCall])
+    /// ```
+    public static func assistant(_ content: String, toolCalls: [ToolCall]) -> Message {
+        var blocks: [AssistantContentBlock] = []
+        if !content.isEmpty {
+            blocks.append(.text(content))
+        }
+        blocks.append(contentsOf: toolCalls.map { .toolUse($0) })
+        return .assistant(blocks)
     }
 
     /// Creates an assistant message with only tool calls (no text content).
     public static func assistantToolCalls(_ toolCalls: [ToolCall]) -> Message {
-        .assistant("", toolCalls: toolCalls)
+        .assistant(toolCalls.map { .toolUse($0) })
+    }
+}
+
+// MARK: - Message Computed Properties
+
+extension Message {
+    /// All tool calls from an assistant message.
+    /// Returns empty array for non-assistant messages.
+    public var toolCalls: [ToolCall] {
+        guard case .assistant(let blocks) = self else { return [] }
+        return blocks.compactMap { $0.toolCall }
+    }
+
+    /// Combined text content from an assistant message (excludes thinking).
+    /// Returns nil for non-assistant messages or if no text blocks present.
+    public var assistantContent: String? {
+        guard case .assistant(let blocks) = self else { return nil }
+        let texts = blocks.compactMap { $0.textContent }
+        return texts.isEmpty ? nil : texts.joined()
+    }
+
+    /// Combined thinking content from an assistant message.
+    /// Returns nil for non-assistant messages or if no thinking blocks present.
+    public var assistantThinking: String? {
+        guard case .assistant(let blocks) = self else { return nil }
+        let thoughts = blocks.compactMap { $0.thinkingContent }
+        return thoughts.isEmpty ? nil : thoughts.joined()
+    }
+
+    /// The content blocks if this is an assistant message.
+    /// Returns nil for non-assistant messages.
+    public var assistantBlocks: [AssistantContentBlock]? {
+        guard case .assistant(let blocks) = self else { return nil }
+        return blocks
     }
 }
 
@@ -204,7 +421,7 @@ extension Message: Codable {
     private enum CodingKeys: String, CodingKey {
         case role
         case content
-        case toolCalls
+        case blocks
         case toolCallId
         case results
     }
@@ -229,9 +446,8 @@ extension Message: Codable {
             let parts = try container.decode([ContentPart].self, forKey: .content)
             self = .user(parts)
         case .assistant:
-            let content = try container.decode(String.self, forKey: .content)
-            let toolCalls = try container.decodeIfPresent([ToolCall].self, forKey: .toolCalls) ?? []
-            self = .assistant(content, toolCalls: toolCalls)
+            let blocks = try container.decode([AssistantContentBlock].self, forKey: .blocks)
+            self = .assistant(blocks)
         case .toolResult:
             let toolCallId = try container.decode(String.self, forKey: .toolCallId)
             let content = try container.decode(String.self, forKey: .content)
@@ -252,12 +468,9 @@ extension Message: Codable {
         case .user(let parts):
             try container.encode(Role.user, forKey: .role)
             try container.encode(parts, forKey: .content)
-        case .assistant(let content, let toolCalls):
+        case .assistant(let blocks):
             try container.encode(Role.assistant, forKey: .role)
-            try container.encode(content, forKey: .content)
-            if !toolCalls.isEmpty {
-                try container.encode(toolCalls, forKey: .toolCalls)
-            }
+            try container.encode(blocks, forKey: .blocks)
         case .toolResult(let toolCallId, let content):
             try container.encode(Role.toolResult, forKey: .role)
             try container.encode(toolCallId, forKey: .toolCallId)

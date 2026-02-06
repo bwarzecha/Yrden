@@ -231,18 +231,17 @@ struct AgentToolFailureTests {
 
         do {
             _ = try await agent.run("Keep trying", deps: ())
-            Issue.record("Expected maxIterationsExceeded error")
-        } catch let error as AgentError {
-            guard case .maxIterationsExceeded(let paused) = error else {
-                Issue.record("Expected maxIterationsExceeded, got \(error)")
+            Issue.record("Expected maxIterationsReached error")
+        } catch let error as AgentError<String> {
+            guard case .maxIterationsReached(let state) = error else {
+                Issue.record("Expected maxIterationsReached, got \(error)")
                 return
             }
-            // Verify the paused state contains correct information
-            #expect(paused.requestCount == 3)
-            #expect(paused.toolCallCount == 3)
-            #expect(paused.reason == .maxIterationsReached(limit: 3))
+            // Verify the state contains correct information
+            #expect(state.iteration == 3)
+            #expect(state.toolCallCount == 3)
             // Verify messages were preserved (should have user + 3 rounds of assistant+toolResults)
-            #expect(paused.messages.count == 7) // 1 user + 3*(assistant + toolResults)
+            #expect(state.messages.count == 7) // 1 user + 3*(assistant + toolResults)
         }
     }
 }
@@ -342,13 +341,16 @@ struct AgentModelResponseFailureTests {
 
         do {
             _ = try await agent.run("Write a long story", deps: ())
-            Issue.record("Expected unexpectedModelBehavior error")
-        } catch let error as AgentError {
-            guard case .unexpectedModelBehavior(let details) = error else {
-                Issue.record("Expected unexpectedModelBehavior, got \(error)")
+            Issue.record("Expected modelError error")
+        } catch let error as AgentError<String> {
+            guard case .modelError(_, let underlying) = error else {
+                Issue.record("Expected modelError, got \(error)")
                 return
             }
-            #expect(details.contains("max tokens") || details.contains("truncated"))
+            guard case .maxTokensReached = underlying as? ResponseUnusable else {
+                Issue.record("Expected ResponseUnusable.maxTokensReached, got \(underlying)")
+                return
+            }
         }
     }
 
@@ -366,13 +368,16 @@ struct AgentModelResponseFailureTests {
 
         do {
             _ = try await agent.run("Write something", deps: ())
-            Issue.record("Expected unexpectedModelBehavior error")
-        } catch let error as AgentError {
-            guard case .unexpectedModelBehavior(let details) = error else {
-                Issue.record("Expected unexpectedModelBehavior, got \(error)")
+            Issue.record("Expected modelError error")
+        } catch let error as AgentError<String> {
+            guard case .modelError(_, let underlying) = error else {
+                Issue.record("Expected modelError, got \(error)")
                 return
             }
-            #expect(details.contains("filtered"))
+            guard case .contentFiltered = underlying as? ResponseUnusable else {
+                Issue.record("Expected ResponseUnusable.contentFiltered, got \(underlying)")
+                return
+            }
         }
     }
 
@@ -390,13 +395,13 @@ struct AgentModelResponseFailureTests {
 
         do {
             _ = try await agent.run("Do something bad", deps: ())
-            Issue.record("Expected unexpectedModelBehavior error")
-        } catch let error as AgentError {
-            guard case .unexpectedModelBehavior(let details) = error else {
-                Issue.record("Expected unexpectedModelBehavior, got \(error)")
+            Issue.record("Expected modelRefusal error")
+        } catch let error as AgentError<String> {
+            guard case .modelRefusal(_, let refusal) = error else {
+                Issue.record("Expected modelRefusal, got \(error)")
                 return
             }
-            #expect(details.contains("refused"))
+            #expect(refusal.contains("cannot help"))
         }
     }
 
@@ -422,13 +427,16 @@ struct AgentModelResponseFailureTests {
 
         do {
             _ = try await agent.run("Say hello", deps: ())
-            Issue.record("Expected unexpectedModelBehavior error")
-        } catch let error as AgentError {
-            guard case .unexpectedModelBehavior(let details) = error else {
-                Issue.record("Expected unexpectedModelBehavior, got \(error)")
+            Issue.record("Expected modelError error")
+        } catch let error as AgentError<String> {
+            guard case .modelError(_, let underlying) = error else {
+                Issue.record("Expected modelError, got \(error)")
                 return
             }
-            #expect(details.contains("output") || details.contains("tool"))
+            guard case .emptyResponse = underlying as? ResponseUnusable else {
+                Issue.record("Expected ResponseUnusable.emptyResponse, got \(underlying)")
+                return
+            }
         }
     }
 }
@@ -464,15 +472,15 @@ struct AgentUsageLimitTests {
         do {
             _ = try await agent.run("Use tool repeatedly", deps: ())
             Issue.record("Expected usageLimitExceeded error")
-        } catch let error as AgentError {
-            guard case .usageLimitExceeded(let kind) = error else {
+        } catch let error as AgentError<String> {
+            guard case .usageLimitExceeded(_, let limit) = error else {
                 Issue.record("Expected usageLimitExceeded, got \(error)")
                 return
             }
-            if case .requests(let used, let limit) = kind {
-                #expect(used >= limit)
+            if case .requests(let used, let max) = limit {
+                #expect(used >= max)
             } else {
-                Issue.record("Expected requests limit, got \(kind)")
+                Issue.record("Expected requests limit, got \(limit)")
             }
         }
     }
@@ -507,15 +515,15 @@ struct AgentUsageLimitTests {
         do {
             _ = try await agent.run("Use tools", deps: ())
             Issue.record("Expected usageLimitExceeded error")
-        } catch let error as AgentError {
-            guard case .usageLimitExceeded(let kind) = error else {
+        } catch let error as AgentError<String> {
+            guard case .usageLimitExceeded(_, let limit) = error else {
                 Issue.record("Expected usageLimitExceeded, got \(error)")
                 return
             }
-            if case .toolCalls(let used, let limit) = kind {
-                #expect(used >= limit)
+            if case .toolCalls(let used, let max) = limit {
+                #expect(used >= max)
             } else {
-                Issue.record("Expected toolCalls limit, got \(kind)")
+                Issue.record("Expected toolCalls limit, got \(limit)")
             }
         }
     }
@@ -546,15 +554,15 @@ struct AgentUsageLimitTests {
         do {
             _ = try await agent.run("Use tool", deps: ())
             Issue.record("Expected usageLimitExceeded error")
-        } catch let error as AgentError {
-            guard case .usageLimitExceeded(let kind) = error else {
+        } catch let error as AgentError<String> {
+            guard case .usageLimitExceeded(_, let limit) = error else {
                 Issue.record("Expected usageLimitExceeded, got \(error)")
                 return
             }
-            if case .totalTokens(let used, let limit) = kind {
-                #expect(used > limit)
+            if case .totalTokens(let used, let max) = limit {
+                #expect(used > max)
             } else {
-                Issue.record("Expected totalTokens limit, got \(kind)")
+                Issue.record("Expected totalTokens limit, got \(limit)")
             }
         }
     }
@@ -858,8 +866,8 @@ struct AgentRetryPolicyTests {
         #expect(callCount == 2, "Expected 2 calls (1 failure + 1 success)")
     }
 
-    @Test("Retry policy exhausted throws retriesExhausted")
-    func retriesExhausted() async throws {
+    @Test("Retry policy exhausted throws underlying error")
+    func retriesExhaustedThrowsUnderlyingError() async throws {
         let retryTestModel = RetryTestModel(
             failCount: 5,
             failWith: LLMError.serverError("Server down"),
@@ -887,16 +895,14 @@ struct AgentRetryPolicyTests {
 
         do {
             _ = try await agent.run("Hello", deps: ())
-            Issue.record("Expected retriesExhausted error")
-        } catch let error as AgentError {
-            guard case .retriesExhausted(let attempts, let lastError) = error else {
-                Issue.record("Expected retriesExhausted, got \(error)")
+            Issue.record("Expected LLMError when retries exhausted")
+        } catch let error as LLMError {
+            // When retries are exhausted, the underlying error is thrown directly
+            guard case .serverError(let msg) = error else {
+                Issue.record("Expected serverError, got \(error)")
                 return
             }
-            #expect(attempts == 3)
-            if case .serverError(let msg) = lastError as? LLMError {
-                #expect(msg.contains("Server down"))
-            }
+            #expect(msg.contains("Server down"))
         }
     }
 
@@ -970,8 +976,8 @@ struct AgentRetryPolicyTests {
 @Suite("Agent - Tool Timeout")
 struct AgentToolTimeoutTests {
 
-    @Test("Tool timeout triggers error")
-    func toolTimeoutTriggersError() async throws {
+    @Test("Tool timeout sends error to model")
+    func toolTimeoutSendsErrorToModel() async throws {
         let model = TestMockModel()
 
         await model.setResponses([
@@ -983,7 +989,7 @@ struct AgentToolTimeoutTests {
                 usage: Usage(inputTokens: 10, outputTokens: 10)
             ),
             CompletionResponse(
-                content: "Done",
+                content: "Acknowledged the timeout",
                 refusal: nil,
                 toolCalls: [],
                 stopReason: .endTurn,
@@ -998,17 +1004,9 @@ struct AgentToolTimeoutTests {
             toolTimeout: .milliseconds(10)  // Very short timeout
         )
 
-        do {
-            _ = try await agent.run("Use the slow tool", deps: ())
-            Issue.record("Expected toolTimeout error")
-        } catch let error as AgentError {
-            guard case .toolTimeout(let name, let timeout) = error else {
-                Issue.record("Expected toolTimeout, got \(error)")
-                return
-            }
-            #expect(name == "slow_tool")
-            #expect(timeout == .milliseconds(10))
-        }
+        // Tool timeout is now contained and sent to model as error result
+        let result = try await agent.run("Use the slow tool", deps: ())
+        #expect(result.output == "Acknowledged the timeout")
     }
 
     @Test("Tool completes within timeout succeeds")

@@ -36,11 +36,17 @@ import SmithyJSON
 
 /// Model implementation for AWS Bedrock's Converse API.
 public struct BedrockModel: Model, @unchecked Sendable {
+    /// Provider identifier for cross-provider thinking block handling.
+    public static let providerId = "bedrock"
+
     /// Model identifier (e.g., "anthropic.claude-haiku-4-5-20251001-v1:0").
     public let name: String
 
     /// Capabilities of this model.
     public let capabilities: ModelCapabilities
+
+    /// How to handle thinking blocks from other providers.
+    public let foreignThinkingBehavior: ForeignThinkingBehavior
 
     /// Provider for authentication and API access.
     private let provider: BedrockProvider
@@ -54,14 +60,17 @@ public struct BedrockModel: Model, @unchecked Sendable {
     ///   - name: Model identifier or inference profile ID
     ///   - provider: Provider for AWS authentication
     ///   - defaultMaxTokens: Default max tokens (default: 4096)
+    ///   - foreignThinkingBehavior: How to handle thinking blocks from other providers (default: .drop)
     public init(
         name: String,
         provider: BedrockProvider,
-        defaultMaxTokens: Int = 4096
+        defaultMaxTokens: Int = 4096,
+        foreignThinkingBehavior: ForeignThinkingBehavior = .drop
     ) {
         self.name = name
         self.provider = provider
         self.defaultMaxTokens = defaultMaxTokens
+        self.foreignThinkingBehavior = foreignThinkingBehavior
         self.capabilities = Self.capabilities(for: name)
     }
 
@@ -185,25 +194,50 @@ public struct BedrockModel: Model, @unchecked Sendable {
                 role: .user
             )
 
-        case .assistant(let text, toolCalls: let toolCalls):
+        case .assistant(let blocks):
             var contentBlocks: [BedrockRuntimeClientTypes.ContentBlock] = []
-            if !text.isEmpty {
-                contentBlocks.append(.text(text))
+
+            for block in blocks {
+                switch block {
+                case .text(let text):
+                    if !text.isEmpty {
+                        contentBlocks.append(.text(text))
+                    }
+                case .thinking(let thinkingBlock):
+                    // Handle thinking blocks based on provider
+                    if thinkingBlock.provider == Self.providerId {
+                        // Native Bedrock thinking
+                        if let content = thinkingBlock.content, !content.isEmpty {
+                            contentBlocks.append(.text(content))
+                        }
+                    } else {
+                        // Foreign thinking block
+                        switch foreignThinkingBehavior {
+                        case .drop:
+                            // Skip entirely
+                            break
+                        case .convertToText:
+                            if let content = thinkingBlock.content, !content.isEmpty {
+                                contentBlocks.append(.text(content))
+                            }
+                        }
+                    }
+                case .toolUse(let toolCall):
+                    let argsDocument = try parseJSONToDocument(toolCall.arguments)
+                    let toolUseBlock = BedrockRuntimeClientTypes.ToolUseBlock(
+                        input: argsDocument,
+                        name: toolCall.name,
+                        toolUseId: toolCall.id
+                    )
+                    contentBlocks.append(.tooluse(toolUseBlock))
+                }
             }
-            for toolCall in toolCalls {
-                // Parse arguments JSON to Document
-                let argsDocument = try parseJSONToDocument(toolCall.arguments)
-                let toolUseBlock = BedrockRuntimeClientTypes.ToolUseBlock(
-                    input: argsDocument,
-                    name: toolCall.name,
-                    toolUseId: toolCall.id
-                )
-                contentBlocks.append(.tooluse(toolUseBlock))
-            }
-            // If no tool calls and no text, add empty text
+
+            // If empty, add empty text block
             if contentBlocks.isEmpty {
-                contentBlocks.append(.text(text))
+                contentBlocks.append(.text(""))
             }
+
             return BedrockRuntimeClientTypes.Message(
                 content: contentBlocks,
                 role: .assistant
@@ -292,8 +326,7 @@ public struct BedrockModel: Model, @unchecked Sendable {
     // MARK: - Response Decoding
 
     private func decodeResponse(_ output: ConverseOutput) throws -> CompletionResponse {
-        var textContent = ""
-        var toolCalls: [ToolCall] = []
+        var contentBlocks: [AssistantContentBlock] = []
 
         if let message = output.output {
             switch message {
@@ -301,15 +334,17 @@ public struct BedrockModel: Model, @unchecked Sendable {
                 for contentBlock in msg.content ?? [] {
                     switch contentBlock {
                     case .text(let text):
-                        textContent += text
+                        if !text.isEmpty {
+                            contentBlocks.append(.text(text))
+                        }
 
                     case .tooluse(let toolUse):
                         let argsString = documentToJSONString(toolUse.input)
-                        toolCalls.append(ToolCall(
+                        contentBlocks.append(.toolUse(ToolCall(
                             id: toolUse.toolUseId ?? UUID().uuidString,
                             name: toolUse.name ?? "unknown",
                             arguments: argsString
-                        ))
+                        )))
 
                     default:
                         break
@@ -328,8 +363,7 @@ public struct BedrockModel: Model, @unchecked Sendable {
         )
 
         return CompletionResponse(
-            content: textContent.isEmpty ? nil : textContent,
-            toolCalls: toolCalls,
+            contentBlocks: contentBlocks,
             stopReason: stopReason,
             usage: usage
         )
@@ -459,10 +493,17 @@ public struct BedrockModel: Model, @unchecked Sendable {
             }
         }
 
-        // Build and emit final CompletionResponse
+        // Build and emit final CompletionResponse with content blocks
+        var contentBlocks: [AssistantContentBlock] = []
+        if !fullTextContent.isEmpty {
+            contentBlocks.append(.text(fullTextContent))
+        }
+        for toolCall in allToolCalls {
+            contentBlocks.append(.toolUse(toolCall))
+        }
+
         let finalResponse = CompletionResponse(
-            content: fullTextContent.isEmpty ? nil : fullTextContent,
-            toolCalls: allToolCalls,
+            contentBlocks: contentBlocks,
             stopReason: finalStopReason,
             usage: Usage(inputTokens: totalInputTokens, outputTokens: totalOutputTokens)
         )

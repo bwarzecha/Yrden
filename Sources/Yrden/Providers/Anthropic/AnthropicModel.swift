@@ -29,11 +29,17 @@ import Foundation
 
 /// Model implementation for the Anthropic Messages API.
 public struct AnthropicModel: Model, Sendable {
+    /// Provider identifier for cross-provider thinking block handling.
+    public static let providerId = "anthropic"
+
     /// Model identifier (e.g., "claude-3-5-sonnet-20241022").
     public let name: String
 
     /// Capabilities of this model.
     public let capabilities: ModelCapabilities
+
+    /// How to handle thinking blocks from other providers.
+    public let foreignThinkingBehavior: ForeignThinkingBehavior
 
     /// Provider for authentication and connection.
     private let provider: AnthropicProvider
@@ -47,14 +53,17 @@ public struct AnthropicModel: Model, Sendable {
     ///   - name: Model identifier (e.g., "claude-3-5-sonnet-20241022")
     ///   - provider: Provider for authentication
     ///   - defaultMaxTokens: Default max tokens (default: 4096)
+    ///   - foreignThinkingBehavior: How to handle thinking blocks from other providers (default: .drop)
     public init(
         name: String,
         provider: AnthropicProvider,
-        defaultMaxTokens: Int = 4096
+        defaultMaxTokens: Int = 4096,
+        foreignThinkingBehavior: ForeignThinkingBehavior = .drop
     ) {
         self.name = name
         self.provider = provider
         self.defaultMaxTokens = defaultMaxTokens
+        self.foreignThinkingBehavior = foreignThinkingBehavior
         self.capabilities = Self.capabilities(for: name)
     }
 
@@ -126,16 +135,39 @@ public struct AnthropicModel: Model, Sendable {
             let blocks = try parts.map { try convertContentPart($0) }
             return AnthropicMessage(role: MessageRole.user, content: blocks)
 
-        case .assistant(let text, let toolCalls):
+        case .assistant(let contentBlocks):
             var blocks: [AnthropicContentBlock] = []
 
-            if !text.isEmpty {
-                blocks.append(.text(text))
-            }
-
-            for toolCall in toolCalls {
-                let input = try parseToolArguments(toolCall.arguments)
-                blocks.append(.toolUse(id: toolCall.id, name: toolCall.name, input: input))
+            for block in contentBlocks {
+                switch block {
+                case .text(let text):
+                    if !text.isEmpty {
+                        blocks.append(.text(text))
+                    }
+                case .thinking(let thinkingBlock):
+                    // Handle thinking blocks based on provider
+                    if thinkingBlock.provider == Self.providerId {
+                        // Native Anthropic thinking - encode with providerData for cache compatibility
+                        // TODO: Add proper thinking block encoding when Anthropic API supports it
+                        if let content = thinkingBlock.content, !content.isEmpty {
+                            blocks.append(.text(content))
+                        }
+                    } else {
+                        // Foreign thinking block
+                        switch foreignThinkingBehavior {
+                        case .drop:
+                            // Skip entirely
+                            break
+                        case .convertToText:
+                            if let content = thinkingBlock.content, !content.isEmpty {
+                                blocks.append(.text(content))
+                            }
+                        }
+                    }
+                case .toolUse(let toolCall):
+                    let input = try parseToolArguments(toolCall.arguments)
+                    blocks.append(.toolUse(id: toolCall.id, name: toolCall.name, input: input))
+                }
             }
 
             if blocks.isEmpty {
@@ -203,26 +235,25 @@ public struct AnthropicModel: Model, Sendable {
     private func decodeResponse(_ data: Data) throws -> CompletionResponse {
         let response = try JSONDecoder().decode(AnthropicResponse.self, from: data)
 
-        // Extract text content
-        var textContent: String?
-        var toolCalls: [ToolCall] = []
+        // Build content blocks preserving exact order
+        var contentBlocks: [AssistantContentBlock] = []
 
         for block in response.content {
             switch block.type {
             case AnthropicBlockType.text:
-                if let text = block.text {
-                    if textContent == nil {
-                        textContent = text
-                    } else {
-                        textContent! += text
-                    }
+                if let text = block.text, !text.isEmpty {
+                    contentBlocks.append(.text(text))
                 }
 
             case AnthropicBlockType.toolUse:
                 if let id = block.id, let name = block.name, let input = block.input {
                     let arguments = try encodeToolInput(input)
-                    toolCalls.append(ToolCall(id: id, name: name, arguments: arguments))
+                    contentBlocks.append(.toolUse(ToolCall(id: id, name: name, arguments: arguments)))
                 }
+
+            // TODO: Handle thinking blocks when Anthropic API returns them
+            // case AnthropicBlockType.thinking:
+            //     contentBlocks.append(.thinking(ThinkingBlock(...)))
 
             default:
                 break
@@ -236,8 +267,7 @@ public struct AnthropicModel: Model, Sendable {
         )
 
         return CompletionResponse(
-            content: textContent,
-            toolCalls: toolCalls,
+            contentBlocks: contentBlocks,
             stopReason: stopReason,
             usage: usage
         )
@@ -393,14 +423,17 @@ public struct AnthropicModel: Model, Sendable {
             outputTokens = usage.output_tokens
             let stopReason = StopReason.from(anthropicReason: delta.stop_reason)
 
-            // Build final response
-            let toolCalls = accumulatedToolCalls.map { acc in
-                ToolCall(id: acc.id, name: acc.name, arguments: acc.arguments)
+            // Build final response with content blocks
+            var contentBlocks: [AssistantContentBlock] = []
+            if !accumulatedContent.isEmpty {
+                contentBlocks.append(.text(accumulatedContent))
+            }
+            for acc in accumulatedToolCalls {
+                contentBlocks.append(.toolUse(ToolCall(id: acc.id, name: acc.name, arguments: acc.arguments)))
             }
 
             let response = CompletionResponse(
-                content: accumulatedContent.isEmpty ? nil : accumulatedContent,
-                toolCalls: toolCalls,
+                contentBlocks: contentBlocks,
                 stopReason: stopReason,
                 usage: Usage(inputTokens: inputTokens, outputTokens: outputTokens)
             )

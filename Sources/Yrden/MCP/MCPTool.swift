@@ -61,9 +61,6 @@ public struct MCPTool<Deps: Sendable>: Sendable {
     /// Tool description (from MCP).
     public var description: String { mcpTool.description ?? "MCP tool: \(mcpTool.name)" }
 
-    /// Maximum retries (MCP tools default to 1).
-    public var maxRetries: Int { 1 }
-
     /// Generate the ToolDefinition for the agent.
     public var definition: ToolDefinition {
         ToolDefinition(
@@ -178,7 +175,6 @@ extension MCPTool {
             name: name,
             description: description,
             definition: definition,
-            maxRetries: maxRetries,
             call: { context, argumentsJSON in
                 try await tool.call(context: context, argumentsJSON: argumentsJSON)
             }
