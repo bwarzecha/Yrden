@@ -19,7 +19,7 @@ struct IteratorBasicTests {
             MockResponse.text("Hello"),
         ])
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful."
         )
@@ -41,7 +41,7 @@ struct IteratorBasicTests {
     @Test("beforeModel is always first node")
     func beforeModelIsFirst() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var firstNode: IterationNode<Void, String>?
         for try await node in agent.iter("Hi", deps: ()) {
@@ -58,7 +58,7 @@ struct IteratorBasicTests {
     @Test("finished is always last node")
     func finishedIsLast() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var lastNode: IterationNode<Void, String>?
         for try await node in agent.iter("Hi", deps: ()) {
@@ -76,7 +76,7 @@ struct IteratorBasicTests {
     @Test("finished context contains correct output")
     func finishedContainsOutput() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello from model")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var output: String?
         for try await node in agent.iter("Hi", deps: ()) {
@@ -91,7 +91,7 @@ struct IteratorBasicTests {
     @Test("finished context contains accumulated messages")
     func finishedContainsMessages() async throws {
         let model = FakeModel(responses: [MockResponse.text("Response")])
-        let agent = Agent<Void, String>(model: model, systemPrompt: "System")
+        let agent = try Agent<Void, String>(model: model, systemPrompt: "System")
 
         var messages: [Message]?
         for try await node in agent.iter("User prompt", deps: ()) {
@@ -111,7 +111,7 @@ struct IteratorBasicTests {
     @Test("beforeModel state contains user message")
     func beforeModelHasUserMessage() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hi")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var beforeModelMessages: [Message]?
         for try await node in agent.iter("Hello world", deps: ()) {
@@ -126,7 +126,7 @@ struct IteratorBasicTests {
     @Test("afterModel state contains response")
     func afterModelHasResponse() async throws {
         let model = FakeModel(responses: [MockResponse.text("Model says hi")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var response: CompletionResponse?
         for try await node in agent.iter("Hi", deps: ()) {
@@ -141,7 +141,7 @@ struct IteratorBasicTests {
     @Test("each node has same runID")
     func consistentRunID() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hi")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var runIDs: Set<String> = []
         for try await node in agent.iter("Hi", deps: ()) {
@@ -163,7 +163,7 @@ struct IteratorBasicTests {
     @Test("iter with message history includes previous messages")
     func iterWithHistory() async throws {
         let model = FakeModel(responses: [MockResponse.text("Continuation")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         let history: [Message] = [
             .user("First"),
@@ -191,7 +191,7 @@ struct IteratorBasicTests {
             let n = await counter.increment()
             return MockResponse.text("Response \(n)")
         })
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var output1: String?
         for try await node in agent.iter("First", deps: ()) {

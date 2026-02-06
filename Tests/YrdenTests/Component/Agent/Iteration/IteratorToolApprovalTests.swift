@@ -40,7 +40,7 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         for try await _ in agent.iter("Use tool", deps: ()) {
             // Don't call approve(), deny(), or replace()
@@ -76,7 +76,7 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         for try await node in agent.iter("Use tool", deps: ()) {
             if case .beforeTools(let ctx) = node {
@@ -113,7 +113,7 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var deniedResultOutput: String?
         for try await node in agent.iter("Use tool", deps: ()) {
@@ -162,7 +162,7 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var replacedResultContent: String?
         for try await node in agent.iter("Use tool", deps: ()) {
@@ -210,7 +210,7 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(toolA), AnyAgentTool(toolB), AnyAgentTool(toolC)]
         )
@@ -265,7 +265,7 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(toolA), AnyAgentTool(toolB), AnyAgentTool(toolC)]
         )
@@ -307,7 +307,7 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(toolA), AnyAgentTool(toolB)]
         )
@@ -369,7 +369,7 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [
                 AnyAgentTool(normalTool, requiresApproval: false),
@@ -424,7 +424,7 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(tool, requiresApproval: true)]
         )
@@ -459,7 +459,7 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var capturedDecision: PendingToolDecision.Decision?
         for try await node in agent.iter("Use tool", deps: ()) {
@@ -500,7 +500,7 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var resultOutput: String?
         for try await node in agent.iter("Use tool", deps: ()) {
@@ -539,7 +539,7 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         let specialChars = "Custom result with special chars: <>&\"'"
         var resultOutput: String?
@@ -582,7 +582,7 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         for try await node in agent.iter("Use tool", deps: ()) {
             if case .beforeTools(let ctx) = node {

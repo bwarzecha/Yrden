@@ -21,7 +21,7 @@ struct IteratorErrorTests {
             throw LLMError.serverError("Internal server error")
         })
 
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         do {
             for try await _ in agent.iter("Hi", deps: ()) { }
@@ -53,7 +53,7 @@ struct IteratorErrorTests {
     @Test("model refusal causes modelRefusal error with state")
     func modelRefusalThrows() async throws {
         let model = FakeModel(responses: [MockResponse.refusal("I cannot help with that request")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         do {
             for try await _ in agent.iter("Bad request", deps: ()) { }
@@ -75,7 +75,7 @@ struct IteratorErrorTests {
     @Test("max tokens response causes modelError with ResponseUnusable")
     func maxTokensThrows() async throws {
         let model = FakeModel(responses: [MockResponse.maxTokens("Partial respon")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         do {
             for try await _ in agent.iter("Generate long text", deps: ()) { }
@@ -101,7 +101,7 @@ struct IteratorErrorTests {
     @Test("content filtered response causes modelError with ResponseUnusable")
     func contentFilteredThrows() async throws {
         let model = FakeModel(responses: [MockResponse.contentFiltered()])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         do {
             for try await _ in agent.iter("Filtered request", deps: ()) { }
@@ -129,7 +129,7 @@ struct IteratorErrorTests {
             MockResponse.text("Response", usage: Usage(inputTokens: 1000, outputTokens: 10))
         ])
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             usageLimits: UsageLimits(maxInputTokens: 500)
         )
@@ -161,7 +161,7 @@ struct IteratorErrorTests {
             MockResponse.text("Response", usage: Usage(inputTokens: 10, outputTokens: 1000))
         ])
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             usageLimits: UsageLimits(maxOutputTokens: 500)
         )
@@ -192,7 +192,7 @@ struct IteratorErrorTests {
             MockResponse.text("Response", usage: Usage(inputTokens: 600, outputTokens: 600))
         ])
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             usageLimits: UsageLimits(maxTotalTokens: 1000)
         )
@@ -232,7 +232,7 @@ struct IteratorErrorTests {
             )
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(tool)],
             maxIterations: 100,  // High to not hit this first
@@ -274,7 +274,7 @@ struct IteratorErrorTests {
             ])
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(tool)],
             maxIterations: 100,
@@ -307,7 +307,7 @@ struct IteratorErrorTests {
             throw LLMError.networkError("Not connected to internet")
         })
 
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         do {
             for try await _ in agent.iter("Hi", deps: ()) { }
@@ -341,7 +341,7 @@ struct IteratorErrorTests {
             throw LLMError.rateLimited(retryAfter: 60)
         })
 
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         do {
             for try await _ in agent.iter("Hi", deps: ()) { }
@@ -376,7 +376,7 @@ struct IteratorErrorTests {
             return MockResponse.text("Done")
         })
 
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         let task = Task {
             for try await _ in agent.iter("Hi", deps: ()) { }
@@ -430,7 +430,7 @@ struct IteratorErrorTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var output: String?
         for try await node in agent.iter("Use tool", deps: ()) {

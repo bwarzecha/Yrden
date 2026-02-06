@@ -36,7 +36,7 @@ struct IteratorPhaseTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(tool)]
         )
@@ -81,7 +81,7 @@ struct IteratorPhaseTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var seenBeforeTools = false
         var phaseAfterBeforeTools: String?
@@ -128,7 +128,7 @@ struct IteratorPhaseTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(toolA), AnyAgentTool(toolB), AnyAgentTool(toolC)]
         )
@@ -161,7 +161,7 @@ struct IteratorPhaseTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var beforeModelCount = 0
         for try await node in agent.iter("Use tool", deps: ()) {
@@ -193,7 +193,7 @@ struct IteratorPhaseTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var beforeModelCount = 0
         for try await node in agent.iter("Use tool twice", deps: ()) {
@@ -210,7 +210,7 @@ struct IteratorPhaseTests {
     @Test("no tool calls skips beforeTools and afterTools phases")
     func noToolsSkipsToolPhases() async throws {
         let model = FakeModel(responses: [MockResponse.text("Just text")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var phases: [String] = []
         for try await node in agent.iter("Hi", deps: ()) {
@@ -247,7 +247,7 @@ struct IteratorPhaseTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var iterations: [Int] = []
         for try await node in agent.iter("Multi-turn", deps: ()) {
@@ -279,7 +279,7 @@ struct IteratorPhaseTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var finalToolCallCount: Int?
         for try await node in agent.iter("Multi-tool", deps: ()) {
@@ -321,7 +321,7 @@ struct IteratorPhaseTests {
             )
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(tool)],
             maxIterations: 3
@@ -354,7 +354,7 @@ struct IteratorPhaseTests {
             )
         ])
 
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var output: String?
         for try await node in agent.iter("Hi", deps: ()) {
@@ -391,7 +391,7 @@ struct IteratorPhaseTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var pendingCall: PendingToolDecision?
         for try await node in agent.iter("Use tool", deps: ()) {
@@ -427,7 +427,7 @@ struct IteratorPhaseTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var toolResult: ToolCallResult?
         for try await node in agent.iter("Use tool", deps: ()) {

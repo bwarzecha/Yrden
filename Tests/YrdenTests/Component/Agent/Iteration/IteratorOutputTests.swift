@@ -31,7 +31,7 @@ struct IteratorOutputTests {
     @Test("model text content becomes String output")
     func stringOutputExtractedFromContent() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello, World!")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var output: String?
         for try await node in agent.iter("Hi", deps: ()) {
@@ -48,7 +48,7 @@ struct IteratorOutputTests {
     @Test("empty content is valid String output")
     func emptyStringOutputAllowed() async throws {
         let model = FakeModel(responses: [MockResponse.text("")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var output: String?
         for try await node in agent.iter("Hi", deps: ()) {
@@ -79,7 +79,7 @@ struct IteratorOutputTests {
         }
 
         let model = FakeModel(responses: [MockResponse.text("hello world")])
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             outputValidators: [validator]
         )
@@ -116,7 +116,7 @@ struct IteratorOutputTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             outputValidators: [validator]
         )
@@ -144,7 +144,7 @@ struct IteratorOutputTests {
             )
         ])
 
-        let agent = Agent<Void, TestReport>(model: model)
+        let agent = try Agent<Void, TestReport>(model: model)
 
         var output: TestReport?
         for try await node in agent.iter("Generate report", deps: ()) {
@@ -183,7 +183,7 @@ struct IteratorOutputTests {
             )
         ])
 
-        let agent = Agent<Void, TestReport>(
+        let agent = try Agent<Void, TestReport>(
             model: model,
             outputValidators: [validator]
         )
@@ -220,7 +220,7 @@ struct IteratorOutputTests {
             }
         })
 
-        let agent = Agent<Void, TestReport>(model: model)
+        let agent = try Agent<Void, TestReport>(model: model)
 
         var output: TestReport?
         for try await node in agent.iter("Generate report", deps: ()) {
@@ -259,7 +259,7 @@ struct IteratorOutputTests {
             }
         })
 
-        let agent = Agent<Void, TestReport>(model: model)
+        let agent = try Agent<Void, TestReport>(model: model)
 
         var output: TestReport?
         for try await node in agent.iter("Generate report", deps: ()) {
@@ -297,7 +297,7 @@ struct IteratorOutputTests {
             }
         })
 
-        let agent = Agent<Void, TestReport>(
+        let agent = try Agent<Void, TestReport>(
             model: model,
             tools: [AnyAgentTool(regularTool)],
             endStrategy: .exhaustive  // Run all tools before finishing
@@ -316,26 +316,15 @@ struct IteratorOutputTests {
         #expect(pendingCallNames.contains("regular_tool"))
     }
 
-    // MARK: - Test 8.10: Custom output tool name used
+    // MARK: - Test 8.10: Default output tool name
 
-    @Test("custom output tool name is configured in agent")
-    func customOutputToolNameUsed() async throws {
+    @Test("default output tool name is final_result when no collision")
+    func defaultOutputToolName() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = Agent<Void, String>(
-            model: model,
-            outputToolName: "custom_final_output",
-            outputToolDescription: "Custom output description"
-        )
+        let agent = try Agent<Void, String>(model: model)
 
-        // Verify the agent has the custom name (indirectly - run should succeed)
-        var output: String?
-        for try await node in agent.iter("Hi", deps: ()) {
-            if case .finished(let ctx) = node {
-                output = ctx.output
-            }
-        }
-
-        #expect(output == "Hello")
+        let outputName = await agent.outputToolName
+        #expect(outputName == "final_result")
     }
 
     // MARK: - Test 8.11: Multiple validators run in order
@@ -377,7 +366,7 @@ struct IteratorOutputTests {
         }
 
         let model = FakeModel(responses: [MockResponse.text("hello")])  // Passes all
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             outputValidators: [validator1, validator2, validator3]
         )
@@ -417,7 +406,7 @@ struct IteratorOutputTests {
         }
 
         let model = FakeModel(responses: [MockResponse.text("Hello world")])
-        let agent = Agent<TestDeps, String>(
+        let agent = try Agent<TestDeps, String>(
             model: model,
             outputValidators: [validator]
         )
@@ -434,7 +423,7 @@ struct IteratorOutputTests {
     @Test("whitespace-only content is valid String output")
     func whitespaceOnlyContentIsValid() async throws {
         let model = FakeModel(responses: [MockResponse.text("   \n\t  ")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var output: String?
         for try await node in agent.iter("Hi", deps: ()) {
@@ -457,7 +446,7 @@ struct IteratorOutputTests {
         }
 
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             outputValidators: [validator]
         )

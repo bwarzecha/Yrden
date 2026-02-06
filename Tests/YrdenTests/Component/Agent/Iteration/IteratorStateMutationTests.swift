@@ -37,7 +37,7 @@ struct IteratorStateMutationTests {
             return MockResponse.text("Done")
         })
 
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         for try await node in agent.iter("Hi", deps: ()) {
             if case .beforeModel(let ctx) = node {
@@ -69,7 +69,7 @@ struct IteratorStateMutationTests {
             return MockResponse.text("Done")
         })
 
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         for try await node in agent.iter("Hi", deps: ()) {
             if case .beforeModel(let ctx) = node {
@@ -109,7 +109,7 @@ struct IteratorStateMutationTests {
             return MockResponse.text("Done")
         })
 
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         for try await node in agent.iter("New message", deps: (), messageHistory: history) {
             if case .beforeModel(let ctx) = node {
@@ -127,7 +127,7 @@ struct IteratorStateMutationTests {
     @Test("context is a class - mutations visible without reassignment")
     func contextIsReferenceType() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var mutationVisible = false
         for try await node in agent.iter("Hi", deps: ()) {
@@ -150,7 +150,7 @@ struct IteratorStateMutationTests {
     @Test("state changes made through context are visible in subsequent phases")
     func stateChangeVisibleToIterator() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var messageCountBeforeModel: Int?
         var messageCountAfterModel: Int?
@@ -183,7 +183,7 @@ struct IteratorStateMutationTests {
             return MockResponse.text("Response \(n)")
         })
 
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         // First iteration - break early
         for try await node in agent.iter("Hi", deps: ()) {
@@ -225,7 +225,7 @@ struct IteratorStateMutationTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var addedMessageInIteration0 = false
         var sawMessageInIteration1 = false
@@ -259,7 +259,7 @@ struct IteratorStateMutationTests {
         let model = FakeModel(responses: [
             MockResponse.text("Hello", usage: Usage(inputTokens: 50, outputTokens: 25))
         ])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var usageInAfterModel: Usage?
         var usageInFinished: Usage?
@@ -288,7 +288,7 @@ struct IteratorStateMutationTests {
         }
 
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = Agent<TestDeps, String>(model: model)
+        let agent = try Agent<TestDeps, String>(model: model)
 
         let deps = TestDeps(marker: "test_marker_123")
 

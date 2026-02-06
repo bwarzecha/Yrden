@@ -19,7 +19,7 @@ struct IteratorCancellationTests {
     @Test("state can be captured at beforeModel before cancellation")
     func cancelAtBeforeModelPreservesState() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         actor StateCapture {
             var state: IterationState<String>?
@@ -68,7 +68,7 @@ struct IteratorCancellationTests {
     @Test("state captured at afterModel includes the model response")
     func cancelAtAfterModelPreservesResponse() async throws {
         let model = FakeModel(responses: [MockResponse.text("Model response")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var capturedState: IterationState<String>?
         for try await node in agent.iter("Hi", deps: ()) {
@@ -105,7 +105,7 @@ struct IteratorCancellationTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var capturedState: IterationState<String>?
         for try await node in agent.iter("Use tool", deps: ()) {
@@ -144,7 +144,7 @@ struct IteratorCancellationTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var capturedState: IterationState<String>?
         for try await node in agent.iter("Use tool", deps: ()) {
@@ -170,7 +170,7 @@ struct IteratorCancellationTests {
             try await Task.sleep(for: .seconds(10))
             return MockResponse.text("Done")
         })
-        let agent = Agent<Void, String>(model: slowModel)
+        let agent = try Agent<Void, String>(model: slowModel)
 
         actor CancelTracker {
             var caught = false
@@ -224,7 +224,7 @@ struct IteratorCancellationTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(slowTool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(slowTool)])
 
         actor CancelTracker {
             var caught = false
@@ -260,7 +260,7 @@ struct IteratorCancellationTests {
             try await Task.sleep(for: .seconds(10))
             return MockResponse.text("Done")
         })
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         actor CancelTracker {
             var caught = false
@@ -299,7 +299,7 @@ struct IteratorCancellationTests {
             if n == 1 { throw CancellationError() }  // First call "cancelled"
             return MockResponse.text("Success on retry")
         })
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var savedState: IterationState<String>?
 
@@ -349,7 +349,7 @@ struct IteratorCancellationTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var savedState: IterationState<String>?
 
@@ -384,7 +384,7 @@ struct IteratorCancellationTests {
             try await Task.sleep(for: .seconds(10))
             return MockResponse.text("Done")
         })
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         let task = Task {
             for try await _ in agent.iter("Hi", deps: ()) { }
@@ -410,7 +410,7 @@ struct IteratorCancellationTests {
             return MockResponse.text("Response \(n)")
         })
 
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         // First iteration - cancel
         let task1 = Task {
@@ -438,7 +438,7 @@ struct IteratorCancellationTests {
             try await Task.sleep(for: .seconds(10))
             return MockResponse.text("Done")
         })
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         let task = Task {
             for try await _ in agent.iter("Hi", deps: ()) { }
@@ -465,7 +465,7 @@ struct IteratorCancellationTests {
             return MockResponse.text("Response \(n)")
         })
 
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         let task1 = Task {
             for try await _ in agent.iter("Task 1", deps: ()) { }
@@ -499,7 +499,7 @@ struct IteratorCancellationTests {
             return MockResponse.text("Response \(n)")
         })
 
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         // First iteration - break early
         for try await node in agent.iter("Hi", deps: ()) {
@@ -528,7 +528,7 @@ struct IteratorCancellationTests {
             try await Task.sleep(for: .seconds(10))
             return MockResponse.text("Inner done")
         })
-        let innerAgent = Agent<Void, String>(model: innerModel)
+        let innerAgent = try Agent<Void, String>(model: innerModel)
 
         // Tool that calls inner agent
         actor CancellationTracker {
@@ -569,7 +569,7 @@ struct IteratorCancellationTests {
             }
         })
 
-        let outerAgent = Agent<Void, String>(
+        let outerAgent = try Agent<Void, String>(
             model: outerModel,
             tools: [AnyAgentTool(nestedTool)]
         )

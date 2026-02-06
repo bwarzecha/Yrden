@@ -23,7 +23,7 @@ struct IteratorResumeTests {
             await modelCounter.increment()
             return MockResponse.text("Completed")
         })
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         // First run - capture state at beforeModel and break (model not yet called)
         var savedState: IterationState<String>?
@@ -66,7 +66,7 @@ struct IteratorResumeTests {
             await modelCounter.increment()
             return MockResponse.text("Hello")
         })
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         // First run - capture state at afterModel and break
         var savedState: IterationState<String>?
@@ -125,7 +125,7 @@ struct IteratorResumeTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         // First run - capture state at beforeTools (tool NOT executed yet)
         var savedState: IterationState<String>?
@@ -196,7 +196,7 @@ struct IteratorResumeTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         // First run - capture state at afterTools
         var savedState: IterationState<String>?
@@ -248,7 +248,7 @@ struct IteratorResumeTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         // Run through tool execution and capture state
         var savedState: IterationState<String>?
@@ -302,7 +302,7 @@ struct IteratorResumeTests {
         let model = FakeModel(responses: [
             MockResponse.text("Hello", usage: Usage(inputTokens: 123, outputTokens: 456))
         ])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         // Capture state after model call
         var savedState: IterationState<String>?
@@ -353,7 +353,7 @@ struct IteratorResumeTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         // Run through one full iteration, then capture at second iteration
         var savedState: IterationState<String>?
@@ -397,7 +397,7 @@ struct IteratorResumeTests {
     @Test("resuming preserves the exact same runID")
     func resumePreservesRunID() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         // Capture original runID
         var originalRunID: String?
@@ -466,7 +466,7 @@ struct IteratorResumeTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         // Approve tool and capture state
         var savedState: IterationState<String>?
@@ -534,7 +534,7 @@ struct IteratorResumeTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         // Deny tool and capture state
         var savedState: IterationState<String>?
@@ -617,7 +617,7 @@ struct IteratorResumeTests {
             return MockResponse.text("Done")
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         // Replace tool with synthetic result and capture state
         var savedState: IterationState<String>?
@@ -678,7 +678,7 @@ struct IteratorResumeTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         // First: deny tool and capture state
         var savedState: IterationState<String>?

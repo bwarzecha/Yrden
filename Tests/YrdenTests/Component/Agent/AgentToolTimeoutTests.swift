@@ -35,7 +35,7 @@ struct AgentToolTimeoutTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(slow)],
@@ -68,7 +68,7 @@ struct AgentToolTimeoutTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(slow)],
@@ -100,7 +100,7 @@ struct AgentToolTimeoutTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(slow)]
@@ -135,7 +135,7 @@ struct AgentToolTimeoutTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(slow)],

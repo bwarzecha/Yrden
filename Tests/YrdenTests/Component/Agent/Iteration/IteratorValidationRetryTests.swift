@@ -41,7 +41,7 @@ struct IteratorValidationRetryTests {
             return MockResponse.text("hello")
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             maxValidationRetries: 3,
             outputValidators: [validator]
@@ -83,7 +83,7 @@ struct IteratorValidationRetryTests {
             MockResponse.text("attempt 4"),  // Should not reach
         ])
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             maxValidationRetries: 3,
             outputValidators: [validator]
@@ -132,7 +132,7 @@ struct IteratorValidationRetryTests {
         ])
 
         // Agent without explicit maxValidationRetries
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             outputValidators: [validator]
         )
@@ -169,7 +169,7 @@ struct IteratorValidationRetryTests {
         })
 
         // Agent with maxIterations = 1
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             maxIterations: 1,  // Very restrictive
             maxValidationRetries: 5,
@@ -205,7 +205,7 @@ struct IteratorValidationRetryTests {
 
         let model = FakeModel(responses: (1...10).map { _ in MockResponse.text("x") })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             maxValidationRetries: 5,  // Custom limit
             outputValidators: [validator]
@@ -235,7 +235,7 @@ struct IteratorValidationRetryTests {
             MockResponse.text("c", usage: Usage(inputTokens: 10, outputTokens: 20)),
         ])
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             maxValidationRetries: 3,
             outputValidators: [validator]
@@ -298,7 +298,7 @@ struct IteratorValidationRetryTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             outputValidators: [validator]
         )
@@ -351,7 +351,7 @@ struct IteratorValidationRetryTests {
             MockResponse.text("attempt 2"),
         ])
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             outputValidators: [validator1, validator2]
         )
@@ -408,7 +408,7 @@ struct IteratorValidationRetryTests {
             }
         })
 
-        let agent = Agent<Void, ScoreResult>(
+        let agent = try Agent<Void, ScoreResult>(
             model: model,
             outputValidators: [validator]
         )
@@ -439,7 +439,7 @@ struct IteratorValidationRetryTests {
             MockResponse.text("only one"),
         ])
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             maxValidationRetries: 0,  // Zero retries = only initial attempt
             outputValidators: [validator]

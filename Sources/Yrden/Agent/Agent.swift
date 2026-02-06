@@ -65,10 +65,11 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
     public let endStrategy: EndStrategy
 
     /// Name for the output tool (when using tool-based structured output).
+    /// Auto-renamed with a numeric suffix if it collides with a user tool name.
     public let outputToolName: String
 
     /// Description for the output tool.
-    public let outputToolDescription: String
+    let outputToolDescription: String
 
     /// Retry policy for transient LLM errors.
     public let retryPolicy: RetryPolicy
@@ -88,11 +89,18 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         outputValidators: [OutputValidator<Deps, Output>] = [],
         usageLimits: UsageLimits = .none,
         endStrategy: EndStrategy = .early,
-        outputToolName: String = "final_result",
-        outputToolDescription: String = "Provide the final result",
         retryPolicy: RetryPolicy = .none,
         toolTimeout: Duration? = nil
-    ) {
+    ) throws {
+        var seenToolNames: Set<String> = []
+        for tool in tools {
+            if !seenToolNames.insert(tool.name).inserted {
+                throw AgentError<Output>.invalidConfiguration(
+                    "Duplicate tool name: '\(tool.name)'"
+                )
+            }
+        }
+
         self.model = model
         self.systemPrompt = systemPrompt
         self.tools = tools
@@ -101,10 +109,22 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         self.outputValidators = outputValidators
         self.usageLimits = usageLimits
         self.endStrategy = endStrategy
-        self.outputToolName = outputToolName
-        self.outputToolDescription = outputToolDescription
+        self.outputToolName = Self.resolveOutputToolName(
+            base: "final_result",
+            toolNames: seenToolNames
+        )
+        self.outputToolDescription = "Provide the final result"
         self.retryPolicy = retryPolicy
         self.toolTimeout = toolTimeout
+    }
+
+    private static func resolveOutputToolName(base: String, toolNames: Set<String>) -> String {
+        if !toolNames.contains(base) { return base }
+        var suffix = 1
+        while toolNames.contains("\(base)_\(suffix)") {
+            suffix += 1
+        }
+        return "\(base)_\(suffix)"
     }
 
     // MARK: - Run

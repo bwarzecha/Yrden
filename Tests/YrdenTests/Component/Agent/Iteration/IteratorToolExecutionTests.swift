@@ -39,7 +39,7 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         for try await _ in agent.iter("Use tool", deps: ()) { }
         let calls = await tool.calls
@@ -73,7 +73,7 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var messagesAfterTools: [Message]?
         var iterationAfterTools: Int = -1
@@ -119,7 +119,7 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var resultId: String?
         for try await node in agent.iter("Use tool", deps: ()) {
@@ -159,7 +159,7 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(toolA), AnyAgentTool(toolB), AnyAgentTool(toolC)]
         )
@@ -199,7 +199,7 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(toolA), AnyAgentTool(toolB), AnyAgentTool(toolC)]
         )
@@ -246,7 +246,7 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         // Should NOT throw - tool errors are results, not exceptions
         var output: String?
@@ -279,7 +279,7 @@ struct IteratorToolExecutionTests {
         })
 
         // No tools registered!
-        let agent = Agent<Void, String>(model: model, tools: [])
+        let agent = try Agent<Void, String>(model: model, tools: [])
 
         var output: String?
         for try await node in agent.iter("Use unknown tool", deps: ()) {
@@ -313,7 +313,7 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         // Should complete without throwing
         var output: String?
@@ -347,7 +347,7 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(slowTool)],
             toolTimeout: .milliseconds(10)  // 10ms timeout
@@ -397,7 +397,7 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var toolResultContent: String?
         for try await node in agent.iter("Use tool", deps: ()) {
@@ -443,7 +443,7 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(slowTool)],  // No per-tool timeout
             toolTimeout: .milliseconds(10)  // Engine default
@@ -487,7 +487,7 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(slowTool)],
             toolTimeout: nil  // No timeout

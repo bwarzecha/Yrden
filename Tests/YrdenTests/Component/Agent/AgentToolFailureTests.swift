@@ -39,7 +39,7 @@ struct AgentToolFailureTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(tool)]
@@ -74,7 +74,7 @@ struct AgentToolFailureTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(tool)]
@@ -111,7 +111,7 @@ struct AgentToolFailureTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(tool)]
@@ -137,7 +137,7 @@ struct AgentToolFailureTests {
             )
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(tool)],
@@ -189,7 +189,7 @@ struct AgentToolFailureTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(alpha), AnyAgentTool(beta), AnyAgentTool(gamma)]
@@ -224,7 +224,7 @@ struct AgentToolFailureTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(tool)]
@@ -261,7 +261,7 @@ struct AgentToolFailureTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(tool)]

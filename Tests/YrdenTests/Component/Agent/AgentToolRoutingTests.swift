@@ -47,7 +47,7 @@ struct AgentToolRoutingTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(alphaTool), AnyAgentTool(betaTool), AnyAgentTool(gammaTool)]
@@ -87,7 +87,7 @@ struct AgentToolRoutingTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(realTool)]
@@ -101,17 +101,13 @@ struct AgentToolRoutingTests {
         #expect(realCalls.count == 0)
     }
 
-    // DRIVES FIX: Default outputToolName should be dynamically generated
-    // to avoid collision with user tool names.
-    // Currently fails because outputToolName defaults to "final_result"
-    // which collides with the user's tool of the same name.
     @Test("default output tool name does not collide with user tools named final_result")
     func defaultOutputToolNameDoesNotCollideWithUserTools() async throws {
         let userTool = ConfigurableTool.succeeding("user tool result", name: "final_result")
 
         let model = FakeModel(responses: [])
 
-        let agent = Agent<Void, SimpleOutput>(
+        let agent = try Agent<Void, SimpleOutput>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(userTool)]
@@ -124,41 +120,18 @@ struct AgentToolRoutingTests {
                 "outputToolName should keep 'final_result' as base with a suffix")
     }
 
-    // DRIVES FIX: Agent.init should reject explicit outputToolName that
-    // collides with a registered tool name.
-    // Currently fails because Agent.init doesn't validate names.
-    @Test("explicit outputToolName matching a registered tool name is rejected")
-    func explicitOutputToolNameRejectsCollisionWithRegisteredTool() async throws {
-        let tool = ConfigurableTool.succeeding("ok", name: "my_output")
-
-        // Currently Agent.init doesn't validate, so this succeeds.
-        // Once Agent.init becomes throwing, this test should use #expect(throws:).
-        let _ = Agent<Void, SimpleOutput>(
-            model: FakeModel(responses: []),
-            systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)],
-            outputToolName: "my_output"
-        )
-
-        Issue.record("DRIVES FIX: Agent.init should reject outputToolName collision with registered tool name")
-    }
-
-    // DRIVES FIX: Agent.init should reject duplicate tool names.
-    // Currently fails because Agent.init doesn't validate names.
     @Test("init rejects duplicate tool names")
     func initRejectsDuplicateToolNames() async throws {
         let tool1 = ConfigurableTool.succeeding("first", name: "duplicate_tool")
         let tool2 = ConfigurableTool.succeeding("second", name: "duplicate_tool")
 
-        // Currently Agent.init doesn't validate, so this succeeds.
-        // Once Agent.init becomes throwing, this test should use #expect(throws:).
-        let _ = Agent<Void, String>(
-            model: FakeModel(responses: []),
-            systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool1), AnyAgentTool(tool2)]
-        )
-
-        Issue.record("DRIVES FIX: Agent.init should reject duplicate tool names")
+        #expect(throws: AgentError<String>.self) {
+            _ = try Agent<Void, String>(
+                model: FakeModel(responses: []),
+                systemPrompt: "You are helpful.",
+                tools: [AnyAgentTool(tool1), AnyAgentTool(tool2)]
+            )
+        }
     }
 
     @Test("tool definitions are included in model request")
@@ -171,7 +144,7 @@ struct AgentToolRoutingTests {
             return MockResponse.text("Done")
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(tool)]
@@ -202,7 +175,7 @@ struct AgentToolRoutingTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [AnyAgentTool(tool)]

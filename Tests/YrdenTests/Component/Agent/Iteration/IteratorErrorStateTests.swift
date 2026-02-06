@@ -24,7 +24,7 @@ struct IteratorErrorStateTests {
         let model = FakeModel(onComplete: { _ in
             throw LLMError.networkError("Not connected to internet")
         })
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var caughtError: LLMError?
         do {
@@ -44,7 +44,7 @@ struct IteratorErrorStateTests {
     @Test("model refusal causes modelRefusal error with state")
     func modelRefusalThrowsWithState() async throws {
         let model = FakeModel(responses: [MockResponse.refusal("I cannot help with that")])
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var refusalMessage: String?
         var hasState = false
@@ -83,7 +83,7 @@ struct IteratorErrorStateTests {
             return output
         }
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             outputValidators: [validator]
         )
@@ -120,7 +120,7 @@ struct IteratorErrorStateTests {
             }
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(slowTool)],
             toolTimeout: .milliseconds(5)
@@ -168,7 +168,7 @@ struct IteratorErrorStateTests {
             )
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(tool)],
             maxIterations: 2
@@ -199,7 +199,7 @@ struct IteratorErrorStateTests {
             MockResponse.text("Response", usage: Usage(inputTokens: 500, outputTokens: 600))
         ])
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             usageLimits: UsageLimits(maxTotalTokens: 100)
         )
@@ -235,7 +235,7 @@ struct IteratorErrorStateTests {
                 throw LLMError.serverError("Unexpected")
             }
         })
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var checkpoint: IterationState<String>?
 
@@ -282,7 +282,7 @@ struct IteratorErrorStateTests {
             )
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(tool)],
             maxIterations: 2
@@ -329,7 +329,7 @@ struct IteratorErrorStateTests {
             return MockResponse.text("Finally done")
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(tool)],
             maxIterations: 2
@@ -359,7 +359,7 @@ struct IteratorErrorStateTests {
         }
 
         // Create new agent with higher limit and resume from saved state
-        let agentWithHigherLimit = Agent<Void, String>(
+        let agentWithHigherLimit = try Agent<Void, String>(
             model: model,
             tools: [AnyAgentTool(tool)],
             maxIterations: 10
@@ -405,7 +405,7 @@ struct IteratorErrorStateTests {
             }
         })
 
-        let agent = Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
 
         var output: String?
         for try await node in agent.iter("Use tool", deps: ()) {
@@ -425,7 +425,7 @@ struct IteratorErrorStateTests {
         let model = FakeModel(onComplete: { _ in
             throw LLMError.serverError("Error")
         })
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var caughtLLMError = false
         do {
@@ -446,7 +446,7 @@ struct IteratorErrorStateTests {
         let model = FakeModel(onComplete: { _ in
             throw LLMError.serverError("Error")
         })
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var checkpoint: IterationState<String>?
 
@@ -479,7 +479,7 @@ struct IteratorErrorStateTests {
             try await Task.sleep(for: .seconds(10))
             return MockResponse.text("Done")
         })
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         actor CancelTracker {
             var cancelled = false
@@ -528,7 +528,7 @@ struct IteratorErrorStateTests {
         let model = FakeModel(onComplete: { _ in
             throw LLMError.serverError("Error after beforeModel")
         })
-        let agent = Agent<Void, String>(model: model)
+        let agent = try Agent<Void, String>(model: model)
 
         var capturedState: IterationState<String>?
 

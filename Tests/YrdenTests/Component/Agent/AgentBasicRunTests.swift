@@ -17,7 +17,7 @@ struct AgentBasicRunTests {
             MockResponse.text("Hello from the model"),
         ])
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: []
@@ -39,7 +39,7 @@ struct AgentBasicRunTests {
             return MockResponse.text("Response \(call)")
         })
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: []
@@ -66,7 +66,7 @@ struct AgentBasicRunTests {
             .assistant("Previous answer"),
         ]
 
-        let agent = Agent<Void, String>(
+        let agent = try Agent<Void, String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: []
