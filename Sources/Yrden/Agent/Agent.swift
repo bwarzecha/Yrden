@@ -133,7 +133,10 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         deps: Deps,
         messageHistory: [Message] = []
     ) async throws -> AgentRun<Output> {
-        throw AgentError<Output>.internalError("run() not implemented - use iter() instead")
+        try await executeLoop(
+            iterator: iter(prompt, deps: deps, messageHistory: messageHistory),
+            maxIterations: maxIterations
+        )
     }
 
     /// Run the agent continuing from a previous run.
@@ -151,7 +154,22 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         deps: Deps,
         continuingFrom previous: AgentRun<Output>
     ) async throws -> AgentRun<Output> {
-        throw AgentError<Output>.internalError("run(continuingFrom:) not implemented")
+        var messages = previous.messages
+
+        // If previous run has pending approvals, auto-cancel ALL tool calls.
+        // LLM APIs require tool_result for every tool_use in the assistant message.
+        if case .needsApproval = previous.status,
+           case .beforeTools(let allCalls) = previous.state.phase {
+            let toolResultEntries = allCalls.map { p in
+                ToolResultEntry(
+                    id: p.call.id,
+                    output: .error("Tool call '\(p.call.name)' was cancelled — conversation continued")
+                )
+            }
+            messages.append(.toolResults(toolResultEntries))
+        }
+
+        return try await run(prompt, deps: deps, messageHistory: messages)
     }
 
     // MARK: - Resume
@@ -193,7 +211,61 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         with options: ResumeOptions,
         deps: Deps
     ) async throws -> AgentRun<Output> {
-        throw AgentError<Output>.internalError("resume() not implemented")
+        switch run.status {
+        case .needsApproval:
+            guard let decisions = options.decisions else {
+                throw AgentError<Output>.invalidResume(
+                    "Status is .needsApproval but no decisions provided."
+                )
+            }
+
+            // Get ALL calls from phase (not just approval-requiring from status)
+            guard case .beforeTools(var calls) = run.state.phase else {
+                throw AgentError<Output>.invalidResume(
+                    "State phase mismatch: expected .beforeTools for needsApproval status"
+                )
+            }
+
+            // Apply user's decisions
+            for (id, decision) in decisions {
+                if let index = calls.firstIndex(where: { $0.call.id == id }) {
+                    calls[index].decision = decision
+                }
+            }
+
+            // Default deny for approval-requiring tools still in .pending
+            for i in calls.indices {
+                if calls[i].requiresApproval && calls[i].decision == .pending {
+                    calls[i].decision = .denied("Tool call was not approved")
+                }
+            }
+
+            let updatedState = run.state.with(phase: .beforeTools(calls: calls))
+            return try await executeLoop(
+                iterator: iter(from: updatedState, deps: deps),
+                maxIterations: maxIterations
+            )
+
+        case .iterationLimitReached:
+            guard let additional = options.additionalIterations else {
+                throw AgentError<Output>.invalidResume(
+                    "Status is .iterationLimitReached but no additionalIterations provided."
+                )
+            }
+
+            return try await executeLoop(
+                iterator: iter(from: run.state, deps: deps),
+                maxIterations: maxIterations + additional
+            )
+
+        case .completed:
+            throw AgentError<Output>.invalidResume("Cannot resume a completed run.")
+
+        case .usageLimitReached:
+            throw AgentError<Output>.invalidResume(
+                "Cannot resume after usage limit. Start a new run with continuingFrom: instead."
+            )
+        }
     }
 
     // MARK: - Run Stream
@@ -217,7 +289,19 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         messageHistory: [Message] = []
     ) -> AsyncThrowingStream<AgentStreamEvent<Output>, Error> {
         AsyncThrowingStream { continuation in
-            continuation.finish(throwing: AgentError<Output>.internalError("runStream() not implemented"))
+            Task {
+                do {
+                    let run = try await self.executeStreamLoop(
+                        iterator: self.iter(prompt, deps: deps, messageHistory: messageHistory),
+                        maxIterations: self.maxIterations,
+                        continuation: continuation
+                    )
+                    continuation.yield(.finished(run))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
         }
     }
 
@@ -234,7 +318,66 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
         deps: Deps
     ) -> AsyncThrowingStream<AgentStreamEvent<Output>, Error> {
         AsyncThrowingStream { continuation in
-            continuation.finish(throwing: AgentError<Output>.internalError("resumeStream() not implemented"))
+            Task {
+                do {
+                    let result: AgentRun<Output>
+
+                    switch run.status {
+                    case .needsApproval:
+                        guard let decisions = options.decisions else {
+                            throw AgentError<Output>.invalidResume(
+                                "Status is .needsApproval but no decisions provided."
+                            )
+                        }
+                        guard case .beforeTools(var calls) = run.state.phase else {
+                            throw AgentError<Output>.invalidResume(
+                                "State phase mismatch: expected .beforeTools"
+                            )
+                        }
+                        for (id, decision) in decisions {
+                            if let index = calls.firstIndex(where: { $0.call.id == id }) {
+                                calls[index].decision = decision
+                            }
+                        }
+                        for i in calls.indices {
+                            if calls[i].requiresApproval && calls[i].decision == .pending {
+                                calls[i].decision = .denied("Tool call was not approved")
+                            }
+                        }
+                        let updatedState = run.state.with(phase: .beforeTools(calls: calls))
+                        result = try await self.executeStreamLoop(
+                            iterator: self.iter(from: updatedState, deps: deps),
+                            maxIterations: self.maxIterations,
+                            continuation: continuation
+                        )
+
+                    case .iterationLimitReached:
+                        guard let additional = options.additionalIterations else {
+                            throw AgentError<Output>.invalidResume(
+                                "Status is .iterationLimitReached but no additionalIterations provided."
+                            )
+                        }
+                        result = try await self.executeStreamLoop(
+                            iterator: self.iter(from: run.state, deps: deps),
+                            maxIterations: self.maxIterations + additional,
+                            continuation: continuation
+                        )
+
+                    case .completed:
+                        result = run
+
+                    case .usageLimitReached:
+                        throw AgentError<Output>.invalidResume(
+                            "Cannot resume after usage limit."
+                        )
+                    }
+
+                    continuation.yield(.finished(result))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
         }
     }
 
@@ -304,6 +447,147 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             resumeFrom: state,
             deps: deps
         )
+    }
+
+    // MARK: - Private Loop
+
+    /// Shared loop implementation for run() and resume().
+    ///
+    /// Iterates through the agent loop, applying run()-level policy:
+    /// - Pauses at beforeTools if any tool requires approval
+    /// - Checks iteration limit at afterTools
+    /// - Catches iterator errors and converts to AgentRun status
+    ///
+    /// Limits are run()'s responsibility — iter() doesn't check limits.
+    private func executeLoop(
+        iterator: AgentIterator<Deps, Output>,
+        maxIterations: Int
+    ) async throws -> AgentRun<Output> {
+        do {
+            for try await node in iterator {
+                switch node {
+                case .beforeModel, .afterModel:
+                    break
+
+                case .beforeTools(let ctx):
+                    // Check for tools needing approval (run()'s policy)
+                    let needsApproval = ctx.pendingCalls.filter {
+                        $0.requiresApproval && $0.decision == .pending
+                    }
+                    if !needsApproval.isEmpty {
+                        return AgentRun(
+                            state: ctx.state,
+                            status: .needsApproval(needsApproval)
+                        )
+                    }
+
+                case .afterTools(let ctx):
+                    // Check iteration limit (run()'s policy).
+                    // iteration hasn't been incremented yet at this yield point,
+                    // so iteration + 1 is the number of completed iterations.
+                    if ctx.state.iteration + 1 >= maxIterations {
+                        return AgentRun(
+                            state: ctx.state,
+                            status: .iterationLimitReached(limit: maxIterations)
+                        )
+                    }
+
+                case .finished(let ctx):
+                    return AgentRun(
+                        state: ctx.state,
+                        status: .completed(ctx.output)
+                    )
+                }
+            }
+
+            throw AgentError<Output>.internalError("Iterator ended without finishing")
+        } catch let error as AgentError<Output> {
+            switch error {
+            case .usageLimitExceeded(let state, let limit):
+                return AgentRun(state: state, status: .usageLimitReached(limit))
+            default:
+                throw error
+            }
+        }
+    }
+
+    /// Shared stream loop implementation for runStream() and resumeStream().
+    ///
+    /// Same policy as executeLoop(), but streams model and tool events
+    /// through the continuation.
+    private func executeStreamLoop(
+        iterator: AgentIterator<Deps, Output>,
+        maxIterations: Int,
+        continuation: AsyncThrowingStream<AgentStreamEvent<Output>, Error>.Continuation
+    ) async throws -> AgentRun<Output> {
+        do {
+            for try await node in iterator {
+                switch node {
+                case .beforeModel(let ctx):
+                    // Stream model response
+                    for try await event in ctx.stream() {
+                        switch event {
+                        case .contentDelta(let text, let kind):
+                            continuation.yield(.contentDelta(text, kind: kind))
+                        case .toolCallStart(let id, let name):
+                            continuation.yield(.toolCallStart(id: id, name: name))
+                        case .toolCallDelta(let id, let delta):
+                            continuation.yield(.toolCallDelta(id: id, delta: delta))
+                        case .toolCallEnd(let id):
+                            continuation.yield(.toolCallEnd(id: id))
+                        }
+                    }
+
+                case .afterModel:
+                    break
+
+                case .beforeTools(let ctx):
+                    // Check for approval (same policy as executeLoop)
+                    let needsApproval = ctx.pendingCalls.filter {
+                        $0.requiresApproval && $0.decision == .pending
+                    }
+                    if !needsApproval.isEmpty {
+                        return AgentRun(
+                            state: ctx.state,
+                            status: .needsApproval(needsApproval)
+                        )
+                    }
+
+                    // Stream tool execution
+                    for try await event in ctx.stream() {
+                        if case .toolCompleted(let call, let result, _) = event {
+                            continuation.yield(.toolResult(id: call.id, result: result))
+                        }
+                    }
+
+                case .afterTools(let ctx):
+                    continuation.yield(.usage(ctx.state.usage))
+
+                    // Check iteration limit (run()'s policy)
+                    if ctx.state.iteration + 1 >= maxIterations {
+                        return AgentRun(
+                            state: ctx.state,
+                            status: .iterationLimitReached(limit: maxIterations)
+                        )
+                    }
+
+                case .finished(let ctx):
+                    return AgentRun(
+                        state: ctx.state,
+                        status: .completed(ctx.output)
+                    )
+                }
+            }
+
+            throw AgentError<Output>.internalError("Iterator ended without finishing")
+        } catch let error as AgentError<Output> {
+            switch error {
+            case .usageLimitExceeded(let state, let limit):
+                return AgentRun(state: state, status: .usageLimitReached(limit))
+            default:
+                throw error
+            }
+        }
     }
 }
 

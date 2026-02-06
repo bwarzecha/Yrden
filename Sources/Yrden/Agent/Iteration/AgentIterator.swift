@@ -109,13 +109,15 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
                 // Build initial state with user message
                 var messages = messageHistory
                 messages.append(.user(initialPrompt))
+                let maxIter = agent.maxIterations
                 self.state = IterationState(
                     runID: UUID().uuidString,
                     messages: messages,
                     usage: Usage(inputTokens: 0, outputTokens: 0),
                     iteration: 0,
                     toolCallCount: 0,
-                    phase: .beforeModel
+                    phase: .beforeModel,
+                    maxIterations: maxIter
                 )
             }
         }
@@ -296,15 +298,17 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
                 return try await next()
 
             case .afterTools:
-                // Start next iteration — mutate in place
-                state!.iteration += 1
-
-                // Check max iterations before starting next loop
-                let maxIterations = agent.maxIterations
-                if state!.iteration >= maxIterations {
+                // Check max iterations using the agent's limit (not state's).
+                // This allows cross-agent resume: a new agent with higher
+                // maxIterations will use its own limit, not the saved state's.
+                // Note: run()/resume() check BEFORE this in executeLoop(),
+                // so this only fires for direct iter() users.
+                if state!.iteration + 1 >= agent.maxIterations {
                     throw AgentError<Output>.maxIterationsReached(state: state!)
                 }
 
+                // Start next iteration — mutate in place
+                state!.iteration += 1
                 state!.phase = .beforeModel
 
                 step = .yieldPhase

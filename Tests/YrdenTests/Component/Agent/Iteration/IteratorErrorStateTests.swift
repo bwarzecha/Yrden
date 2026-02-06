@@ -184,9 +184,11 @@ struct IteratorErrorStateTests {
             }
         }
 
-        // Error should carry state for resumption
+        // Error should carry state for resumption.
+        // iteration is 1 (0-indexed, not yet incremented) because the check
+        // fires before incrementing: iteration + 1 >= maxIterations.
         #expect(errorState != nil)
-        #expect(errorState?.iteration == 2)
+        #expect(errorState?.iteration == 1)
     }
 
     // MARK: - Test 11.6: Usage limit throws error with limit kind
@@ -302,7 +304,8 @@ struct IteratorErrorStateTests {
             return
         }
 
-        #expect(state.iteration == 2)
+        // iteration is 1 (not yet incremented) — check fires before increment
+        #expect(state.iteration == 1)
         #expect(state.messages.count > 0)
         #expect(state.runID.isEmpty == false)
     }

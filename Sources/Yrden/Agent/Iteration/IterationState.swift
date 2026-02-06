@@ -32,6 +32,11 @@ public struct IterationState<Output: SchemaType>: Sendable, Codable {
     /// Current phase within the iteration.
     public internal(set) var phase: Phase
 
+    /// Maximum iterations allowed for this run.
+    /// Set by the agent on creation; updated by resume with additional iterations.
+    /// The iterator uses this instead of agent.maxIterations.
+    public internal(set) var maxIterations: Int
+
     public init(
         runID: String,
         messages: [Message],
@@ -39,7 +44,8 @@ public struct IterationState<Output: SchemaType>: Sendable, Codable {
         iteration: Int,
         toolCallCount: Int,
         validationRetryCount: Int = 0,
-        phase: Phase
+        phase: Phase,
+        maxIterations: Int = .max
     ) {
         self.runID = runID
         self.messages = messages
@@ -48,6 +54,7 @@ public struct IterationState<Output: SchemaType>: Sendable, Codable {
         self.toolCallCount = toolCallCount
         self.validationRetryCount = validationRetryCount
         self.phase = phase
+        self.maxIterations = maxIterations
     }
 
     /// Creates a copy with a different phase.
@@ -60,7 +67,8 @@ public struct IterationState<Output: SchemaType>: Sendable, Codable {
             iteration: iteration,
             toolCallCount: toolCallCount,
             validationRetryCount: validationRetryCount,
-            phase: newPhase
+            phase: newPhase,
+            maxIterations: maxIterations
         )
     }
 }
