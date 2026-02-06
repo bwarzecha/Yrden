@@ -34,11 +34,7 @@ public actor FakeModel: Model {
     public nonisolated let name: String
     public nonisolated let capabilities: ModelCapabilities
 
-    /// Whether to record requests (disabled by default to avoid memory issues in parallel tests).
-    private let recordRequests: Bool
-
     /// Every request received (both complete and stream), in order.
-    /// Only populated when `recordRequests: true` is passed to init.
     public private(set) var requests: [CompletionRequest] = []
 
     /// Number of complete() calls received.
@@ -63,8 +59,7 @@ public actor FakeModel: Model {
         responses: [CompletionResponse] = [],
         streamEventSequences: [[StreamEvent]] = [],
         onComplete: (@Sendable (CompletionRequest) async throws -> CompletionResponse)? = nil,
-        onStream: (@Sendable (CompletionRequest) async throws -> [StreamEvent])? = nil,
-        recordRequests: Bool = false
+        onStream: (@Sendable (CompletionRequest) async throws -> [StreamEvent])? = nil
     ) {
         self.name = name
         self.capabilities = capabilities
@@ -72,7 +67,6 @@ public actor FakeModel: Model {
         self.streamEventSequences = streamEventSequences
         self.onComplete = onComplete
         self.onStream = onStream
-        self.recordRequests = recordRequests
     }
 
     public nonisolated func complete(
@@ -85,9 +79,7 @@ public actor FakeModel: Model {
         _ request: CompletionRequest
     ) async throws -> CompletionResponse {
         completeCallCount += 1
-        if recordRequests {
-            requests.append(request)
-        }
+        requests.append(request)
 
         if let onComplete {
             return try await onComplete(request)
@@ -128,9 +120,7 @@ public actor FakeModel: Model {
         _ request: CompletionRequest
     ) async throws -> [StreamEvent] {
         streamCallCount += 1
-        if recordRequests {
-            requests.append(request)
-        }
+        requests.append(request)
 
         if let onStream {
             return try await onStream(request)
