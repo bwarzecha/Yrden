@@ -95,7 +95,6 @@ public actor MockServerConnection: ServerConnectionProtocol {
 
         case .hang:
             transition(to: .connecting)
-            // Hang forever - for testing cancellation
             try? await Task.sleep(for: .seconds(3600))
 
         case .delay(let duration, let then):
@@ -239,5 +238,14 @@ extension MockServerConnection {
     /// Set behavior for a specific tool.
     public func setToolBehavior(_ tool: String, behavior: ToolCallBehavior) async {
         toolCallBehavior[tool] = behavior
+    }
+
+    /// Set whether the connection is healthy (for health check tests).
+    public func setHealthy(_ healthy: Bool) async {
+        if healthy {
+            defaultToolCallBehavior = .succeed(result: "healthy")
+        } else {
+            defaultToolCallBehavior = .fail(error: MCPTestError.connectionRefused)
+        }
     }
 }

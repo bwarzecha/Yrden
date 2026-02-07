@@ -1,17 +1,17 @@
-/// Mock coordinator for testing MCPManager.
+/// Mock coordinator for testing.
 ///
 /// Provides controllable behavior for:
 /// - Starting/stopping servers
 /// - Tool calls
 /// - Snapshots
 ///
-/// Emits events for UI state updates.
+/// Emits events for state updates.
 
 import Foundation
 import MCP
 @testable import Yrden
 
-/// Mock coordinator for testing MCPManager.
+/// Mock coordinator for testing.
 public actor MockCoordinator: MCPCoordinatorProtocol {
 
     // MARK: - Events
@@ -64,12 +64,10 @@ public actor MockCoordinator: MCPCoordinatorProtocol {
     /// Request IDs passed to cancelToolCall.
     public private(set) var cancelToolCallCalls: [String] = []
 
-    // MARK: - New Protocol Fields
-
     /// Available tools to return.
     public var availableToolsToReturn: [AvailableTool] = []
 
-    /// Recording for new methods
+    /// Recording for auto-reconnect calls.
     public private(set) var triggerAutoReconnectCalls: [String] = []
     public private(set) var startHealthChecksCalled = false
     public private(set) var emitConnectionLostCalls: [String] = []
@@ -162,36 +160,6 @@ public actor MockCoordinator: MCPCoordinatorProtocol {
         alertContinuation.yield(alert)
     }
 
-    /// Set the result to return from startAllAndWait.
-    public func setStartResult(_ result: StartResult) {
-        startResultToReturn = result
-    }
-
-    /// Set the snapshot to return.
-    public func setSnapshot(_ snapshot: CoordinatorSnapshot) {
-        snapshotToReturn = snapshot
-    }
-
-    /// Set the tool call result to return.
-    public func setToolCallResult(_ result: String) {
-        toolCallResult = result
-    }
-
-    /// Set an error to throw from tool calls.
-    public func setToolCallError(_ error: Error) {
-        toolCallError = error
-    }
-
-    /// Get the specs passed to startAll.
-    public var startAllCalls: [[ServerSpec]] {
-        startAllCalled ? [startAllSpecs] : []
-    }
-
-    /// Get the tool call history.
-    public var callToolCalls: [(serverID: String, name: String, arguments: [String: Value]?)] {
-        toolCalls
-    }
-
     /// Emit an event (simulate coordinator activity).
     public func emit(_ event: MCPEvent) {
         eventContinuation.yield(event)
@@ -204,6 +172,16 @@ public actor MockCoordinator: MCPCoordinatorProtocol {
         to: ConnectionState
     ) {
         eventContinuation.yield(.stateChanged(serverID: serverID, from: from, to: to))
+    }
+
+    /// Set the result to return from tool calls.
+    public func setToolCallResult(_ result: String) {
+        toolCallResult = result
+    }
+
+    /// Set the error to throw from tool calls.
+    public func setToolCallError(_ error: Error) {
+        toolCallError = error
     }
 
     /// Reset all recorded state.
@@ -220,15 +198,5 @@ public actor MockCoordinator: MCPCoordinatorProtocol {
         triggerAutoReconnectCalls = []
         startHealthChecksCalled = false
         emitConnectionLostCalls = []
-    }
-
-    /// Check if reconnect was called for a specific server.
-    public func wasReconnected(_ serverID: String) -> Bool {
-        reconnectCalls.contains(serverID)
-    }
-
-    /// Check if a tool was called on a specific server.
-    public func wasToolCalled(_ tool: String, on serverID: String) -> Bool {
-        toolCalls.contains { $0.serverID == serverID && $0.name == tool }
     }
 }

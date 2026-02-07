@@ -105,7 +105,7 @@ struct MCPToolErrorReproTest {
             return
         }
 
-        let mcpTools: [any Tool] = try await server.discoverTools()
+        let mcpTools: [any Tool] = try await server.tools()
 
         guard let listDirsTool = mcpTools.first(where: { $0.name == "list_allowed_directories" }) else {
             print("Skipping: list_allowed_directories tool not found")
@@ -159,7 +159,7 @@ struct MCPToolErrorReproTest {
             return
         }
 
-        let mcpTools: [any Tool] = try await server.discoverTools()
+        let mcpTools: [any Tool] = try await server.tools()
         print("[\(subject.providerName)] MCP tools: \(mcpTools.map { $0.name })")
 
         let agent = try Agent<String>(

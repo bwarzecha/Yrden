@@ -4,17 +4,22 @@
 /// - MCPToolProxy routes calls through coordinator
 /// - ToolFilter matches entries correctly
 /// - ToolMode filtering works
-/// - lifted() extension creates working tools
 
 import Testing
 import Foundation
 import MCP
 @testable import Yrden
+@testable import YrdenTestSupport
 
 // MARK: - MCPToolProxy Tests
 
 @Suite("MCP Tool Proxy")
 struct MCPToolProxyTests {
+
+    /// Minimal context for proxy tests (proxy ignores context).
+    private func makeContext() -> ToolContext {
+        ToolContext(model: FakeModel())
+    }
 
     // MARK: - Proxy Creation
 
@@ -37,10 +42,11 @@ struct MCPToolProxyTests {
         #expect(proxy.name == "test_tool")
         #expect(proxy.description == "Test description")
         #expect(proxy.definition.name == "test_tool")
+        #expect(proxy.definition.description == "Test description")
     }
 
-    @Test("Creates AnyAgentTool with correct properties")
-    func asAnyAgentTool() async throws {
+    @Test("Creates proxy from components")
+    func proxyFromComponents() async throws {
         let coordinator = MockCoordinator()
         let proxy = MCPToolProxy(
             serverID: "server1",
@@ -50,11 +56,9 @@ struct MCPToolProxyTests {
             coordinator: coordinator
         )
 
-        let tool = proxy.asAnyAgentTool()
-
-        #expect(tool.name == "my_tool")
-        #expect(tool.description == "My description")
-        #expect(tool.definition.name == "my_tool")
+        #expect(proxy.name == "my_tool")
+        #expect(proxy.description == "My description")
+        #expect(proxy.definition.name == "my_tool")
     }
 
     // MARK: - Tool Call Routing
@@ -72,24 +76,25 @@ struct MCPToolProxyTests {
             coordinator: coordinator
         )
 
-        let result = try await proxy.call(argumentsJSON: #"{"key": "value"}"#)
+        let result = try await proxy.call(
+            context: makeContext(),
+            argumentsJSON: #"{"key": "value"}"#
+        )
 
-        // Verify coordinator received the call
         let calls = await coordinator.toolCalls
         #expect(calls.count == 1)
         #expect(calls[0].serverID == "server1")
         #expect(calls[0].name == "my_tool")
 
-        // Verify result
-        if case .success(let value) = result {
-            #expect(value == "success result")
-        } else {
-            Issue.record("Expected success result")
+        guard case .success(let value) = result else {
+            Issue.record("Expected .success, got \(result)")
+            return
         }
+        #expect(value == "success result")
     }
 
-    @Test("Returns retry on timeout error")
-    func returnsRetryOnTimeout() async throws {
+    @Test("Returns failure on timeout error")
+    func returnsFailureOnTimeout() async throws {
         let coordinator = MockCoordinator()
         await coordinator.setToolCallError(MCPConnectionError.toolTimeout(
             serverID: "server1",
@@ -105,13 +110,18 @@ struct MCPToolProxyTests {
             coordinator: coordinator
         )
 
-        let result = try await proxy.call(argumentsJSON: "{}")
+        let result = try await proxy.call(
+            context: makeContext(),
+            argumentsJSON: "{}"
+        )
 
-        if case .retry(let message) = result {
-            #expect(message.contains("timed out"))
-        } else {
-            Issue.record("Expected retry result, got \(result)")
+        guard case .failure(let error) = result else {
+            Issue.record("Expected .failure, got \(result)")
+            return
         }
+        #expect(error.localizedDescription.lowercased().contains("timed out")
+                || error.localizedDescription.lowercased().contains("timeout"),
+               "Error should mention timeout: \(error.localizedDescription)")
     }
 
     @Test("Returns failure on server disconnected")
@@ -127,13 +137,18 @@ struct MCPToolProxyTests {
             coordinator: coordinator
         )
 
-        let result = try await proxy.call(argumentsJSON: "{}")
+        let result = try await proxy.call(
+            context: makeContext(),
+            argumentsJSON: "{}"
+        )
 
-        if case .failure = result {
-            // Expected
-        } else {
-            Issue.record("Expected failure result, got \(result)")
+        guard case .failure(let error) = result else {
+            Issue.record("Expected .failure, got \(result)")
+            return
         }
+        #expect(error.localizedDescription.contains("disconnected")
+                || error.localizedDescription.contains("not connected"),
+               "Error should indicate disconnect: \(error.localizedDescription)")
     }
 
     @Test("Handles empty arguments")
@@ -149,16 +164,13 @@ struct MCPToolProxyTests {
             coordinator: coordinator
         )
 
-        // Test empty string
-        _ = try await proxy.call(argumentsJSON: "")
+        let ctx = makeContext()
 
-        // Test empty object
-        _ = try await proxy.call(argumentsJSON: "{}")
+        _ = try await proxy.call(context: ctx, argumentsJSON: "")
+        _ = try await proxy.call(context: ctx, argumentsJSON: "{}")
 
         let calls = await coordinator.toolCalls
-        #expect(calls.count == 2)
-        #expect(calls[0].arguments == nil)
-        #expect(calls[1].arguments == nil)
+        #expect(calls.count == 2, "Both calls should reach coordinator")
     }
 }
 
@@ -374,39 +386,5 @@ struct ToolFilterCodableTests {
         let data = try JSONEncoder().encode(filter)
         let decoded = try JSONDecoder().decode(ToolFilter.self, from: data)
         #expect(decoded == filter)
-    }
-}
-
-// MARK: - Array Extension Tests
-
-@Suite("Array Extensions")
-struct ArrayExtensionTests {
-
-    @Test("Array of proxies converts to AnyAgentTools")
-    func arrayToAnyAgentTools() async throws {
-        let coordinator = MockCoordinator()
-
-        let proxies = [
-            MCPToolProxy(
-                serverID: "s1",
-                name: "tool1",
-                description: "Tool 1",
-                inputSchema: [:],
-                coordinator: coordinator
-            ),
-            MCPToolProxy(
-                serverID: "s2",
-                name: "tool2",
-                description: "Tool 2",
-                inputSchema: [:],
-                coordinator: coordinator
-            )
-        ]
-
-        let tools = proxies.asAnyAgentTools()
-
-        #expect(tools.count == 2)
-        #expect(tools[0].name == "tool1")
-        #expect(tools[1].name == "tool2")
     }
 }

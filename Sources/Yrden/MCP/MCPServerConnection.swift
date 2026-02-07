@@ -15,7 +15,7 @@
 /// )
 ///
 /// // Discover and use tools
-/// let tools = try await server.discoverTools()
+/// let tools = try await server.listTools()
 /// for tool in tools {
 ///     print("Found tool: \(tool.name)")
 /// }
@@ -467,18 +467,17 @@ public actor MCPServerConnection {
         return try await listTools()
     }
 
-    /// Discover tools and wrap them as Yrden Tools.
+    /// Get all tools as agent-compatible `[any Tool]`.
     ///
-    /// - Returns: Array of type-erased agent tools
+    /// Each tool wraps calls through this server connection directly.
+    /// For coordinator-managed connections, use `MCPToolProxy` instead.
+    ///
+    /// - Returns: Array of agent tools
     /// - Throws: If tool discovery fails
-    ///
-    /// - Note: Deprecated. Use `MCPCoordinator` and `MCPToolProxy` instead
-    ///   for proper connection lifecycle management.
-    @available(*, deprecated, message: "Use MCPCoordinator with MCPToolProxy instead")
-    public func discoverTools() async throws -> [any Tool] {
+    public func tools() async throws -> [any Tool] {
         let mcpTools = try await listTools()
         return mcpTools.map { tool in
-            MCPTool(tool: tool, client: client, serverID: id)
+            MCPServerTool(toolInfo: ToolInfo(tool), server: self, serverID: id)
         }
     }
 

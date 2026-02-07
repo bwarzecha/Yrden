@@ -79,7 +79,7 @@ protocol ServerConnectionProtocol: Sendable, Actor {
     var state: ConnectionState { get async }
 
     /// Event stream for connection lifecycle (nonisolated for subscription).
-    nonisolated var events: AsyncStream<ConnectionEvent> { get }
+    nonisolated var events: AsyncStream<MCPEvent> { get }
 
     /// Attempt to connect to the server.
     func connect() async
@@ -112,7 +112,7 @@ protocol ServerConnectionFactory: Sendable {
 /// In tests: MockCoordinator with controllable behavior.
 protocol MCPCoordinatorProtocol: Sendable, Actor {
     /// Event stream for coordinator-level events (nonisolated for subscription).
-    nonisolated var events: AsyncStream<CoordinatorEvent> { get }
+    nonisolated var events: AsyncStream<MCPEvent> { get }
 
     /// Alert stream for user-facing notifications (nonisolated for subscription).
     nonisolated var alerts: AsyncStream<MCPAlert> { get }

@@ -201,8 +201,8 @@ struct MCPIntegrationTests {
         }
     }
 
-    @Test("Discover tools as [any Tool]")
-    func discoverToolsAsAgentTools() async throws {
+    @Test("Get tools as [any Tool]")
+    func getToolsAsAgentTools() async throws {
         guard Self.mcpTestsEnabled else { return }
         guard Self.isUvxAvailable && Self.isGitAvailable else {
             print("Skipping: uvx or git not available")
@@ -211,11 +211,11 @@ struct MCPIntegrationTests {
 
         let (server, _) = try await SharedMCPServers.shared.gitConnection()
 
-        let agentTools: [any Tool] = try await server.discoverTools()
+        let agentTools: [any Tool] = try await server.tools()
 
         // Should match the raw MCP tool count
         let rawTools = try await server.listTools()
-        #expect(agentTools.count == rawTools.count, "discoverTools should return same count as listTools")
+        #expect(agentTools.count == rawTools.count, "tools() should return same count as listTools")
 
         for tool in agentTools {
             #expect(!tool.name.isEmpty, "Tool name should not be empty")
@@ -241,7 +241,7 @@ struct MCPIntegrationTests {
 
         let (server, repoDir) = try await SharedMCPServers.shared.gitConnection()
 
-        let tools: [any Tool] = try await server.discoverTools()
+        let tools: [any Tool] = try await server.tools()
         guard let statusTool = tools.first(where: { $0.name == "git_status" }) else {
             print("git_status tool not found, available tools: \(tools.map { $0.name })")
             return
@@ -311,7 +311,7 @@ struct MCPIntegrationTests {
 
         let (server, _) = try await SharedMCPServers.shared.gitConnection()
 
-        let tools: [any Tool] = try await server.discoverTools()
+        let tools: [any Tool] = try await server.tools()
 
         guard let tool = tools.first else {
             return
@@ -358,7 +358,7 @@ struct MCPIntegrationTests {
         }
 
         let (server, repoDir) = try await SharedMCPServers.shared.gitConnection()
-        let mcpTools: [any Tool] = try await server.discoverTools()
+        let mcpTools: [any Tool] = try await server.tools()
 
         let agent = try Agent<GitRepoInfo>(
             model: subject.model,
@@ -412,7 +412,7 @@ struct MCPIntegrationTests {
         )
         defer { Task { await server.disconnect() } }
 
-        let mcpTools: [any Tool] = try await server.discoverTools()
+        let mcpTools: [any Tool] = try await server.tools()
         let branchName = "feature/test-branch"
 
         let agent = try Agent<String>(

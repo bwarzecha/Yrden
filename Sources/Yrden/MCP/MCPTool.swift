@@ -1,88 +1,41 @@
-/// MCP Tool wrapper for Yrden Agent integration.
-///
-/// Wraps an MCP server tool as a Yrden `Tool`, enabling MCP tools
-/// to be used seamlessly in Agent workflows.
-///
-/// ## Usage
-/// ```swift
-/// let server = try await MCPServerConnection.stdio(
-///     command: "uvx",
-///     arguments: ["mcp-server-filesystem", "--root", "/tmp"]
-/// )
-///
-/// let tools = try await server.discoverTools()
-/// let agent = try Agent<String>(
-///     model: model,
-///     tools: tools,  // MCPTools work like any other tool
-///     systemPrompt: "You can read and write files."
-/// )
-/// ```
+/// MCP tool types for Yrden Agent integration.
 
 import Foundation
 import MCP
 
-// MARK: - MCPTool
+// MARK: - MCPServerTool
 
-/// A wrapper that exposes an MCP tool as a Yrden Tool.
+/// A tool wrapper that calls an MCP server connection directly.
 ///
-/// MCPTool handles:
-/// - Converting the MCP tool schema to Yrden's format
-/// - Executing tool calls via the MCP client
-/// - Converting arguments and results between formats
+/// Use this when working with `MCPServerConnection` directly (not through a coordinator).
+/// For coordinator-managed connections, use `MCPToolProxy` instead.
 ///
-/// - Note: Deprecated. Use `MCPToolProxy` with `MCPCoordinator` instead
-///   for proper connection lifecycle management.
-@available(*, deprecated, message: "Use MCPToolProxy with MCPCoordinator instead")
-public struct MCPTool: Tool {
-    /// The MCP tool metadata.
-    public let mcpTool: MCP.Tool
+/// Created via `MCPServerConnection.tools()`.
+public struct MCPServerTool: Tool, Sendable {
+    public let name: String
+    public let description: String
+    public let definition: ToolDefinition
+    public var requiresApproval: Bool { false }
 
-    /// The MCP client used to execute the tool.
-    private let client: Client
-
-    /// Server identifier for error messages.
+    private let server: MCPServerConnection
     private let serverID: String
 
-    /// Create an MCPTool wrapping an MCP server tool.
-    ///
-    /// - Parameters:
-    ///   - tool: The MCP tool metadata from `listTools()`
-    ///   - client: The MCP client to use for execution
-    ///   - serverID: Identifier for the server (for error messages)
-    public init(tool: MCP.Tool, client: Client, serverID: String) {
-        self.mcpTool = tool
-        self.client = client
+    init(toolInfo: ToolInfo, server: MCPServerConnection, serverID: String) {
+        self.name = toolInfo.name
+        self.description = toolInfo.description ?? "MCP tool: \(toolInfo.name)"
+        self.definition = ToolDefinition(
+            name: toolInfo.name,
+            description: toolInfo.description ?? "MCP tool: \(toolInfo.name)",
+            inputSchema: JSONValue(mcpValue: toolInfo.inputSchema)
+        )
+        self.server = server
         self.serverID = serverID
     }
 
-    /// Tool name (from MCP).
-    public var name: String { mcpTool.name }
-
-    /// Tool description (from MCP).
-    public var description: String { mcpTool.description ?? "MCP tool: \(mcpTool.name)" }
-
-    /// Generate the ToolDefinition for the agent.
-    public var definition: ToolDefinition {
-        ToolDefinition(
-            name: name,
-            description: description,
-            inputSchema: JSONValue(mcpValue: mcpTool.inputSchema)
-        )
-    }
-
-    public var requiresApproval: Bool { false }
-
-    /// Execute the MCP tool with JSON arguments.
-    ///
-    /// - Parameters:
-    ///   - context: Tool execution context (not used for MCP tools, but required by protocol)
-    ///   - argumentsJSON: JSON string of arguments from the LLM
-    /// - Returns: Tool result
     public func call(
         context: ToolContext,
         argumentsJSON: String
     ) async throws -> AnyToolResult {
-        // Parse arguments using shared helper
         let arguments: [String: Value]?
         switch parseMCPArguments(argumentsJSON) {
         case .success(let args):
@@ -91,39 +44,13 @@ public struct MCPTool: Tool {
             return .failure(error)
         }
 
-        // Call the MCP tool
         do {
-            let result = try await client.callTool(name: name, arguments: arguments)
-
-            // Check for error response
+            let result = try await server.callTool(name: name, arguments: arguments)
+            let text = formatMCPToolResult(result.content, isError: result.isError)
             if result.isError == true {
-                let errorText = result.content.compactMap { content -> String? in
-                    if case .text(let text) = content {
-                        return text
-                    }
-                    return nil
-                }.joined(separator: "\n")
-                return .failure(MCPToolError.toolReturnedError(name: name, message: errorText))
+                return .failure(MCPToolError.toolReturnedError(name: name, message: text))
             }
-
-            // Convert content to string result
-            let resultText = result.content.map { content -> String in
-                switch content {
-                case .text(let text):
-                    return text
-                case .image(let data, let mimeType, _):
-                    return "[Image: \(mimeType), \(data.count) bytes]"
-                case .audio(let data, let mimeType):
-                    return "[Audio: \(mimeType), \(data.count) bytes]"
-                case .resource(let uri, let mimeType, let text):
-                    if let text = text {
-                        return text
-                    }
-                    return "[Resource: \(uri), \(mimeType)]"
-                }
-            }.joined(separator: "\n")
-
-            return .success(resultText)
+            return .success(text)
         } catch {
             return .failure(MCPToolError.executionFailed(
                 name: name,

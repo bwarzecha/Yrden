@@ -28,8 +28,8 @@ actor ProtocolServerConnection: ServerConnectionProtocol {
 
     // MARK: - Events
 
-    nonisolated let events: AsyncStream<ConnectionEvent>
-    private let eventContinuation: AsyncStream<ConnectionEvent>.Continuation
+    nonisolated let events: AsyncStream<MCPEvent>
+    private let eventContinuation: AsyncStream<MCPEvent>.Continuation
 
     // MARK: - Internal State
 
@@ -43,7 +43,7 @@ actor ProtocolServerConnection: ServerConnectionProtocol {
         self.spec = spec
         self.clientFactory = clientFactory
 
-        var continuation: AsyncStream<ConnectionEvent>.Continuation!
+        var continuation: AsyncStream<MCPEvent>.Continuation!
         self.events = AsyncStream { continuation = $0 }
         self.eventContinuation = continuation
     }

@@ -98,6 +98,26 @@ public actor MockMCPClient: MCPClientProtocol {
 
     // MARK: - Test Helpers
 
+    /// Set tools to return from listTools().
+    public func setToolsToReturn(_ tools: [MCP.Tool]) {
+        toolsToReturn = tools
+    }
+
+    /// Set result for a specific tool.
+    public func setToolResult(_ name: String, result: MCPCallToolResult) {
+        toolResults[name] = result
+    }
+
+    /// Set error to throw from all methods.
+    public func setError(_ error: Error) {
+        errorToThrow = error
+    }
+
+    /// Set delay before returning from tool calls.
+    public func setToolCallDelay(_ delay: Duration) {
+        toolCallDelay = delay
+    }
+
     /// Reset all recorded state.
     public func reset() {
         listToolsCalled = false

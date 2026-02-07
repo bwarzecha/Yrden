@@ -3,10 +3,8 @@
 /// Provides helpers for:
 /// - Collecting events from async streams
 /// - Waiting for conditions
-/// - Async assertions
 
 import Foundation
-import XCTest
 @testable import Yrden
 
 // MARK: - Event Collection
@@ -18,7 +16,7 @@ import XCTest
 /// let events = try await collectEvents(from: connection.events, count: 2, timeout: .seconds(1)) {
 ///     await connection.connect()
 /// }
-/// XCTAssertEqual(events.count, 2)
+/// #expect(events.count == 2)
 /// ```
 public func collectEvents<E: Sendable>(
     from stream: AsyncStream<E>,
@@ -26,10 +24,8 @@ public func collectEvents<E: Sendable>(
     timeout: Duration,
     during action: @Sendable () async throws -> Void
 ) async throws -> [E] {
-    // Use an actor to safely collect events
     let collector = EventCollector<E>(targetCount: count)
 
-    // Start collection task
     let collectionTask = Task {
         await collector.collect(from: stream)
     }
@@ -97,7 +93,7 @@ private actor EventCollector<E: Sendable> {
 /// let connected = await waitFor(timeout: .seconds(1)) {
 ///     await connection.state.isConnected
 /// }
-/// XCTAssertTrue(connected)
+/// #expect(connected)
 /// ```
 public func waitFor(
     timeout: Duration,
@@ -116,39 +112,6 @@ public func waitFor(
     return false
 }
 
-// MARK: - Async Assertions
-
-/// Assert that a condition eventually becomes true.
-///
-/// Retries until the condition passes or timeout.
-/// ```swift
-/// await assertEventually {
-///     await connection.state.isConnected
-/// }
-/// ```
-public func assertEventually(
-    timeout: Duration = .seconds(1),
-    message: String = "Condition not met within timeout",
-    file: StaticString = #file,
-    line: UInt = #line,
-    condition: @Sendable @escaping () async -> Bool
-) async {
-    let passed = await waitFor(timeout: timeout, condition: condition)
-    XCTAssertTrue(passed, message, file: file, line: line)
-}
-
-/// Assert that a condition never becomes true during the timeout period.
-public func assertNever(
-    duration: Duration = .milliseconds(100),
-    message: String = "Condition became true unexpectedly",
-    file: StaticString = #file,
-    line: UInt = #line,
-    condition: @Sendable @escaping () async -> Bool
-) async {
-    let becameTrue = await waitFor(timeout: duration, condition: condition)
-    XCTAssertFalse(becameTrue, message, file: file, line: line)
-}
-
 // MARK: - Event Matchers
 
 /// Find the first event matching a predicate.
@@ -157,56 +120,4 @@ public func findEvent<E>(
     matching predicate: (E) -> Bool
 ) -> E? {
     events.first(where: predicate)
-}
-
-/// Assert that events contain a matching event.
-public func assertContainsEvent<E>(
-    _ events: [E],
-    matching predicate: (E) -> Bool,
-    message: String = "Expected event not found",
-    file: StaticString = #file,
-    line: UInt = #line
-) {
-    XCTAssertNotNil(findEvent(in: events, matching: predicate), message, file: file, line: line)
-}
-
-// MARK: - Connection State Assertions
-
-extension ConnectionState {
-    /// Assert this is the expected connected state with tools.
-    public func assertConnected(
-        withToolCount expectedCount: Int? = nil,
-        file: StaticString = #file,
-        line: UInt = #line
-    ) {
-        guard case .connected = self else {
-            XCTFail("Expected connected state, got \(self)", file: file, line: line)
-            return
-        }
-
-        if let expectedCount = expectedCount {
-            XCTAssertEqual(self.toolCount, expectedCount, "Tool count mismatch", file: file, line: line)
-        }
-    }
-
-    /// Assert this is the expected failed state.
-    public func assertFailed(
-        withMessage expectedMessage: String? = nil,
-        file: StaticString = #file,
-        line: UInt = #line
-    ) {
-        guard case .failed(let message, _) = self else {
-            XCTFail("Expected failed state, got \(self)", file: file, line: line)
-            return
-        }
-
-        if let expectedMessage = expectedMessage {
-            XCTAssertTrue(
-                message.contains(expectedMessage),
-                "Error message '\(message)' does not contain '\(expectedMessage)'",
-                file: file,
-                line: line
-            )
-        }
-    }
 }

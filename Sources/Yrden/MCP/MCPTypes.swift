@@ -2,8 +2,7 @@
 ///
 /// These types provide the foundation for the layered MCP architecture:
 /// - ConnectionState: State machine for server connections
-/// - ConnectionEvent: Events emitted during lifecycle
-/// - CoordinatorEvent: Events from the coordinator layer
+/// - MCPEvent: Events emitted during lifecycle
 /// - Supporting types for tools, logs, and errors
 
 import Foundation
@@ -220,16 +219,6 @@ public enum MCPAlert: Identifiable, Sendable {
         }
     }
 }
-
-// MARK: - Deprecated Type Aliases
-
-/// Deprecated: Use `MCPEvent` instead.
-@available(*, deprecated, renamed: "MCPEvent")
-public typealias ConnectionEvent = MCPEvent
-
-/// Deprecated: Use `MCPEvent` instead.
-@available(*, deprecated, renamed: "MCPEvent")
-public typealias CoordinatorEvent = MCPEvent
 
 // MARK: - Snapshots
 

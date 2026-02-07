@@ -35,8 +35,8 @@ actor ProtocolMCPCoordinator: MCPCoordinatorProtocol {
 
     // MARK: - Events
 
-    nonisolated let events: AsyncStream<CoordinatorEvent>
-    private let eventContinuation: AsyncStream<CoordinatorEvent>.Continuation
+    nonisolated let events: AsyncStream<MCPEvent>
+    private let eventContinuation: AsyncStream<MCPEvent>.Continuation
 
     // MARK: - Alerts
 
@@ -52,7 +52,7 @@ actor ProtocolMCPCoordinator: MCPCoordinatorProtocol {
         self.connectionFactory = connectionFactory
         self.configuration = configuration
 
-        var eventCont: AsyncStream<CoordinatorEvent>.Continuation!
+        var eventCont: AsyncStream<MCPEvent>.Continuation!
         self.events = AsyncStream { eventCont = $0 }
         self.eventContinuation = eventCont
 
