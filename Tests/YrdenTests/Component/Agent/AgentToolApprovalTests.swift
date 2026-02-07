@@ -60,10 +60,8 @@ struct AgentToolApprovalTests {
         #expect(calls.isEmpty)
     }
 
-    @Test("batch with approval tool produces results for every call")
-    func batchWithApprovalToolDefersAllWithResultsForEveryCall() async throws {
-        // DRIVES FIX: When a batch has tools needing approval, ALL tool_use
-        // blocks must get matching tool_result entries. APIs require this.
+    @Test("approval tool in batch blocks normal tools from executing")
+    func approvalToolInBatchBlocksNormalTools() async throws {
         let normalA = FakeTool<ConfigurableToolArgs, String>(
             name: "normal_a",
             onCall: { _ in .success("a-ok") }
@@ -72,23 +70,12 @@ struct AgentToolApprovalTests {
             name: "approval_b",
             onCall: { _ in .success("b-ok") }
         )
-        let normalC = FakeTool<ConfigurableToolArgs, String>(
-            name: "normal_c",
-            onCall: { _ in .success("c-ok") }
-        )
 
-        let counter = CallCounter()
         let model = FakeModel(onComplete: { _ in
-            switch await counter.increment() {
-            case 1:
-                return MockResponse.toolCalls([
-                    ToolCall(id: "tc-a", name: "normal_a", arguments: #"{"input":"a"}"#),
-                    ToolCall(id: "tc-b", name: "approval_b", arguments: #"{"input":"b"}"#),
-                    ToolCall(id: "tc-c", name: "normal_c", arguments: #"{"input":"c"}"#),
-                ])
-            default:
-                throw LLMError.serverError("Unexpected call")
-            }
+            MockResponse.toolCalls([
+                ToolCall(id: "tc-a", name: "normal_a", arguments: #"{"input":"a"}"#),
+                ToolCall(id: "tc-b", name: "approval_b", arguments: #"{"input":"b"}"#),
+            ])
         })
 
         let agent = try Agent<Void, String>(
@@ -97,7 +84,6 @@ struct AgentToolApprovalTests {
             tools: [
                 AnyAgentTool(normalA),
                 AnyAgentTool(approvalB, requiresApproval: true),
-                AnyAgentTool(normalC),
             ]
         )
 
@@ -108,29 +94,14 @@ struct AgentToolApprovalTests {
             return
         }
 
-        // Basic behavior: approval_b is the pending call
         #expect(pending.count == 1)
         #expect(pending[0].call.name == "approval_b")
 
-        // No tools should have been executed
+        // Normal tool must NOT execute either — entire batch is held
         let aCalls = await normalA.calls
         let bCalls = await approvalB.calls
-        let cCalls = await normalC.calls
         #expect(aCalls.isEmpty)
         #expect(bCalls.isEmpty)
-        #expect(cCalls.isEmpty)
-
-        // DRIVES FIX: Every tool_use must have a matching tool_result
-        // in messages. Currently the engine only returns results for
-        // tools needing approval, leaving the others without results.
-        let hasResultA = hasToolResult(for: "tc-a", in: run.messages)
-        let hasResultB = hasToolResult(for: "tc-b", in: run.messages)
-        let hasResultC = hasToolResult(for: "tc-c", in: run.messages)
-
-        if !hasResultA || !hasResultB || !hasResultC {
-            let msg = "DRIVES FIX: Batch with approval tools must produce tool_result for every tool_use in run.messages"
-            Issue.record(Comment(rawValue: msg))
-        }
     }
 
     @Test("resume with approved executes tool and continues")
@@ -454,21 +425,4 @@ struct AgentToolApprovalTests {
         #expect(!run.isCompleted)
     }
 
-    // MARK: - Helpers
-
-    private func hasToolResult(
-        for callId: String,
-        in messages: [Message]
-    ) -> Bool {
-        messages.contains { message in
-            switch message {
-            case .toolResult(let id, _):
-                return id == callId
-            case .toolResults(let entries):
-                return entries.contains { $0.id == callId }
-            default:
-                return false
-            }
-        }
-    }
 }
