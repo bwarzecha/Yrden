@@ -83,12 +83,11 @@ struct SchemaIntegrationTests {
             Issue.record("Missing required field")
             return
         }
-        let requiredNames = required.compactMap { value -> String? in
+        let requiredNames = Set(required.compactMap { value -> String? in
             guard case .string(let str) = value else { return nil }
             return str
-        }
-        #expect(requiredNames.contains("name"))
-        #expect(requiredNames.contains("age"))
+        })
+        #expect(requiredNames == Set(["name", "age"]))
 
         // Check additionalProperties
         guard let addPropsValue = obj["additionalProperties"],
@@ -136,14 +135,12 @@ struct SchemaIntegrationTests {
             Issue.record("Missing required field")
             return
         }
-        let requiredNames = required.compactMap { value -> String? in
+        let requiredNames = Set(required.compactMap { value -> String? in
             guard case .string(let str) = value else { return nil }
             return str
-        }
-        #expect(requiredNames.count == 5)
+        })
+        #expect(requiredNames == Set(["username", "email", "score", "isActive", "tags"]))
         #expect(!requiredNames.contains("bio"))
-        #expect(requiredNames.contains("username"))
-        #expect(requiredNames.contains("tags"))
     }
 
     @Test("String enum generates correct schema")
@@ -212,16 +209,15 @@ struct SchemaIntegrationTests {
     func schemaSerialization() throws {
         let schema = SimpleUser.jsonSchema
 
-        // Encode to JSON
+        // Encode to JSON and decode back to verify round-trip
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(schema)
-        let jsonString = String(data: data, encoding: .utf8)!
+        let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
 
-        // Verify it contains expected keys
-        #expect(jsonString.contains("\"type\":\"object\""))
-        #expect(jsonString.contains("\"additionalProperties\":false"))
-        #expect(jsonString.contains("\"properties\""))
-        #expect(jsonString.contains("\"required\""))
+        // Verify structure via decoded value
+        #expect(decoded["type"]?.stringValue == "object")
+        #expect(decoded["additionalProperties"]?.boolValue == false)
+        #expect(decoded["properties"] != nil)
+        #expect(decoded["required"] != nil)
     }
 }

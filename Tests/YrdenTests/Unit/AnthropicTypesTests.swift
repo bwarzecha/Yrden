@@ -195,6 +195,7 @@ struct AnthropicMessageTests {
         let content = json["content"] as! [[String: Any]]
         #expect(content.count == 1)
         #expect(content[0]["type"] as? String == "text")
+        #expect(content[0]["text"] as? String == "Hello")
     }
 
     @Test func decode_assistantMessage() throws {
@@ -215,6 +216,19 @@ struct AnthropicMessageTests {
 
         #expect(message.role == "assistant")
         #expect(message.content.count == 2)
+
+        if case .text(let text) = message.content[0] {
+            #expect(text == "Let me help you.")
+        } else {
+            Issue.record("Expected text block at index 0")
+        }
+
+        if case .toolUse(let id, let name, _) = message.content[1] {
+            #expect(id == "1")
+            #expect(name == "search")
+        } else {
+            Issue.record("Expected tool_use block at index 1")
+        }
     }
 
     @Test func roundTrip_multimodalMessage() throws {
@@ -378,9 +392,11 @@ struct AnthropicResponseTests {
 
         #expect(response.content.count == 2)
         #expect(response.content[0].type == "text")
+        #expect(response.content[0].text == "Let me search for that.")
         #expect(response.content[1].type == "tool_use")
         #expect(response.content[1].id == "tu_123")
         #expect(response.content[1].name == "search")
+        #expect(response.content[1].input == ["query": "swift concurrency"])
         #expect(response.stop_reason == "tool_use")
     }
 

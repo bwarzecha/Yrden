@@ -1,27 +1,32 @@
-import XCTest
+/// Tests for JSONValue object (dictionary) support.
+///
+/// Covers: Codable round-trips, objectValue accessor, subscript access,
+/// nested objects, literal expressibility, and edge cases.
+
+import Testing
+import Foundation
 @testable import Yrden
 
-/// Phase 2 tests: Object (dictionary) support
-/// Tests Codable, objectValue accessor, subscript access, nested objects, literals
-final class JSONValueObjectTests: XCTestCase {
+@Suite("JSONValue - Objects")
+struct JSONValueObjectTests {
 
     // MARK: - Basic Object Tests
 
-    func test_roundTrip_object_empty() throws {
+    @Test func roundTrip_object_empty() throws {
         let original: JSONValue = .object([:])
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(original, decoded)
+        #expect(original == decoded)
     }
 
-    func test_roundTrip_object_simple() throws {
+    @Test func roundTrip_object_simple() throws {
         let original: JSONValue = .object(["key": .string("value")])
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(original, decoded)
+        #expect(original == decoded)
     }
 
-    func test_roundTrip_object_multipleKeys() throws {
+    @Test func roundTrip_object_multipleKeys() throws {
         let original: JSONValue = .object([
             "name": .string("Alice"),
             "age": .int(30),
@@ -29,113 +34,112 @@ final class JSONValueObjectTests: XCTestCase {
         ])
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(original, decoded)
+        #expect(original == decoded)
     }
 
-    func test_encode_object_empty_producesEmptyObject() throws {
+    @Test func encode_object_empty_producesEmptyObject() throws {
         let value: JSONValue = .object([:])
         let data = try JSONEncoder().encode(value)
         let json = String(data: data, encoding: .utf8)!
-        XCTAssertEqual(json, "{}")
+        #expect(json == "{}")
     }
 
-    func test_encode_object_producesObject() throws {
+    @Test func encode_object_producesObject() throws {
         let value: JSONValue = .object(["key": .string("value")])
         let data = try JSONEncoder().encode(value)
+        // Verify structural correctness by decoding as generic JSON
+        let parsed = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        #expect(parsed["key"] as? String == "value")
+        // Also verify it's NOT using synthesized enum format
         let json = String(data: data, encoding: .utf8)!
-        // Verify it's a JSON object (not synthesized enum format)
-        XCTAssertTrue(json.hasPrefix("{"), "Should start with {")
-        XCTAssertTrue(json.hasSuffix("}"), "Should end with }")
-        XCTAssertTrue(json.contains("\"key\""), "Should contain key")
-        XCTAssertTrue(json.contains("\"value\""), "Should contain value")
-        XCTAssertFalse(json.contains("object"), "Should not use synthesized format")
-        XCTAssertFalse(json.contains("_0"), "Should not use synthesized format")
+        #expect(!json.contains("\"object\""), "Should not use synthesized format")
+        #expect(!json.contains("_0"), "Should not use synthesized format")
     }
 
-    func test_decode_object_empty() throws {
+    @Test func decode_object_empty() throws {
         let json = "{}"
         let data = json.data(using: .utf8)!
         let value = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(value, .object([:]))
+        #expect(value == .object([:]))
     }
 
-    func test_decode_object_simple() throws {
+    @Test func decode_object_simple() throws {
         let json = """
         {"name": "Alice"}
         """
         let data = json.data(using: .utf8)!
         let value = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(value, .object(["name": .string("Alice")]))
+        #expect(value == .object(["name": .string("Alice")]))
     }
 
-    func test_decode_object_multipleKeys() throws {
+    @Test func decode_object_multipleKeys() throws {
         let json = """
         {"name": "Alice", "age": 30, "active": true}
         """
         let data = json.data(using: .utf8)!
         let value = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(value["name"], .string("Alice"))
-        XCTAssertEqual(value["age"], .int(30))
-        XCTAssertEqual(value["active"], .bool(true))
+        #expect(value["name"] == .string("Alice"))
+        #expect(value["age"] == .int(30))
+        #expect(value["active"] == .bool(true))
     }
 
-    func test_decode_object_withNullValue() throws {
+    @Test func decode_object_withNullValue() throws {
         let json = """
         {"key": null}
         """
         let data = json.data(using: .utf8)!
         let value = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(value, .object(["key": .null]))
+        #expect(value == .object(["key": .null]))
     }
 
     // MARK: - objectValue Accessor
 
-    func test_objectValue_returnsObject() {
+    @Test func objectValue_returnsObject() {
         let dict: [String: JSONValue] = ["a": .int(1), "b": .int(2)]
         let value: JSONValue = .object(dict)
-        XCTAssertEqual(value.objectValue, dict)
+        #expect(value.objectValue == dict)
     }
 
-    func test_objectValue_returnsNil_whenNotObject() {
-        XCTAssertNil(JSONValue.string("hello").objectValue)
-        XCTAssertNil(JSONValue.int(42).objectValue)
-        XCTAssertNil(JSONValue.array([]).objectValue)
-        XCTAssertNil(JSONValue.null.objectValue)
+    @Test func objectValue_returnsNil_whenNotObject() {
+        #expect(JSONValue.string("hello").objectValue == nil)
+        #expect(JSONValue.int(42).objectValue == nil)
+        #expect(JSONValue.array([]).objectValue == nil)
+        #expect(JSONValue.null.objectValue == nil)
     }
 
     // MARK: - Subscript Access
 
-    func test_subscript_object_existingKey() {
+    @Test func subscript_object_existingKey() {
         let value: JSONValue = .object(["name": .string("Alice")])
-        XCTAssertEqual(value["name"], .string("Alice"))
+        #expect(value["name"] == .string("Alice"))
     }
 
-    func test_subscript_object_missingKey() {
+    @Test func subscript_object_missingKey() {
         let value: JSONValue = .object(["name": .string("Alice")])
-        XCTAssertNil(value["missing"])
+        #expect(value["missing"] == nil)
     }
 
-    func test_subscript_object_onNonObject() {
-        XCTAssertNil(JSONValue.string("hello")["key"])
-        XCTAssertNil(JSONValue.int(42)["key"])
-        XCTAssertNil(JSONValue.null["key"])
+    @Test func subscript_object_onNonObject() {
+        #expect(JSONValue.string("hello")["key"] == nil)
+        #expect(JSONValue.int(42)["key"] == nil)
+        #expect(JSONValue.null["key"] == nil)
     }
 
-    func test_subscript_object_multipleAccess() {
+    @Test func subscript_object_multipleAccess() {
         let value: JSONValue = .object([
             "a": .int(1),
             "b": .int(2),
             "c": .int(3)
         ])
-        XCTAssertEqual(value["a"]?.intValue, 1)
-        XCTAssertEqual(value["b"]?.intValue, 2)
-        XCTAssertEqual(value["c"]?.intValue, 3)
-        XCTAssertNil(value["d"])
+        #expect(value["a"]?.intValue == 1)
+        #expect(value["b"]?.intValue == 2)
+        #expect(value["c"]?.intValue == 3)
+        #expect(value["d"] == nil)
     }
 
     // MARK: - Nested Objects
 
-    func test_roundTrip_object_nested() throws {
+    @Test func roundTrip_object_nested() throws {
         let original: JSONValue = .object([
             "user": .object([
                 "name": .string("Alice"),
@@ -146,20 +150,20 @@ final class JSONValueObjectTests: XCTestCase {
         ])
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(original, decoded)
+        #expect(original == decoded)
     }
 
-    func test_decode_object_nested() throws {
+    @Test func decode_object_nested() throws {
         let json = """
         {"user": {"name": "Alice", "profile": {"age": 30}}}
         """
         let data = json.data(using: .utf8)!
         let value = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(value["user"]?["name"]?.stringValue, "Alice")
-        XCTAssertEqual(value["user"]?["profile"]?["age"]?.intValue, 30)
+        #expect(value["user"]?["name"]?.stringValue == "Alice")
+        #expect(value["user"]?["profile"]?["age"]?.intValue == 30)
     }
 
-    func test_subscript_chained_nestedObjects() {
+    @Test func subscript_chained_nestedObjects() {
         let value: JSONValue = .object([
             "level1": .object([
                 "level2": .object([
@@ -169,50 +173,50 @@ final class JSONValueObjectTests: XCTestCase {
                 ])
             ])
         ])
-        XCTAssertEqual(value["level1"]?["level2"]?["level3"]?["value"]?.stringValue, "deep")
+        #expect(value["level1"]?["level2"]?["level3"]?["value"]?.stringValue == "deep")
     }
 
-    func test_subscript_chained_returnsNil_whenPathBroken() {
+    @Test func subscript_chained_returnsNil_whenPathBroken() {
         let value: JSONValue = .object([
             "a": .object([
                 "b": .string("leaf")
             ])
         ])
         // Path exists
-        XCTAssertEqual(value["a"]?["b"]?.stringValue, "leaf")
+        #expect(value["a"]?["b"]?.stringValue == "leaf")
         // Path broken at various points
-        XCTAssertNil(value["missing"]?["b"])
-        XCTAssertNil(value["a"]?["missing"])
+        #expect(value["missing"]?["b"] == nil)
+        #expect(value["a"]?["missing"] == nil)
         // Trying to subscript a non-object
-        XCTAssertNil(value["a"]?["b"]?["c"])
+        #expect(value["a"]?["b"]?["c"] == nil)
     }
 
     // MARK: - Literal Expressibility
 
-    func test_literal_dictionary_empty() {
+    @Test func literal_dictionary_empty() {
         let value: JSONValue = [:]
-        XCTAssertEqual(value, .object([:]))
+        #expect(value == .object([:]))
     }
 
-    func test_literal_dictionary_simple() {
+    @Test func literal_dictionary_simple() {
         let value: JSONValue = ["key": "value"]
-        XCTAssertEqual(value, .object(["key": .string("value")]))
+        #expect(value == .object(["key": .string("value")]))
     }
 
-    func test_literal_dictionary_mixedTypes() {
+    @Test func literal_dictionary_mixedTypes() {
         let value: JSONValue = [
             "name": "Alice",
             "age": 30,
             "active": true,
             "score": 95.5
         ]
-        XCTAssertEqual(value["name"]?.stringValue, "Alice")
-        XCTAssertEqual(value["age"]?.intValue, 30)
-        XCTAssertEqual(value["active"]?.boolValue, true)
-        XCTAssertEqual(value["score"]?.doubleValue, 95.5)
+        #expect(value["name"]?.stringValue == "Alice")
+        #expect(value["age"]?.intValue == 30)
+        #expect(value["active"]?.boolValue == true)
+        #expect(value["score"]?.doubleValue == 95.5)
     }
 
-    func test_literal_dictionary_nested() {
+    @Test func literal_dictionary_nested() {
         let value: JSONValue = [
             "user": [
                 "name": "Alice",
@@ -221,40 +225,40 @@ final class JSONValueObjectTests: XCTestCase {
                 ]
             ]
         ]
-        XCTAssertEqual(value["user"]?["name"]?.stringValue, "Alice")
-        XCTAssertEqual(value["user"]?["profile"]?["age"]?.intValue, 30)
+        #expect(value["user"]?["name"]?.stringValue == "Alice")
+        #expect(value["user"]?["profile"]?["age"]?.intValue == 30)
     }
 
-    func test_literal_dictionary_withNull() {
+    @Test func literal_dictionary_withNull() {
         let value: JSONValue = [
             "present": "value",
             "absent": nil
         ]
-        XCTAssertEqual(value["present"], .string("value"))
-        XCTAssertEqual(value["absent"], .null)
+        #expect(value["present"] == .string("value"))
+        #expect(value["absent"] == .null)
     }
 
     // MARK: - Edge Cases
 
-    func test_object_withEmptyStringKey() throws {
+    @Test func object_withEmptyStringKey() throws {
         let original: JSONValue = .object(["": .string("empty key")])
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(decoded[""]?.stringValue, "empty key")
+        #expect(decoded[""]?.stringValue == "empty key")
     }
 
-    func test_object_withUnicodeKeys() throws {
+    @Test func object_withUnicodeKeys() throws {
         let original: JSONValue = .object([
             "emoji": .string("value"),
             "\u{4E2D}\u{6587}": .string("chinese key")
         ])
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(decoded["emoji"]?.stringValue, "value")
-        XCTAssertEqual(decoded["\u{4E2D}\u{6587}"]?.stringValue, "chinese key")
+        #expect(decoded["emoji"]?.stringValue == "value")
+        #expect(decoded["\u{4E2D}\u{6587}"]?.stringValue == "chinese key")
     }
 
-    func test_object_manyKeys() throws {
+    @Test func object_manyKeys() throws {
         var dict: [String: JSONValue] = [:]
         for i in 0..<100 {
             dict["key\(i)"] = .int(i)
@@ -262,14 +266,14 @@ final class JSONValueObjectTests: XCTestCase {
         let original: JSONValue = .object(dict)
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(original, decoded)
+        #expect(original == decoded)
         // Verify a few specific values
-        XCTAssertEqual(decoded["key0"]?.intValue, 0)
-        XCTAssertEqual(decoded["key50"]?.intValue, 50)
-        XCTAssertEqual(decoded["key99"]?.intValue, 99)
+        #expect(decoded["key0"]?.intValue == 0)
+        #expect(decoded["key50"]?.intValue == 50)
+        #expect(decoded["key99"]?.intValue == 99)
     }
 
-    func test_object_deeplyNested() throws {
+    @Test func object_deeplyNested() throws {
         // 10 levels of nesting
         var value: JSONValue = .string("deepest")
         for i in (0..<10).reversed() {
@@ -277,6 +281,6 @@ final class JSONValueObjectTests: XCTestCase {
         }
         let data = try JSONEncoder().encode(value)
         let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(value, decoded)
+        #expect(value == decoded)
     }
 }

@@ -152,7 +152,9 @@ struct CompletionRequestTests {
         let decoded = try JSONDecoder().decode(CompletionRequest.self, from: data)
 
         #expect(decoded == request)
-        #expect(decoded.outputSchema != nil)
+        #expect(decoded.outputSchema?["type"]?.stringValue == "object")
+        #expect(decoded.outputSchema?["properties"]?["summary"]?["type"]?.stringValue == "string")
+        #expect(decoded.outputSchema?["properties"]?["score"]?["type"]?.stringValue == "number")
     }
 
     @Test func roundTrip_withConfig() throws {

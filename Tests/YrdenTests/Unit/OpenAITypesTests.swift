@@ -167,6 +167,16 @@ struct OpenAIContentTests {
 
         if case .parts(let parts) = content {
             #expect(parts.count == 2)
+            if case .text(let first) = parts[0] {
+                #expect(first == "First")
+            } else {
+                Issue.record("Expected text part at index 0")
+            }
+            if case .text(let second) = parts[1] {
+                #expect(second == "Second")
+            } else {
+                Issue.record("Expected text part at index 1")
+            }
         } else {
             Issue.record("Expected parts content")
         }
@@ -507,7 +517,8 @@ struct OpenAIRequestTests {
         // Verify schema is included
         let schemaObj = jsonSchema["schema"] as! [String: Any]
         #expect(schemaObj["type"] as? String == "object")
-        #expect((schemaObj["required"] as? [String])?.contains("sentiment") == true)
+        let required = Set(schemaObj["required"] as! [String])
+        #expect(required == Set(["sentiment", "confidence"]))
     }
 }
 
@@ -601,7 +612,7 @@ struct OpenAIResponseTests {
         let toolCall = response.choices[0].message.tool_calls![0]
         #expect(toolCall.id == "call_abc")
         #expect(toolCall.function.name == "search")
-        #expect(toolCall.function.arguments.contains("swift concurrency"))
+        #expect(toolCall.function.arguments == #"{"query": "swift concurrency"}"#)
     }
 
     @Test func decode_stopReason_length() throws {
@@ -712,7 +723,14 @@ struct OpenAIResponseTests {
             from: Data(json.utf8)
         )
 
-        #expect(response.choices[0].message.tool_calls?.count == 2)
+        let toolCalls = response.choices[0].message.tool_calls!
+        #expect(toolCalls.count == 2)
+        #expect(toolCalls[0].id == "call_1")
+        #expect(toolCalls[0].function.name == "get_weather")
+        #expect(toolCalls[0].function.arguments == #"{"city": "NYC"}"#)
+        #expect(toolCalls[1].id == "call_2")
+        #expect(toolCalls[1].function.name == "get_weather")
+        #expect(toolCalls[1].function.arguments == #"{"city": "LA"}"#)
         #expect(response.choices[0].message.content == "I'll check both for you.")
     }
 }

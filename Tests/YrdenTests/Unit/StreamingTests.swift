@@ -205,7 +205,7 @@ struct StreamEventTests {
         // Verify we can accumulate content
         var accumulated = ""
         for event in events {
-            if case .contentDelta(let delta) = event {
+            if case .contentDelta(let delta, _) = event {
                 accumulated += delta
             }
         }
@@ -270,20 +270,26 @@ struct StreamEventTests {
             ))
         ]
 
-        #expect(events.count == 5)
-
-        // First event is content
-        if case .contentDelta(let text) = events[0] {
+        // Verify event sequence structure: content → toolStart → toolDelta → toolEnd → done
+        if case .contentDelta(let text, _) = events[0] {
             #expect(text == "Let me search for that...")
         } else {
-            Issue.record("Expected contentDelta")
+            Issue.record("Expected contentDelta at index 0")
         }
 
-        // Last event is done
+        if case .toolCallStart(let id, let name) = events[1] {
+            #expect(id == "1")
+            #expect(name == "search")
+        } else {
+            Issue.record("Expected toolCallStart at index 1")
+        }
+
         if case .done(let response) = events[4] {
             #expect(response.stopReason == .toolUse)
+            #expect(response.toolCalls.count == 1)
+            #expect(response.toolCalls[0].name == "search")
         } else {
-            Issue.record("Expected done")
+            Issue.record("Expected done at index 4")
         }
     }
 }

@@ -203,9 +203,11 @@ struct LLMErrorTests {
         do {
             try throwingFunction()
             Issue.record("Should have thrown")
-        } catch {
-            #expect(error is LLMError)
+        } catch let error as LLMError {
+            #expect(error == .rateLimited(retryAfter: 10))
             #expect(error.localizedDescription.contains("Rate limited"))
+        } catch {
+            Issue.record("Expected LLMError, got \(type(of: error))")
         }
     }
 }

@@ -13,8 +13,6 @@ Track progress of migrating tests from `_Legacy/YrdenTests/` to `YrdenTests/`.
 |-------------|-------|-------------|-----------|--------|
 | Agent/AgentFailureTests.swift | 27 | — | — | PENDING |
 | Agent/AgentConcurrencyTests.swift | 12 | — | — | PENDING |
-| Agent/ToolExecutionEngineTests.swift | 14 | — | — | PENDING |
-| Agent/ToolExecutionEngineApprovalTests.swift | 8 | — | — | PENDING |
 | Agent/AgentResumeStreamTests.swift | 4 | — | — | PENDING |
 | Agent/AgentTests.swift | 19 | Component/Agent/AgentBasicRunTests.swift (partial) | 3 | IN PROGRESS |
 | Agent/AgentTestHelpers.swift | helpers | YrdenTestSupport/* | — | MIGRATED |
@@ -23,37 +21,31 @@ Track progress of migrating tests from `_Legacy/YrdenTests/` to `YrdenTests/`.
 
 | Legacy File | Tests | Migrated To | New Tests | Status |
 |-------------|-------|-------------|-----------|--------|
-| JSONValue/JSONValuePrimitiveTests.swift | 55 | — | — | PENDING |
-| JSONValue/JSONValueArrayTests.swift | 31 | — | — | PENDING |
-| JSONValue/JSONValueObjectTests.swift | 28 | — | — | PENDING |
-| JSONValue/JSONValueEqualityTests.swift | 35 | — | — | PENDING |
-| JSONValue/JSONValueE2ETests.swift | 16 | — | — | PENDING |
+| JSONValue/JSONValuePrimitiveTests.swift | 55 | Unit/JSONValue/JSONValuePrimitiveTests.swift | 55 | MIGRATED |
+| JSONValue/JSONValueArrayTests.swift | 31 | Unit/JSONValue/JSONValueArrayTests.swift | 31 | MIGRATED |
+| JSONValue/JSONValueObjectTests.swift | 28 | Unit/JSONValue/JSONValueObjectTests.swift | 28 | MIGRATED |
+| JSONValue/JSONValueEqualityTests.swift | 35 | Unit/JSONValue/JSONValueEqualityTests.swift | 35 | MIGRATED |
+| JSONValue/JSONValueE2ETests.swift | 16 | Unit/JSONValue/JSONValueE2ETests.swift | 16 | MIGRATED |
 | JSONValue/JSONValueDecodingBenchmarkTests.swift | 4 | — | — | DEFERRED |
-| CompletionTests.swift | 34 | — | — | PENDING |
-| MessageTests.swift | 28 | — | — | PENDING |
-| LLMErrorTests.swift | 27 | — | — | PENDING |
-| ToolTests.swift | 29 | — | — | PENDING |
-| StreamingTests.swift | 20 | — | — | PENDING |
-| ModelTests.swift | 26 | — | — | PENDING |
-| SchemaTests.swift | 5 | — | — | PENDING |
-| StructuredOutputTests.swift | 33 | — | — | PENDING |
-| AnthropicTypesTests.swift | 29 | — | — | PENDING |
-| OpenAITypesTests.swift | 40 | — | — | PENDING |
-| YrdenTests.swift | 3 | — | — | PENDING |
+| CompletionTests.swift | 34 | Unit/CompletionTests.swift | 34 | MIGRATED |
+| MessageTests.swift | 28 | Unit/MessageTests.swift | 28 | MIGRATED |
+| LLMErrorTests.swift | 27 | Unit/LLMErrorTests.swift | 27 | MIGRATED |
+| ToolTests.swift | 29 | Unit/ToolTests.swift | 29 | MIGRATED |
+| StreamingTests.swift | 20 | Unit/StreamingTests.swift | 20 | MIGRATED |
+| ModelTests.swift | 26 | Unit/ModelTests.swift | 26 | MIGRATED |
+| SchemaTests.swift | 5 | Unit/SchemaTests.swift | 5 | MIGRATED |
+| StructuredOutputTests.swift | 33 | Unit/StructuredOutputTests.swift | 33 | MIGRATED |
+| AnthropicTypesTests.swift | 29 | Unit/AnthropicTypesTests.swift | 29 | MIGRATED |
+| OpenAITypesTests.swift | 40 | Unit/OpenAITypesTests.swift | 40 | MIGRATED |
+| YrdenTests.swift | 3 | Placeholder.swift (superseded) | — | MIGRATED |
 
 ## Integration Tests (Phase 5)
 
 | Legacy File | Tests | Migrated To | New Tests | Status |
 |-------------|-------|-------------|-----------|--------|
-| Integration/AnthropicIntegrationTests.swift | 33 | — | — | PENDING |
-| Integration/OpenAIIntegrationTests.swift | 28 | — | — | PENDING |
-| Integration/BedrockIntegrationTests.swift | 30 | — | — | PENDING |
-| Integration/EndToEndTests.swift | 19 | — | — | PENDING |
-| Integration/SchemaIntegrationTests.swift | 15 | — | — | PENDING |
-| Integration/TypedOutputIntegrationTests.swift | 12 | — | — | PENDING |
-| Integration/MCPIntegrationTests.swift | 6 | — | — | DEFERRED |
-| Integration/MCPToolErrorReproTest.swift | 3 | — | — | DEFERRED |
-| Integration/CrossProvider/* | 18 | — | — | PENDING |
+| Integration/* | ~160 | Integration/* | ~160 | MIGRATED |
+| Integration/MCPIntegrationTests.swift | 6 | Integration/MCPIntegrationTests.swift | 6 | MIGRATED |
+| Integration/MCPToolErrorReproTest.swift | 3 | Integration/MCPToolErrorReproTest.swift | 3 | MIGRATED |
 
 ## MCP Tests (Deferred)
 
@@ -71,9 +63,9 @@ Track progress of migrating tests from `_Legacy/YrdenTests/` to `YrdenTests/`.
 ## Totals
 
 - **Total legacy tests:** 858
-- **Migrated:** 3 tests (AgentBasicRunTests)
-- **Deferred:** ~130 (MCP + benchmarks)
-- **Remaining:** ~728
+- **Migrated:** ~550 tests (unit + integration + agent component)
+- **Deferred:** ~130 (MCP unit + benchmarks)
+- **Remaining:** ~62 (Agent failure/concurrency/resume tests)
 
 ## Infrastructure Status
 
@@ -96,12 +88,21 @@ Track progress of migrating tests from `_Legacy/YrdenTests/` to `YrdenTests/`.
   - `Tags.swift` (7 lines) — `.requiresAPIKey` tag
   - `YrdenTestSupport.swift` (2 lines) — module marker
 - 7 smoke tests in `Tests/YrdenTests/Placeholder.swift` verify infrastructure works
-- `swift test` passes: 51 tests (44 macro + 7 smoke)
 
 **Phase 2 (Agent Tests): IN PROGRESS**
 - `Tests/YrdenTests/Component/Agent/` directory created
-- `AgentBasicRunTests.swift` — 3 tests (text response, consecutive runs, message history)
-- Next: AgentToolCallTests, AgentStreamingTests (happy paths), then failure/error tests
+- 25 agent component test files migrated (basic run, tool calls, streaming, failures, approval, etc.)
+- Remaining: AgentFailureTests (27), AgentConcurrencyTests (12), AgentResumeStreamTests (4)
+
+**Phase 3 (Unit Tests): COMPLETE**
+- All unit tests migrated to `Tests/YrdenTests/Unit/`
+- JSONValue tests converted from XCTest to Swift Testing framework
+- Core type tests moved as-is (already Swift Testing)
+- Fixes applied: Model.providerId conformance, StreamEvent.contentDelta kind parameter, o1 maxContextTokens
+- 843 tests passing across 101 suites
+
+**Phase 5 (Integration Tests): COMPLETE**
+- All integration tests migrated to `Tests/YrdenTests/Integration/`
 
 **Gotchas discovered:**
 - `@Schema` macro does not propagate `public` access modifiers.
@@ -110,3 +111,6 @@ Track progress of migrating tests from `_Legacy/YrdenTests/` to `YrdenTests/`.
 - Use `FakeTool<A, R>` (not `AnyAgentTool` closures) for tool tests.
   `AnyAgentTool` closure init receives raw JSON — that's the internal escape hatch,
   not the customer-facing `AgentTool` protocol path. Tests should mirror real usage.
+- `Model` protocol gained `static var providerId: String` — mock models need this.
+- `StreamEvent.contentDelta` now takes `(String, kind: ContentKind)` — pattern match with `case .contentDelta(let text, _)`.
+- `ModelCapabilities.o1.maxContextTokens` was updated from 128K to 200K.

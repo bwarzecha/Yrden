@@ -335,6 +335,7 @@ struct ToolArgumentContractTests {
         case .success(let args):
             #expect(args != nil)
             #expect(args?.count == 2)
+            #expect(Set(args?.keys.map { $0 } ?? []) == Set(["query", "limit"]))
         case .error(let error):
             Issue.record("Valid JSON should not error: \(error)")
         }
@@ -358,8 +359,8 @@ struct ToolArgumentContractTests {
         case .success:
             Issue.record("Invalid JSON should produce error")
         case .error(let error):
-            if case .argumentParsing = error {
-                // Expected - parsing error
+            if case .argumentParsing(let message) = error {
+                #expect(!message.isEmpty, "Error message should not be empty")
             } else {
                 Issue.record("Should be argumentParsing error, got: \(error)")
             }

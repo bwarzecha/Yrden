@@ -138,6 +138,8 @@ struct ModelCapabilitiesTests {
         #expect(caps.supportsTemperature == true)
         #expect(caps.supportsTools == true)
         #expect(caps.supportsVision == true)
+        #expect(caps.supportsStructuredOutput == true)
+        #expect(caps.supportsSystemMessage == true)
         #expect(caps.maxContextTokens == 200_000)
     }
 
@@ -160,7 +162,7 @@ struct ModelCapabilitiesTests {
         #expect(caps.supportsVision == false)
         #expect(caps.supportsStructuredOutput == false)
         #expect(caps.supportsSystemMessage == false)
-        #expect(caps.maxContextTokens == 128_000)
+        #expect(caps.maxContextTokens == 200_000)
     }
 
     @Test func predefined_o3() {
@@ -179,6 +181,7 @@ struct ModelCapabilitiesTests {
 
 /// Mock model for testing validation logic.
 private struct MockModel: Model {
+    static let providerId = "mock"
     let name: String
     let capabilities: ModelCapabilities
 
@@ -224,8 +227,15 @@ struct ModelValidationTests {
             config: CompletionConfig(temperature: 0.7)
         )
 
-        #expect(throws: LLMError.self) {
+        do {
             try model.validateRequest(request)
+            Issue.record("Should have thrown")
+        } catch let error as LLMError {
+            if case .capabilityNotSupported(let message) = error {
+                #expect(message.contains("temperature"))
+            } else {
+                Issue.record("Expected capabilityNotSupported, got \(error)")
+            }
         }
     }
 
@@ -268,8 +278,15 @@ struct ModelValidationTests {
             tools: [ToolDefinition(name: "test", description: "Test", inputSchema: .null)]
         )
 
-        #expect(throws: LLMError.self) {
+        do {
             try model.validateRequest(request)
+            Issue.record("Should have thrown")
+        } catch let error as LLMError {
+            if case .capabilityNotSupported(let message) = error {
+                #expect(message.contains("tool"))
+            } else {
+                Issue.record("Expected capabilityNotSupported, got \(error)")
+            }
         }
     }
 
@@ -313,8 +330,15 @@ struct ModelValidationTests {
             outputSchema: ["type": "object"]
         )
 
-        #expect(throws: LLMError.self) {
+        do {
             try model.validateRequest(request)
+            Issue.record("Should have thrown")
+        } catch let error as LLMError {
+            if case .capabilityNotSupported(let message) = error {
+                #expect(message.lowercased().contains("structured") || message.lowercased().contains("output"))
+            } else {
+                Issue.record("Expected capabilityNotSupported, got \(error)")
+            }
         }
     }
 
@@ -348,8 +372,15 @@ struct ModelValidationTests {
             ]
         )
 
-        #expect(throws: LLMError.self) {
+        do {
             try model.validateRequest(request)
+            Issue.record("Should have thrown")
+        } catch let error as LLMError {
+            if case .capabilityNotSupported(let message) = error {
+                #expect(message.lowercased().contains("system"))
+            } else {
+                Issue.record("Expected capabilityNotSupported, got \(error)")
+            }
         }
     }
 
@@ -400,8 +431,15 @@ struct ModelValidationTests {
             ]
         )
 
-        #expect(throws: LLMError.self) {
+        do {
             try model.validateRequest(request)
+            Issue.record("Should have thrown")
+        } catch let error as LLMError {
+            if case .capabilityNotSupported(let message) = error {
+                #expect(message.lowercased().contains("vision") || message.lowercased().contains("image"))
+            } else {
+                Issue.record("Expected capabilityNotSupported, got \(error)")
+            }
         }
     }
 

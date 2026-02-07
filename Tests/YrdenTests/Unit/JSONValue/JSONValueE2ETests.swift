@@ -1,13 +1,18 @@
-import XCTest
+/// End-to-end tests for JSONValue in real-world scenarios.
+///
+/// Covers: JSON schema construction, tool argument parsing,
+/// structured output cycles, provider-specific formats, and edge cases.
+
+import Testing
+import Foundation
 @testable import Yrden
 
-/// Phase 5: End-to-End tests for real-world scenarios
-/// Tests JSONValue in the context of JSON Schema, tool arguments, and structured outputs
-final class JSONValueE2ETests: XCTestCase {
+@Suite("JSONValue - E2E Scenarios")
+struct JSONValueE2ETests {
 
     // MARK: - JSON Schema Scenarios
 
-    func test_e2e_jsonSchema_simpleObject() throws {
+    @Test func e2e_jsonSchema_simpleObject() throws {
         // Build a simple schema like we would for a tool input
         let schema: JSONValue = [
             "type": "object",
@@ -21,26 +26,19 @@ final class JSONValueE2ETests: XCTestCase {
 
         // Encode to JSON (what we'd send to LLM provider)
         let data = try JSONEncoder().encode(schema)
-        let jsonString = String(data: data, encoding: .utf8)!
-
-        // Verify key elements are present (can't check exact string due to dict ordering)
-        XCTAssertTrue(jsonString.contains("\"type\":\"object\""))
-        XCTAssertTrue(jsonString.contains("\"additionalProperties\":false"))
-        XCTAssertTrue(jsonString.contains("\"name\""))
-        XCTAssertTrue(jsonString.contains("\"age\""))
 
         // Decode back and verify round-trip
         let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(schema, decoded)
+        #expect(schema == decoded)
 
         // Verify we can access nested values
-        XCTAssertEqual(decoded["type"]?.stringValue, "object")
-        XCTAssertEqual(decoded["properties"]?["name"]?["type"]?.stringValue, "string")
-        XCTAssertEqual(decoded["properties"]?["age"]?["type"]?.stringValue, "integer")
-        XCTAssertEqual(decoded["additionalProperties"]?.boolValue, false)
+        #expect(decoded["type"]?.stringValue == "object")
+        #expect(decoded["properties"]?["name"]?["type"]?.stringValue == "string")
+        #expect(decoded["properties"]?["age"]?["type"]?.stringValue == "integer")
+        #expect(decoded["additionalProperties"]?.boolValue == false)
     }
 
-    func test_e2e_jsonSchema_withArrayProperty() throws {
+    @Test func e2e_jsonSchema_withArrayProperty() throws {
         let schema: JSONValue = [
             "type": "object",
             "properties": [
@@ -56,11 +54,11 @@ final class JSONValueE2ETests: XCTestCase {
         let data = try JSONEncoder().encode(schema)
         let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
 
-        XCTAssertEqual(decoded["properties"]?["tags"]?["type"]?.stringValue, "array")
-        XCTAssertEqual(decoded["properties"]?["tags"]?["items"]?["type"]?.stringValue, "string")
+        #expect(decoded["properties"]?["tags"]?["type"]?.stringValue == "array")
+        #expect(decoded["properties"]?["tags"]?["items"]?["type"]?.stringValue == "string")
     }
 
-    func test_e2e_jsonSchema_withEnum() throws {
+    @Test func e2e_jsonSchema_withEnum() throws {
         let schema: JSONValue = [
             "type": "object",
             "properties": [
@@ -76,13 +74,13 @@ final class JSONValueE2ETests: XCTestCase {
         let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
 
         let enumValues = decoded["properties"]?["status"]?["enum"]?.arrayValue
-        XCTAssertEqual(enumValues?.count, 3)
-        XCTAssertEqual(enumValues?[0].stringValue, "active")
-        XCTAssertEqual(enumValues?[1].stringValue, "inactive")
-        XCTAssertEqual(enumValues?[2].stringValue, "pending")
+        #expect(enumValues?.count == 3)
+        #expect(enumValues?[0].stringValue == "active")
+        #expect(enumValues?[1].stringValue == "inactive")
+        #expect(enumValues?[2].stringValue == "pending")
     }
 
-    func test_e2e_jsonSchema_nested() throws {
+    @Test func e2e_jsonSchema_nested() throws {
         // A more complex schema with nested objects
         let schema: JSONValue = [
             "type": "object",
@@ -109,15 +107,15 @@ final class JSONValueE2ETests: XCTestCase {
 
         let data = try JSONEncoder().encode(schema)
         let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
-        XCTAssertEqual(schema, decoded)
+        #expect(schema == decoded)
 
         // Deep access
-        XCTAssertEqual(decoded["properties"]?["user"]?["properties"]?["address"]?["properties"]?["city"]?["type"]?.stringValue, "string")
+        #expect(decoded["properties"]?["user"]?["properties"]?["address"]?["properties"]?["city"]?["type"]?.stringValue == "string")
     }
 
     // MARK: - Tool Arguments Scenarios
 
-    func test_e2e_toolArguments_decodeFromString() throws {
+    @Test func e2e_toolArguments_decodeFromString() throws {
         // Simulate receiving tool arguments from LLM (raw JSON string)
         let llmResponse = """
         {"query": "weather in London", "limit": 5, "include_forecast": true}
@@ -127,16 +125,16 @@ final class JSONValueE2ETests: XCTestCase {
         let args = try JSONDecoder().decode(JSONValue.self, from: data)
 
         // Extract typed values
-        XCTAssertEqual(args["query"]?.stringValue, "weather in London")
-        XCTAssertEqual(args["limit"]?.intValue, 5)
-        XCTAssertEqual(args["include_forecast"]?.boolValue, true)
+        #expect(args["query"]?.stringValue == "weather in London")
+        #expect(args["limit"]?.intValue == 5)
+        #expect(args["include_forecast"]?.boolValue == true)
 
         // Missing keys return nil (not crash)
-        XCTAssertNil(args["missing"])
-        XCTAssertNil(args["missing"]?.stringValue)
+        #expect(args["missing"] == nil)
+        #expect(args["missing"]?.stringValue == nil)
     }
 
-    func test_e2e_toolArguments_withArray() throws {
+    @Test func e2e_toolArguments_withArray() throws {
         let llmResponse = """
         {"ids": [1, 2, 3, 4, 5], "operation": "delete"}
         """
@@ -144,15 +142,15 @@ final class JSONValueE2ETests: XCTestCase {
         let data = llmResponse.data(using: .utf8)!
         let args = try JSONDecoder().decode(JSONValue.self, from: data)
 
-        XCTAssertEqual(args["operation"]?.stringValue, "delete")
+        #expect(args["operation"]?.stringValue == "delete")
 
         let ids = args["ids"]?.arrayValue
-        XCTAssertEqual(ids?.count, 5)
-        XCTAssertEqual(ids?[0].intValue, 1)
-        XCTAssertEqual(ids?[4].intValue, 5)
+        #expect(ids?.count == 5)
+        #expect(ids?[0].intValue == 1)
+        #expect(ids?[4].intValue == 5)
     }
 
-    func test_e2e_toolArguments_withNestedObject() throws {
+    @Test func e2e_toolArguments_withNestedObject() throws {
         let llmResponse = """
         {
             "action": "create",
@@ -169,13 +167,13 @@ final class JSONValueE2ETests: XCTestCase {
         let data = llmResponse.data(using: .utf8)!
         let args = try JSONDecoder().decode(JSONValue.self, from: data)
 
-        XCTAssertEqual(args["action"]?.stringValue, "create")
-        XCTAssertEqual(args["data"]?["name"]?.stringValue, "New Item")
-        XCTAssertEqual(args["data"]?["metadata"]?["priority"]?.stringValue, "high")
-        XCTAssertEqual(args["data"]?["metadata"]?["tags"]?[0]?.stringValue, "urgent")
+        #expect(args["action"]?.stringValue == "create")
+        #expect(args["data"]?["name"]?.stringValue == "New Item")
+        #expect(args["data"]?["metadata"]?["priority"]?.stringValue == "high")
+        #expect(args["data"]?["metadata"]?["tags"]?[0]?.stringValue == "urgent")
     }
 
-    func test_e2e_toolArguments_withNull() throws {
+    @Test func e2e_toolArguments_withNull() throws {
         let llmResponse = """
         {"required_field": "value", "optional_field": null}
         """
@@ -183,14 +181,14 @@ final class JSONValueE2ETests: XCTestCase {
         let data = llmResponse.data(using: .utf8)!
         let args = try JSONDecoder().decode(JSONValue.self, from: data)
 
-        XCTAssertEqual(args["required_field"]?.stringValue, "value")
-        XCTAssertEqual(args["optional_field"], .null)
-        XCTAssertNil(args["optional_field"]?.stringValue)  // .null has no stringValue
+        #expect(args["required_field"]?.stringValue == "value")
+        #expect(args["optional_field"] == .null)
+        #expect(args["optional_field"]?.stringValue == nil)  // .null has no stringValue
     }
 
     // MARK: - Structured Output Scenarios
 
-    func test_e2e_structuredOutput_fullCycle() throws {
+    @Test func e2e_structuredOutput_fullCycle() throws {
         // 1. Define expected output schema
         let outputSchema: JSONValue = [
             "type": "object",
@@ -215,18 +213,18 @@ final class JSONValueE2ETests: XCTestCase {
         let result = try JSONDecoder().decode(JSONValue.self, from: responseData)
 
         // 5. Verify structure matches what schema describes
-        XCTAssertEqual(result["summary"]?.stringValue, "Analysis complete")
-        XCTAssertEqual(result["confidence"]?.doubleValue, 0.95)
-        XCTAssertEqual(result["tags"]?.arrayValue?.count, 2)
-        XCTAssertEqual(result["tags"]?[0]?.stringValue, "urgent")
-        XCTAssertEqual(result["tags"]?[1]?.stringValue, "reviewed")
+        #expect(result["summary"]?.stringValue == "Analysis complete")
+        #expect(result["confidence"]?.doubleValue == 0.95)
+        #expect(result["tags"]?.arrayValue?.count == 2)
+        #expect(result["tags"]?[0]?.stringValue == "urgent")
+        #expect(result["tags"]?[1]?.stringValue == "reviewed")
 
         // Schema should also round-trip correctly
         let decodedSchema = try JSONDecoder().decode(JSONValue.self, from: schemaData)
-        XCTAssertEqual(outputSchema, decodedSchema)
+        #expect(outputSchema == decodedSchema)
     }
 
-    func test_e2e_structuredOutput_complexAnalysis() throws {
+    @Test func e2e_structuredOutput_complexAnalysis() throws {
         // Simulates a structured analysis output from LLM
         let llmOutput = """
         {
@@ -251,24 +249,27 @@ final class JSONValueE2ETests: XCTestCase {
         let result = try JSONDecoder().decode(JSONValue.self, from: data)
 
         // Verify complex nested access
-        XCTAssertEqual(result["analysis"]?["sentiment"]?.stringValue, "positive")
-        XCTAssertEqual(result["analysis"]?["score"]?.doubleValue, 0.87)
+        #expect(result["analysis"]?["sentiment"]?.stringValue == "positive")
+        #expect(result["analysis"]?["score"]?.doubleValue == 0.87)
 
         let entities = result["analysis"]?["entities"]?.arrayValue
-        XCTAssertEqual(entities?.count, 2)
-        XCTAssertEqual(entities?[0]["name"]?.stringValue, "Apple Inc")
-        XCTAssertEqual(entities?[0]["type"]?.stringValue, "company")
-        XCTAssertEqual(entities?[1]["name"]?.stringValue, "Tim Cook")
+        #expect(entities?.count == 2)
+        #expect(entities?[0]["name"]?.stringValue == "Apple Inc")
+        #expect(entities?[0]["type"]?.stringValue == "company")
+        #expect(entities?[1]["name"]?.stringValue == "Tim Cook")
 
         let keywords = result["analysis"]?["keywords"]?.arrayValue
-        XCTAssertEqual(keywords?.count, 3)
+        #expect(keywords?.count == 3)
+        #expect(keywords?[0].stringValue == "technology")
+        #expect(keywords?[1].stringValue == "innovation")
+        #expect(keywords?[2].stringValue == "growth")
 
-        XCTAssertEqual(result["metadata"]?["tokens_used"]?.intValue, 1234)
+        #expect(result["metadata"]?["tokens_used"]?.intValue == 1234)
     }
 
     // MARK: - Provider-Specific Format Tests
 
-    func test_e2e_anthropicToolUseFormat() throws {
+    @Test func e2e_anthropicToolUseFormat() throws {
         // Anthropic tool_use format simulation
         let toolDefinition: JSONValue = [
             "name": "get_weather",
@@ -286,12 +287,12 @@ final class JSONValueE2ETests: XCTestCase {
         let data = try JSONEncoder().encode(toolDefinition)
         let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
 
-        XCTAssertEqual(decoded["name"]?.stringValue, "get_weather")
-        XCTAssertEqual(decoded["input_schema"]?["type"]?.stringValue, "object")
-        XCTAssertEqual(decoded["input_schema"]?["properties"]?["location"]?["type"]?.stringValue, "string")
+        #expect(decoded["name"]?.stringValue == "get_weather")
+        #expect(decoded["input_schema"]?["type"]?.stringValue == "object")
+        #expect(decoded["input_schema"]?["properties"]?["location"]?["type"]?.stringValue == "string")
     }
 
-    func test_e2e_openaiResponseFormat() throws {
+    @Test func e2e_openaiResponseFormat() throws {
         // OpenAI response_format with strict schema
         let responseFormat: JSONValue = [
             "type": "json_schema",
@@ -313,14 +314,14 @@ final class JSONValueE2ETests: XCTestCase {
         let data = try JSONEncoder().encode(responseFormat)
         let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
 
-        XCTAssertEqual(decoded["type"]?.stringValue, "json_schema")
-        XCTAssertEqual(decoded["json_schema"]?["strict"]?.boolValue, true)
-        XCTAssertEqual(decoded["json_schema"]?["schema"]?["additionalProperties"]?.boolValue, false)
+        #expect(decoded["type"]?.stringValue == "json_schema")
+        #expect(decoded["json_schema"]?["strict"]?.boolValue == true)
+        #expect(decoded["json_schema"]?["schema"]?["additionalProperties"]?.boolValue == false)
     }
 
     // MARK: - Edge Cases in Real Usage
 
-    func test_e2e_unicodeInToolArguments() throws {
+    @Test func e2e_unicodeInToolArguments() throws {
         let llmResponse = """
         {"query": "天气预报 🌤️", "language": "中文"}
         """
@@ -328,11 +329,11 @@ final class JSONValueE2ETests: XCTestCase {
         let data = llmResponse.data(using: .utf8)!
         let args = try JSONDecoder().decode(JSONValue.self, from: data)
 
-        XCTAssertEqual(args["query"]?.stringValue, "天气预报 🌤️")
-        XCTAssertEqual(args["language"]?.stringValue, "中文")
+        #expect(args["query"]?.stringValue == "天气预报 🌤️")
+        #expect(args["language"]?.stringValue == "中文")
     }
 
-    func test_e2e_largeNumbers() throws {
+    @Test func e2e_largeNumbers() throws {
         let llmResponse = """
         {"count": 9223372036854775807, "small": -9223372036854775808, "float": 1.7976931348623157e308}
         """
@@ -340,12 +341,12 @@ final class JSONValueE2ETests: XCTestCase {
         let data = llmResponse.data(using: .utf8)!
         let args = try JSONDecoder().decode(JSONValue.self, from: data)
 
-        XCTAssertEqual(args["count"]?.intValue, Int.max)
-        XCTAssertEqual(args["small"]?.intValue, Int.min)
-        XCTAssertEqual(args["float"]?.doubleValue, Double.greatestFiniteMagnitude)
+        #expect(args["count"]?.intValue == Int.max)
+        #expect(args["small"]?.intValue == Int.min)
+        #expect(args["float"]?.doubleValue == Double.greatestFiniteMagnitude)
     }
 
-    func test_e2e_emptyStructures() throws {
+    @Test func e2e_emptyStructures() throws {
         let llmResponse = """
         {"empty_object": {}, "empty_array": [], "empty_string": ""}
         """
@@ -353,12 +354,12 @@ final class JSONValueE2ETests: XCTestCase {
         let data = llmResponse.data(using: .utf8)!
         let args = try JSONDecoder().decode(JSONValue.self, from: data)
 
-        XCTAssertEqual(args["empty_object"]?.objectValue, [:])
-        XCTAssertEqual(args["empty_array"]?.arrayValue, [])
-        XCTAssertEqual(args["empty_string"]?.stringValue, "")
+        #expect(args["empty_object"]?.objectValue == [:])
+        #expect(args["empty_array"]?.arrayValue == [])
+        #expect(args["empty_string"]?.stringValue == "")
     }
 
-    func test_e2e_specialCharactersInKeys() throws {
+    @Test func e2e_specialCharactersInKeys() throws {
         let llmResponse = """
         {"key with spaces": "value1", "key-with-dashes": "value2", "key.with.dots": "value3"}
         """
@@ -366,8 +367,8 @@ final class JSONValueE2ETests: XCTestCase {
         let data = llmResponse.data(using: .utf8)!
         let args = try JSONDecoder().decode(JSONValue.self, from: data)
 
-        XCTAssertEqual(args["key with spaces"]?.stringValue, "value1")
-        XCTAssertEqual(args["key-with-dashes"]?.stringValue, "value2")
-        XCTAssertEqual(args["key.with.dots"]?.stringValue, "value3")
+        #expect(args["key with spaces"]?.stringValue == "value1")
+        #expect(args["key-with-dashes"]?.stringValue == "value2")
+        #expect(args["key.with.dots"]?.stringValue == "value3")
     }
 }

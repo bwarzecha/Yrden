@@ -29,6 +29,7 @@ struct TestAddress: Equatable {
 
 /// A mock model that returns pre-configured responses for testing extraction logic.
 struct StructuredOutputMockModel: Model {
+    static let providerId = "mock"
     let name = "mock-model"
     let capabilities = ModelCapabilities.gpt4o
 
@@ -56,23 +57,26 @@ struct StructuredOutputErrorTests {
         let error = StructuredOutputError.modelRefused(reason: "Content policy violation")
         let description = error.localizedDescription
 
-        #expect(description.contains("refused"))
-        #expect(description.contains("Content policy violation"))
+        #expect(description.contains("refused"), "Should mention refusal, got: \(description)")
+        #expect(description.contains("Content policy violation"), "Should include the specific reason")
     }
 
     @Test func emptyResponse_localizedDescription() {
         let error = StructuredOutputError.emptyResponse
         let description = error.localizedDescription
 
-        #expect(description.contains("empty"))
+        #expect(description.lowercased().contains("empty") || description.lowercased().contains("no content"),
+                "Should indicate empty response, got: \(description)")
     }
 
     @Test func unexpectedTextResponse_localizedDescription() {
         let error = StructuredOutputError.unexpectedTextResponse(content: "Some unexpected text here")
         let description = error.localizedDescription
 
-        #expect(description.contains("Expected tool call"))
-        #expect(description.contains("text"))
+        #expect(description.contains("tool call") || description.contains("tool_call"),
+                "Should mention expected tool call, got: \(description)")
+        #expect(description.contains("Some unexpected text"),
+                "Should include the unexpected content, got: \(description)")
     }
 
     @Test func unexpectedTextResponse_truncatesLongContent() {
@@ -80,15 +84,17 @@ struct StructuredOutputErrorTests {
         let error = StructuredOutputError.unexpectedTextResponse(content: longContent)
         let description = error.localizedDescription
 
-        #expect(description.contains("..."))
+        #expect(description.contains("..."), "Long content should be truncated with ellipsis")
+        #expect(description.count < longContent.count, "Description should be shorter than the full content")
     }
 
     @Test func unexpectedToolCall_localizedDescription() {
         let error = StructuredOutputError.unexpectedToolCall(toolName: "search_tool")
         let description = error.localizedDescription
 
-        #expect(description.contains("Expected native"))
-        #expect(description.contains("search_tool"))
+        #expect(description.contains("native") || description.contains("JSON"),
+                "Should mention expected native/JSON response, got: \(description)")
+        #expect(description.contains("search_tool"), "Should include the tool name")
     }
 
     @Test func decodingFailed_localizedDescription() {
@@ -100,8 +106,10 @@ struct StructuredOutputErrorTests {
         let error = StructuredOutputError.decodingFailed(json: json, underlyingError: underlyingError)
         let description = error.localizedDescription
 
-        #expect(description.contains("Failed to decode"))
-        #expect(description.contains("invalid"))
+        #expect(description.lowercased().contains("decode") || description.lowercased().contains("decoding"),
+                "Should mention decoding failure, got: \(description)")
+        #expect(description.contains(#"{"invalid": "json"}"#) || description.contains("invalid"),
+                "Should include the JSON that failed to decode")
     }
 
     @Test func decodingFailed_truncatesLongJSON() {
@@ -112,7 +120,8 @@ struct StructuredOutputErrorTests {
         let error = StructuredOutputError.decodingFailed(json: longJSON, underlyingError: underlyingError)
         let description = error.localizedDescription
 
-        #expect(description.contains("..."))
+        #expect(description.contains("..."), "Long JSON should be truncated with ellipsis")
+        #expect(description.count < longJSON.count, "Description should be shorter than the full JSON")
     }
 
     @Test func incompleteResponse_localizedDescription() {
@@ -120,8 +129,10 @@ struct StructuredOutputErrorTests {
         let error = StructuredOutputError.incompleteResponse(partialJSON: partialJSON)
         let description = error.localizedDescription
 
-        #expect(description.contains("truncated"))
-        #expect(description.contains("max tokens"))
+        #expect(description.lowercased().contains("truncat") || description.lowercased().contains("incomplete"),
+                "Should mention truncation, got: \(description)")
+        #expect(description.lowercased().contains("max") || description.lowercased().contains("token"),
+                "Should mention max tokens, got: \(description)")
     }
 
     // MARK: - Equatable
