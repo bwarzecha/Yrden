@@ -2,11 +2,11 @@ import Foundation
 
 /// Configuration for integration tests.
 /// Loads API keys from environment variables or .env file.
-enum TestConfig {
+public enum TestConfig {
 
     /// Load an API key by name.
     /// Checks environment variables first, then falls back to .env file.
-    static func apiKey(_ name: String) -> String? {
+    public static func apiKey(_ name: String) -> String? {
         // Try environment variable first
         if let key = ProcessInfo.processInfo.environment[name], !key.isEmpty {
             return key
@@ -21,7 +21,7 @@ enum TestConfig {
     }
 
     /// Require an API key, failing with a clear message if not found.
-    static func requireAPIKey(_ name: String) -> String {
+    public static func requireAPIKey(_ name: String) -> String {
         guard let key = apiKey(name), !key.isEmpty else {
             fatalError("""
 
@@ -55,31 +55,31 @@ enum TestConfig {
 
     // MARK: - Convenience accessors (all require explicit call)
 
-    static var anthropicAPIKey: String { requireAPIKey("ANTHROPIC_API_KEY") }
-    static var openAIAPIKey: String { requireAPIKey("OPENAI_API_KEY") }
-    static var openRouterAPIKey: String { requireAPIKey("OPENROUTER_API_KEY") }
+    public static var anthropicAPIKey: String { requireAPIKey("ANTHROPIC_API_KEY") }
+    public static var openAIAPIKey: String { requireAPIKey("OPENAI_API_KEY") }
+    public static var openRouterAPIKey: String { requireAPIKey("OPENROUTER_API_KEY") }
 
     // MARK: - AWS Bedrock Configuration
 
     /// AWS region for Bedrock (defaults to "us-east-1")
-    static var awsRegion: String {
+    public static var awsRegion: String {
         apiKey("AWS_REGION") ?? apiKey("AWS_DEFAULT_REGION") ?? "us-east-1"
     }
 
     /// AWS access key ID (optional if using profile)
-    static var awsAccessKeyId: String? { apiKey("AWS_ACCESS_KEY_ID") }
+    public static var awsAccessKeyId: String? { apiKey("AWS_ACCESS_KEY_ID") }
 
     /// AWS secret access key (optional if using profile)
-    static var awsSecretAccessKey: String? { apiKey("AWS_SECRET_ACCESS_KEY") }
+    public static var awsSecretAccessKey: String? { apiKey("AWS_SECRET_ACCESS_KEY") }
 
     /// AWS session token for temporary credentials (optional)
-    static var awsSessionToken: String? { apiKey("AWS_SESSION_TOKEN") }
+    public static var awsSessionToken: String? { apiKey("AWS_SESSION_TOKEN") }
 
     /// AWS profile name (optional, used if no explicit credentials)
-    static var awsProfile: String { apiKey("AWS_PROFILE") ?? "default" }
+    public static var awsProfile: String { apiKey("AWS_PROFILE") ?? "default" }
 
     /// Whether AWS credentials are available (either explicit or profile)
-    static var hasAWSCredentials: Bool {
+    public static var hasAWSCredentials: Bool {
         // Either explicit credentials or profile-based
         if let accessKey = awsAccessKeyId, let secretKey = awsSecretAccessKey,
            !accessKey.isEmpty && !secretKey.isEmpty {
@@ -92,9 +92,9 @@ enum TestConfig {
 
     // MARK: - Check availability (for conditional test setup, not skipping)
 
-    static var hasAnthropicAPIKey: Bool { apiKey("ANTHROPIC_API_KEY") != nil }
-    static var hasOpenAIAPIKey: Bool { apiKey("OPENAI_API_KEY") != nil }
-    static var hasOpenRouterAPIKey: Bool { apiKey("OPENROUTER_API_KEY") != nil }
+    public static var hasAnthropicAPIKey: Bool { apiKey("ANTHROPIC_API_KEY") != nil }
+    public static var hasOpenAIAPIKey: Bool { apiKey("OPENAI_API_KEY") != nil }
+    public static var hasOpenRouterAPIKey: Bool { apiKey("OPENROUTER_API_KEY") != nil }
 
     // MARK: - Private
 

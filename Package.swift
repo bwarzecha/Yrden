@@ -12,6 +12,9 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-syntax.git", from: "600.0.0"),
         .package(url: "https://github.com/awslabs/aws-sdk-swift.git", from: "1.0.0"),
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.10.0"),
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm/", from: "2.30.0"),
+        .package(url: "https://github.com/huggingface/swift-jinja.git", from: "2.0.0"),
+        .package(url: "https://github.com/huggingface/swift-transformers.git", from: "1.1.6"),
     ],
     targets: [
         .target(
@@ -78,5 +81,17 @@ let package = Package(
         //     path: "Examples/YrdenExample",
         //     exclude: ["build-app.sh"]
         // ),
+        .executableTarget(
+            name: "MLXExploration",
+            dependencies: [
+                .product(name: "MLXLLM", package: "mlx-swift-lm"),
+                .product(name: "MLXVLM", package: "mlx-swift-lm"),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm"),
+                .product(name: "Jinja", package: "swift-jinja"),
+                .product(name: "Hub", package: "swift-transformers"),
+                .product(name: "Tokenizers", package: "swift-transformers"),
+            ],
+            path: "Examples/MLXExploration"
+        ),
     ]
 )

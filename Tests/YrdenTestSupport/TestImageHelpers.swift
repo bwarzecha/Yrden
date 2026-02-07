@@ -1,11 +1,11 @@
-/// Test helpers for cross-provider tests.
+/// Test helpers for creating minimal PNG images.
 
 import Foundation
 
 // MARK: - PNG Generation
 
 /// Creates a small solid-color PNG for testing image input.
-func createTestPNG(color: (r: UInt8, g: UInt8, b: UInt8)) -> Data {
+public func createTestPNG(color: (r: UInt8, g: UInt8, b: UInt8)) -> Data {
     var data = Data()
 
     // PNG signature

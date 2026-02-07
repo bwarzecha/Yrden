@@ -147,11 +147,22 @@ public final class BeforeModelContext<Output: SchemaType>: @unchecked Sendable {
         requestMessages.append(contentsOf: state.messages)
 
         let agentTools = await agent.tools
-        let toolDefinitions: [ToolDefinition]? = agentTools.isEmpty ? nil : agentTools.map { $0.definition }
+        var toolDefinitions: [ToolDefinition] = agentTools.map { $0.definition }
+
+        // Add the output tool for structured output (non-String types)
+        if Output.self != String.self {
+            let outputToolName = await agent.outputToolName
+            let outputToolDescription = await agent.outputToolDescription
+            toolDefinitions.append(ToolDefinition(
+                name: outputToolName,
+                description: outputToolDescription,
+                inputSchema: Output.jsonSchema
+            ))
+        }
 
         return CompletionRequest(
             messages: requestMessages,
-            tools: toolDefinitions
+            tools: toolDefinitions.isEmpty ? nil : toolDefinitions
         )
     }
 }

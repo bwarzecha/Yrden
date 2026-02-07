@@ -12,6 +12,7 @@
 import Foundation
 import Testing
 @testable import Yrden
+@testable import YrdenTestSupport
 
 // MARK: - Test Schema Types
 
@@ -35,21 +36,17 @@ private struct AnalysisResult: Codable {
     let keywords: [String]
 }
 
-// MARK: - Test Configuration
-
-private let hasAnthropicKey = TestConfig.hasAnthropicAPIKey
-private let hasOpenAIKey = TestConfig.hasOpenAIAPIKey
-
 // MARK: - OpenAI Typed Output Tests
 
-@Suite("Typed Output - OpenAI", .tags(.integration), .serialized)
+@Suite("Typed Output - OpenAI", .tags(.integration), .serialized,
+       .enabled(if: ProviderFixture.openAI != nil))
 struct OpenAITypedOutputTests {
     private let model = OpenAIModel(
         name: "gpt-5-mini",
         provider: OpenAIProvider(apiKey: TestConfig.openAIAPIKey)
     )
 
-    @Test("generate() returns typed PersonExtraction", .enabled(if: hasOpenAIKey))
+    @Test("generate() returns typed PersonExtraction")
     func generateTypedPerson() async throws {
         let result = try await model.generate(
             "Extract person info: Dr. Sarah Chen is a 38-year-old cardiologist.",
@@ -67,7 +64,7 @@ struct OpenAITypedOutputTests {
         #expect(!result.rawJSON.isEmpty)
     }
 
-    @Test("generate() with messages array", .enabled(if: hasOpenAIKey))
+    @Test("generate() with messages array")
     func generateWithMessages() async throws {
         let result = try await model.generate(
             messages: [
@@ -81,7 +78,7 @@ struct OpenAITypedOutputTests {
         #expect(result.data.confidence >= 0.9)
     }
 
-    @Test("generateWithTool() returns typed data from tool call", .enabled(if: hasOpenAIKey))
+    @Test("generateWithTool() returns typed data from tool call")
     func generateWithToolTyped() async throws {
         let result = try await model.generateWithTool(
             "Analyze: This article discusses machine learning and data science. Quality: excellent.",
@@ -96,7 +93,7 @@ struct OpenAITypedOutputTests {
         #expect(result.stopReason == .toolUse)
     }
 
-    @Test("generate() preserves usage statistics", .enabled(if: hasOpenAIKey))
+    @Test("generate() preserves usage statistics")
     func generatePreservesUsage() async throws {
         let result = try await model.generate(
             "Extract: value is 'test', confidence is 0.5",
@@ -110,14 +107,15 @@ struct OpenAITypedOutputTests {
 
 // MARK: - Anthropic Typed Output Tests
 
-@Suite("Typed Output - Anthropic", .tags(.integration))
+@Suite("Typed Output - Anthropic", .tags(.integration),
+       .enabled(if: ProviderFixture.anthropic != nil))
 struct AnthropicTypedOutputTests {
     private let model = AnthropicModel(
         name: "claude-haiku-4-5",
         provider: AnthropicProvider(apiKey: TestConfig.anthropicAPIKey)
     )
 
-    @Test("generateWithTool() returns typed PersonExtraction", .enabled(if: hasAnthropicKey))
+    @Test("generateWithTool() returns typed PersonExtraction")
     func generateWithToolTypedPerson() async throws {
         let result = try await model.generateWithTool(
             "Extract person info: Marcus Johnson is a 45-year-old software architect.",
@@ -136,7 +134,7 @@ struct AnthropicTypedOutputTests {
         #expect(result.stopReason == .toolUse)
     }
 
-    @Test("generateWithTool() with analysis schema", .enabled(if: hasAnthropicKey))
+    @Test("generateWithTool() with analysis schema")
     func generateWithToolAnalysis() async throws {
         let content = """
             Article: The Rise of Machine Learning in Healthcare
@@ -160,7 +158,7 @@ struct AnthropicTypedOutputTests {
         #expect(!result.data.keywords.isEmpty)
     }
 
-    @Test("generateWithTool() with messages array", .enabled(if: hasAnthropicKey))
+    @Test("generateWithTool() with messages array")
     func generateWithToolMessages() async throws {
         let result = try await model.generateWithTool(
             messages: [
@@ -190,7 +188,8 @@ struct StreamingTypedOutputTests {
         provider: AnthropicProvider(apiKey: TestConfig.anthropicAPIKey)
     )
 
-    @Test("generateStream() yields events and final response", .enabled(if: hasOpenAIKey))
+    @Test("generateStream() yields events and final response",
+          .enabled(if: ProviderFixture.openAI != nil))
     func generateStreamYieldsEvents() async throws {
         var contentDeltas: [String] = []
         var finalResponse: CompletionResponse?
@@ -200,7 +199,7 @@ struct StreamingTypedOutputTests {
             as: ExtractedPerson.self
         ) {
             switch event {
-            case .contentDelta(let delta):
+            case .contentDelta(let delta, _):
                 contentDeltas.append(delta)
             case .done(let response):
                 finalResponse = response
@@ -220,7 +219,8 @@ struct StreamingTypedOutputTests {
         #expect(result.data.name.lowercased().contains("test"))
     }
 
-    @Test("generateStreamWithTool() yields tool events", .enabled(if: hasAnthropicKey))
+    @Test("generateStreamWithTool() yields tool events",
+          .enabled(if: ProviderFixture.anthropic != nil))
     func generateStreamWithToolYieldsEvents() async throws {
         var toolCallStarted = false
         var argumentDeltas: [String] = []
@@ -260,14 +260,15 @@ struct StreamingTypedOutputTests {
 
 // MARK: - Error Handling Tests
 
-@Suite("Typed Output - Error Handling", .tags(.integration))
+@Suite("Typed Output - Error Handling", .tags(.integration),
+       .enabled(if: ProviderFixture.openAI != nil))
 struct TypedOutputErrorTests {
     private let model = OpenAIModel(
         name: "gpt-5-mini",
         provider: OpenAIProvider(apiKey: TestConfig.openAIAPIKey)
     )
 
-    @Test("Decoding failure throws StructuredOutputError", .enabled(if: hasOpenAIKey))
+    @Test("Decoding failure throws StructuredOutputError")
     func decodingFailureThrowsError() async throws {
         // This test verifies the happy path works - error paths are tested in unit tests
         let result = try await model.generate(
@@ -278,7 +279,7 @@ struct TypedOutputErrorTests {
         #expect(result.data.confidence >= 0.0)
     }
 
-    @Test("extractAndDecode handles response correctly", .enabled(if: hasOpenAIKey))
+    @Test("extractAndDecode handles response correctly")
     func extractAndDecodeHandlesResponse() async throws {
         let request = CompletionRequest(
             messages: [.user("Extract: value is 'manual', confidence is 0.75")],
@@ -300,7 +301,8 @@ struct TypedOutputErrorTests {
 
 // MARK: - Comparison Tests
 
-@Suite("Typed Output - API Comparison", .tags(.integration))
+@Suite("Typed Output - API Comparison", .tags(.integration),
+       .enabled(if: ProviderFixture.openAI != nil))
 struct TypedOutputComparisonTests {
     private let model = OpenAIModel(
         name: "gpt-5-mini",
@@ -308,7 +310,7 @@ struct TypedOutputComparisonTests {
     )
 
     /// Demonstrates the improvement over manual decoding
-    @Test("Typed API is cleaner than manual decoding", .enabled(if: hasOpenAIKey))
+    @Test("Typed API is cleaner than manual decoding")
     func typedAPIIsCleanerThanManual() async throws {
         let prompt = "Extract: name is Compare, age is 30, occupation is Developer"
 

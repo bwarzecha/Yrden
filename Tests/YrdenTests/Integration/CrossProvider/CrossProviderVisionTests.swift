@@ -5,6 +5,7 @@
 import Testing
 import Foundation
 @testable import Yrden
+@testable import YrdenTestSupport
 
 @Suite("Cross-Provider Vision")
 struct CrossProviderVisionTests {
@@ -22,8 +23,7 @@ struct CrossProviderVisionTests {
                     .text("What color is this image? Reply with just the color name."),
                     .image(redPNG, mimeType: "image/png")
                 ])
-            ],
-            config: CompletionConfig(temperature: 0.0)
+            ]
         )
 
         let response = try await subject.visionModel.complete(request)

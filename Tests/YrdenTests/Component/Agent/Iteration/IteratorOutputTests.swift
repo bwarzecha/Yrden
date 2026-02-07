@@ -429,4 +429,41 @@ struct IteratorOutputTests {
             Issue.record("Expected CustomValidationError, got \(error)")
         }
     }
+
+    // MARK: - Test 8.15: Output tool definition included in model request
+
+    @Test("structured output agent includes final_result tool in request to model")
+    func outputToolDefinitionIncludedInRequest() async throws {
+        let model = FakeModel(responses: [
+            MockResponse.toolCall(
+                name: "final_result",
+                arguments: #"{"title":"Report","score":42}"#,
+                id: "out-1"
+            )
+        ])
+
+        let agent = try Agent<TestReport>(model: model)
+
+        for try await _ in agent.iter("Generate report") {}
+
+        let requests = await model.requests
+        #expect(requests.count == 1)
+
+        let tools = requests[0].tools ?? []
+        let toolNames = tools.map(\.name)
+        #expect(toolNames.contains("final_result"), "Request should include final_result tool, got: \(toolNames)")
+    }
+
+    @Test("String output agent does NOT include final_result tool in request")
+    func stringOutputAgentOmitsOutputTool() async throws {
+        let model = FakeModel(responses: [MockResponse.text("Hello")])
+
+        let agent = try Agent<String>(model: model)
+
+        for try await _ in agent.iter("Hi") {}
+
+        let requests = await model.requests
+        #expect(requests.count == 1)
+        #expect(requests[0].tools == nil, "String output should not include any tools")
+    }
 }

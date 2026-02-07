@@ -141,12 +141,19 @@ public struct OpenAIModel: Model, Sendable {
     /// parallel tool calls in a single response, even with `parallel_tool_calls: true`.
     /// This is an OpenAI API limitation, not a client issue.
     /// See: https://community.openai.com/t/chatcompletions-vs-responses-api-difference-in-parallel-tool-call-behaviour-observed/1369663
-    private func shouldUseResponsesAPI(_ request: CompletionRequest) -> Bool {
-        // Check if request has tool results - these require previous_response_id in Responses API
-        let hasToolResults = request.messages.contains { message in
-            if case .toolResult = message { return true }
-            return false
+    /// Whether the request contains tool results from previous tool calls.
+    /// Used to determine API routing and tool_choice behavior.
+    private func requestHasToolResults(_ request: CompletionRequest) -> Bool {
+        request.messages.contains { message in
+            switch message {
+            case .toolResult, .toolResults: return true
+            default: return false
+            }
         }
+    }
+
+    private func shouldUseResponsesAPI(_ request: CompletionRequest) -> Bool {
+        let hasToolResults = requestHasToolResults(request)
 
         // Check if request has assistant messages with tool calls
         let hasAssistantToolCalls = request.messages.contains { message in
@@ -201,12 +208,8 @@ public struct OpenAIModel: Model, Sendable {
         // Determine tool_choice:
         // - Use .required when tools are provided and no tool results yet (forces tool use)
         // - Use .auto when conversation already has tool results (let model respond naturally)
-        let hasToolResults = request.messages.contains { message in
-            if case .toolResult = message { return true }
-            return false
-        }
         let toolChoice: OpenAIToolChoice? = openAITools != nil
-            ? (hasToolResults ? .auto : .required)
+            ? (requestHasToolResults(request) ? .auto : .required)
             : nil
 
         // Build request (no reasoning_effort for Chat Completions - that's for Responses API)
@@ -675,12 +678,8 @@ public struct OpenAIModel: Model, Sendable {
         }.first
 
         // Determine tool_choice
-        let hasToolResults = request.messages.contains { message in
-            if case .toolResult = message { return true }
-            return false
-        }
         let toolChoice: ResponsesToolChoice? = responsesTools != nil
-            ? (hasToolResults ? .auto : .required)
+            ? (requestHasToolResults(request) ? .auto : .required)
             : nil
 
         // Configure output format for structured output

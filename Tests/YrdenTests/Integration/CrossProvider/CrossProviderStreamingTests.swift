@@ -5,6 +5,7 @@
 import Testing
 import Foundation
 @testable import Yrden
+@testable import YrdenTestSupport
 
 @Suite("Cross-Provider Streaming")
 struct CrossProviderStreamingTests {
@@ -21,7 +22,7 @@ struct CrossProviderStreamingTests {
 
         for try await event in subject.model.stream("Count from 1 to 5, separated by commas.") {
             switch event {
-            case .contentDelta(let text):
+            case .contentDelta(let text, _):
                 chunks.append(text)
             case .done(let response):
                 finalResponse = response
@@ -67,7 +68,7 @@ struct CrossProviderStreamingTests {
 
         for try await event in subject.model.stream("Say exactly: Hello World") {
             switch event {
-            case .contentDelta(let text):
+            case .contentDelta(let text, _):
                 accumulated += text
             case .done(let response):
                 finalResponse = response
@@ -122,7 +123,7 @@ struct CrossProviderStreamingTests {
 
         for try await event in subject.model.stream(request) {
             switch event {
-            case .contentDelta(let text):
+            case .contentDelta(let text, _):
                 accumulated += text
             case .done(let response):
                 finalResponse = response
@@ -167,7 +168,7 @@ struct CrossProviderStreamingTests {
 
         for try await event in subject.model.stream(request) {
             switch event {
-            case .contentDelta(let text):
+            case .contentDelta(let text, _):
                 accumulated += text
             case .done(let response):
                 finalResponse = response

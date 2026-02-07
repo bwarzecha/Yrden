@@ -5,6 +5,7 @@
 import Testing
 import Foundation
 @testable import Yrden
+@testable import YrdenTestSupport
 
 @Suite("Cross-Provider Tools")
 struct CrossProviderToolTests {

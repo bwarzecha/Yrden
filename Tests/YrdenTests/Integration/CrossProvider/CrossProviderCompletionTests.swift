@@ -5,6 +5,7 @@
 import Testing
 import Foundation
 @testable import Yrden
+@testable import YrdenTestSupport
 
 @Suite("Cross-Provider Completion")
 struct CrossProviderCompletionTests {
@@ -49,6 +50,7 @@ struct CrossProviderCompletionTests {
     @Test(arguments: ProviderFixture.all)
     func completionWithTemperature(fixture: ProviderFixture) async throws {
         let subject = fixture.subject
+        guard subject.constraints.supportsTemperature else { return }
         let request = CompletionRequest(
             messages: [.user("What is 2+2? Reply with just the number.")],
             config: CompletionConfig(temperature: 0.0)

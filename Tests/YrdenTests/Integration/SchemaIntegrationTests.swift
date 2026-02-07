@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import Yrden
+@testable import YrdenTestSupport
 
 // MARK: - Schema Types for Testing
 
@@ -68,30 +69,16 @@ struct TaskInfoStrict: Codable {
     let notes: String  // Not optional
 }
 
-// MARK: - Test Configuration
-
-/// Condition for enabling Anthropic tests
-private let hasAnthropicKey = TestConfig.hasAnthropicAPIKey
-
-/// Condition for enabling OpenAI tests
-private let hasOpenAIKey = TestConfig.hasOpenAIAPIKey
-
-/// Default config for Anthropic tests
-private let anthropicConfig = CompletionConfig(temperature: 0, maxTokens: 2000)
-
-/// Default config for OpenAI tests (no temperature - newer models don't support it)
-private let openAIConfig = CompletionConfig(maxTokens: 2000)
-
 // MARK: - Anthropic Schema Integration Tests
 
-@Suite("Schema Integration - Anthropic", .tags(.integration))
+@Suite("Schema Integration - Anthropic", .tags(.integration), .enabled(if: ProviderFixture.anthropic != nil))
 struct AnthropicSchemaIntegrationTests {
     private let model = AnthropicModel(
         name: "claude-haiku-4-5",
         provider: AnthropicProvider(apiKey: TestConfig.anthropicAPIKey)
     )
 
-    @Test("Extract person info using tool with @Schema", .enabled(if: hasAnthropicKey))
+    @Test("Extract person info using tool with @Schema")
     func extractPersonInfoWithTool() async throws {
         let tool = ToolDefinition(
             name: "extract_person",
@@ -105,7 +92,7 @@ struct AnthropicSchemaIntegrationTests {
                 .user([.text("Sarah Johnson is a 28-year-old product designer working at a tech startup.")])
             ],
             tools: [tool],
-            config: anthropicConfig
+            config: CompletionConfig(temperature: 0, maxTokens: 2000)
         ))
 
         #expect(!response.toolCalls.isEmpty)
@@ -121,7 +108,7 @@ struct AnthropicSchemaIntegrationTests {
         #expect(person.occupation?.lowercased().contains("designer") == true)
     }
 
-    @Test("Sentiment analysis using tool with @Schema", .enabled(if: hasAnthropicKey))
+    @Test("Sentiment analysis using tool with @Schema")
     func sentimentAnalysisWithTool() async throws {
         let tool = ToolDefinition(
             name: "analyze_sentiment",
@@ -135,7 +122,7 @@ struct AnthropicSchemaIntegrationTests {
                 .user([.text("I absolutely love this product! Best purchase I've made all year.")])
             ],
             tools: [tool],
-            config: anthropicConfig
+            config: CompletionConfig(temperature: 0, maxTokens: 2000)
         ))
 
         #expect(!response.toolCalls.isEmpty)
@@ -150,7 +137,7 @@ struct AnthropicSchemaIntegrationTests {
         #expect(!result.keywords.isEmpty)
     }
 
-    @Test("Extract task with enum using tool", .enabled(if: hasAnthropicKey))
+    @Test("Extract task with enum using tool")
     func extractTaskWithEnumTool() async throws {
         let tool = ToolDefinition(
             name: "extract_task",
@@ -164,7 +151,7 @@ struct AnthropicSchemaIntegrationTests {
                 .user([.text("Task: Review the PR - currently being worked on, waiting for CI to pass")])
             ],
             tools: [tool],
-            config: anthropicConfig
+            config: CompletionConfig(temperature: 0, maxTokens: 2000)
         ))
 
         #expect(!response.toolCalls.isEmpty)
@@ -181,7 +168,7 @@ struct AnthropicSchemaIntegrationTests {
 
 // MARK: - OpenAI Schema Integration Tests
 
-@Suite("Schema Integration - OpenAI", .tags(.integration), .serialized)
+@Suite("Schema Integration - OpenAI", .tags(.integration), .serialized, .enabled(if: ProviderFixture.openAI != nil))
 struct OpenAISchemaIntegrationTests {
     /// OpenAI strict mode requires ALL properties in 'required' array.
     /// We use PersonExtractionStrict (no optional fields) for reliable structured output.
@@ -190,7 +177,7 @@ struct OpenAISchemaIntegrationTests {
         provider: OpenAIProvider(apiKey: TestConfig.openAIAPIKey)
     )
 
-    @Test("Extract person info using tool with @Schema", .enabled(if: hasOpenAIKey))
+    @Test("Extract person info using tool with @Schema")
     func extractPersonInfoWithTool() async throws {
         let tool = ToolDefinition(
             name: "extract_person",
@@ -204,7 +191,7 @@ struct OpenAISchemaIntegrationTests {
                 .user([.text("Marcus Chen is a 35-year-old data scientist at a research lab.")])
             ],
             tools: [tool],
-            config: openAIConfig
+            config: CompletionConfig(maxTokens: 2000)
         ))
 
         #expect(!response.toolCalls.isEmpty)
@@ -220,7 +207,7 @@ struct OpenAISchemaIntegrationTests {
         #expect(person.occupation.lowercased().contains("scientist"))
     }
 
-    @Test("Sentiment analysis using tool with @Schema", .enabled(if: hasOpenAIKey))
+    @Test("Sentiment analysis using tool with @Schema")
     func sentimentAnalysisWithTool() async throws {
         let tool = ToolDefinition(
             name: "analyze_sentiment",
@@ -234,7 +221,7 @@ struct OpenAISchemaIntegrationTests {
                 .user([.text("This is terrible. Complete waste of money, would not recommend.")])
             ],
             tools: [tool],
-            config: openAIConfig
+            config: CompletionConfig(maxTokens: 2000)
         ))
 
         #expect(!response.toolCalls.isEmpty, "Expected tool calls but got none. Content: \(response.content ?? "nil")")
@@ -249,7 +236,7 @@ struct OpenAISchemaIntegrationTests {
         #expect(!result.keywords.isEmpty, "Keywords array should not be empty")
     }
 
-    @Test("Extract task with enum using tool", .enabled(if: hasOpenAIKey))
+    @Test("Extract task with enum using tool")
     func extractTaskWithEnumTool() async throws {
         let tool = ToolDefinition(
             name: "extract_task",
@@ -263,7 +250,7 @@ struct OpenAISchemaIntegrationTests {
                 .user([.text("Task: Review the PR - currently being worked on, waiting for CI to pass")])
             ],
             tools: [tool],
-            config: openAIConfig
+            config: CompletionConfig(maxTokens: 2000)
         ))
 
         #expect(!response.toolCalls.isEmpty)
@@ -482,14 +469,14 @@ struct ReviewCollectionStrict: Codable {
 
 // MARK: - Comprehensive Schema Tests (Anthropic)
 
-@Suite("Schema Comprehensive - Anthropic", .tags(.integration))
+@Suite("Schema Comprehensive - Anthropic", .tags(.integration), .enabled(if: ProviderFixture.anthropic != nil))
 struct AnthropicSchemaComprehensiveTests {
     private let model = AnthropicModel(
         name: "claude-haiku-4-5",
         provider: AnthropicProvider(apiKey: TestConfig.anthropicAPIKey)
     )
 
-    @Test("@Guide constraints are included in schema", .enabled(if: hasAnthropicKey))
+    @Test("@Guide constraints are included in schema")
     func guideConstraintsInSchema() async throws {
         let tool = ToolDefinition(
             name: "rate_content",
@@ -503,7 +490,7 @@ struct AnthropicSchemaComprehensiveTests {
                 .user([.text("This is excellent content, very well written and informative.")])
             ],
             tools: [tool],
-            config: anthropicConfig
+            config: CompletionConfig(temperature: 0, maxTokens: 2000)
         ))
 
         #expect(!response.toolCalls.isEmpty)
@@ -517,7 +504,7 @@ struct AnthropicSchemaComprehensiveTests {
         #expect(!rating.explanation.isEmpty)
     }
 
-    @Test("Arrays of @Schema types work correctly", .enabled(if: hasAnthropicKey))
+    @Test("Arrays of @Schema types work correctly")
     func arrayOfSchemaTypes() async throws {
         let tool = ToolDefinition(
             name: "extract_reviews",
@@ -537,7 +524,7 @@ struct AnthropicSchemaComprehensiveTests {
                     """)])
             ],
             tools: [tool],
-            config: anthropicConfig
+            config: CompletionConfig(temperature: 0, maxTokens: 2000)
         ))
 
         #expect(!response.toolCalls.isEmpty)
@@ -559,14 +546,14 @@ struct AnthropicSchemaComprehensiveTests {
 
 // MARK: - Comprehensive Schema Tests (OpenAI)
 
-@Suite("Schema Comprehensive - OpenAI", .tags(.integration), .serialized)
+@Suite("Schema Comprehensive - OpenAI", .tags(.integration), .serialized, .enabled(if: ProviderFixture.openAI != nil))
 struct OpenAISchemaComprehensiveTests {
     private let model = OpenAIModel(
         name: "gpt-5-mini",
         provider: OpenAIProvider(apiKey: TestConfig.openAIAPIKey)
     )
 
-    @Test("@Guide constraints are included in schema", .enabled(if: hasOpenAIKey))
+    @Test("@Guide constraints are included in schema")
     func guideConstraintsInSchema() async throws {
         let tool = ToolDefinition(
             name: "rate_content",
@@ -580,7 +567,7 @@ struct OpenAISchemaComprehensiveTests {
                 .user([.text("This is excellent content, very well written and informative.")])
             ],
             tools: [tool],
-            config: openAIConfig
+            config: CompletionConfig(maxTokens: 2000)
         ))
 
         #expect(!response.toolCalls.isEmpty)
@@ -594,7 +581,7 @@ struct OpenAISchemaComprehensiveTests {
         #expect(!rating.explanation.isEmpty)
     }
 
-    @Test("Arrays of @Schema types work correctly", .enabled(if: hasOpenAIKey))
+    @Test("Arrays of @Schema types work correctly")
     func arrayOfSchemaTypes() async throws {
         let tool = ToolDefinition(
             name: "extract_reviews",
@@ -613,7 +600,7 @@ struct OpenAISchemaComprehensiveTests {
                     """)])
             ],
             tools: [tool],
-            config: openAIConfig
+            config: CompletionConfig(maxTokens: 2000)
         ))
 
         #expect(!response.toolCalls.isEmpty, "Expected tool calls but got content: \(response.content ?? "nil")")
@@ -632,7 +619,7 @@ struct OpenAISchemaComprehensiveTests {
         }
     }
 
-    @Test("@Schema type works with outputSchema (direct structured output)", .enabled(if: hasOpenAIKey))
+    @Test("@Schema type works with outputSchema (direct structured output)")
     func schemaTypeWithOutputSchema() async throws {
         let response = try await model.complete(CompletionRequest(
             messages: [
@@ -640,7 +627,7 @@ struct OpenAISchemaComprehensiveTests {
                 .user([.text("Dr. Emily Watson is a 42-year-old neuroscientist at Stanford University.")])
             ],
             outputSchema: PersonExtractionStrict.jsonSchema,
-            config: openAIConfig
+            config: CompletionConfig(maxTokens: 2000)
         ))
 
         #expect(response.content != nil, "Expected content but got nil")
