@@ -1,6 +1,6 @@
 /// MCP Tool wrapper for Yrden Agent integration.
 ///
-/// Wraps an MCP server tool as a Yrden `AnyAgentTool`, enabling MCP tools
+/// Wraps an MCP server tool as a Yrden `Tool`, enabling MCP tools
 /// to be used seamlessly in Agent workflows.
 ///
 /// ## Usage
@@ -11,7 +11,7 @@
 /// )
 ///
 /// let tools = try await server.discoverTools()
-/// let agent = Agent<Void, String>(
+/// let agent = try Agent<String>(
 ///     model: model,
 ///     tools: tools,  // MCPTools work like any other tool
 ///     systemPrompt: "You can read and write files."
@@ -23,7 +23,7 @@ import MCP
 
 // MARK: - MCPTool
 
-/// A wrapper that exposes an MCP tool as a Yrden AgentTool.
+/// A wrapper that exposes an MCP tool as a Yrden Tool.
 ///
 /// MCPTool handles:
 /// - Converting the MCP tool schema to Yrden's format
@@ -33,7 +33,7 @@ import MCP
 /// - Note: Deprecated. Use `MCPToolProxy` with `MCPCoordinator` instead
 ///   for proper connection lifecycle management.
 @available(*, deprecated, message: "Use MCPToolProxy with MCPCoordinator instead")
-public struct MCPTool<Deps: Sendable>: Sendable {
+public struct MCPTool: Tool {
     /// The MCP tool metadata.
     public let mcpTool: MCP.Tool
 
@@ -70,14 +70,16 @@ public struct MCPTool<Deps: Sendable>: Sendable {
         )
     }
 
+    public var requiresApproval: Bool { false }
+
     /// Execute the MCP tool with JSON arguments.
     ///
     /// - Parameters:
-    ///   - context: Agent context (not used for MCP tools, but required by protocol)
+    ///   - context: Tool execution context (not used for MCP tools, but required by protocol)
     ///   - argumentsJSON: JSON string of arguments from the LLM
     /// - Returns: Tool result
     public func call(
-        context: AgentContext<Deps>,
+        context: ToolContext,
         argumentsJSON: String
     ) async throws -> AnyToolResult {
         // Parse arguments using shared helper
@@ -161,23 +163,5 @@ extension MCPToolError: LocalizedError {
         case .toolCancelled(let serverID, let tool):
             return "Tool '\(tool)' on server '\(serverID)' was cancelled"
         }
-    }
-}
-
-// MARK: - Type-Erased Wrapper
-
-extension MCPTool {
-    /// Convert to AnyAgentTool for use in heterogeneous tool collections.
-    public func asAnyAgentTool() -> AnyAgentTool<Deps> {
-        // Capture self for the closure
-        let tool = self
-        return AnyAgentTool<Deps>(
-            name: name,
-            description: description,
-            definition: definition,
-            call: { context, argumentsJSON in
-                try await tool.call(context: context, argumentsJSON: argumentsJSON)
-            }
-        )
     }
 }

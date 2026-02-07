@@ -20,13 +20,13 @@ struct AgentModelResponseErrorTests {
     func maxTokensResponseThrowsModelError() async throws {
         let model = FakeModel(responses: [MockResponse.maxTokens("This was truncat")])
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful."
         )
 
         do {
-            _ = try await agent.run("Write a story", deps: ())
+            _ = try await agent.run("Write a story")
             Issue.record("Expected AgentError.modelError")
         } catch let error as AgentError<String> {
             guard case .modelError(let state, let underlying) = error else {
@@ -47,13 +47,13 @@ struct AgentModelResponseErrorTests {
     func contentFilteredResponseThrowsModelError() async throws {
         let model = FakeModel(responses: [MockResponse.contentFiltered()])
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful."
         )
 
         do {
-            _ = try await agent.run("Write something", deps: ())
+            _ = try await agent.run("Write something")
             Issue.record("Expected AgentError.modelError")
         } catch let error as AgentError<String> {
             guard case .modelError(_, let underlying) = error else {
@@ -72,13 +72,13 @@ struct AgentModelResponseErrorTests {
     func refusalResponseThrowsModelRefusal() async throws {
         let model = FakeModel(responses: [MockResponse.refusal("I cannot help with that.")])
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful."
         )
 
         do {
-            _ = try await agent.run("Bad request", deps: ())
+            _ = try await agent.run("Bad request")
             Issue.record("Expected AgentError.modelRefusal")
         } catch let error as AgentError<String> {
             guard case .modelRefusal(let state, let refusal) = error else {
@@ -97,12 +97,12 @@ struct AgentModelResponseErrorTests {
         // For String output, empty response returns "" (empty string is valid).
         // emptyResponse only fires for structured output types where content is required.
         // So we test with String and verify it returns empty string successfully.
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful."
         )
 
-        let run = try await agent.run("Say hello", deps: ())
+        let run = try await agent.run("Say hello")
         #expect(run.output == "")
     }
 }
@@ -118,13 +118,13 @@ struct AgentProviderErrorTests {
             throw LLMError.serverError("Internal server error (500)")
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful."
         )
 
         do {
-            _ = try await agent.run("Hello", deps: ())
+            _ = try await agent.run("Hello")
             Issue.record("Expected LLMError.serverError")
         } catch let error as LLMError {
             guard case .serverError(let msg) = error else {
@@ -141,13 +141,13 @@ struct AgentProviderErrorTests {
             throw LLMError.rateLimited(retryAfter: 30)
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful."
         )
 
         do {
-            _ = try await agent.run("Hello", deps: ())
+            _ = try await agent.run("Hello")
             Issue.record("Expected LLMError.rateLimited")
         } catch let error as LLMError {
             guard case .rateLimited(let retryAfter) = error else {
@@ -164,13 +164,13 @@ struct AgentProviderErrorTests {
             throw LLMError.networkError("Not connected to internet")
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful."
         )
 
         do {
-            _ = try await agent.run("Hello", deps: ())
+            _ = try await agent.run("Hello")
             Issue.record("Expected LLMError.networkError")
         } catch let error as LLMError {
             guard case .networkError(let msg) = error else {

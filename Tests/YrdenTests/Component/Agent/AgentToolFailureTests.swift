@@ -39,13 +39,13 @@ struct AgentToolFailureTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Do it", deps: ())
+        let result = try await agent.run("Do it")
         #expect(result.output == "Recovered")
         #expect(result.requestCount == 2)
     }
@@ -74,13 +74,13 @@ struct AgentToolFailureTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Process", deps: ())
+        let result = try await agent.run("Process")
         #expect(result.output == "Handled")
         #expect(result.requestCount == 2)
     }
@@ -111,14 +111,14 @@ struct AgentToolFailureTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
         // Agent does NOT throw — error is contained and sent to model
-        let result = try await agent.run("Go", deps: ())
+        let result = try await agent.run("Go")
         #expect(result.output == "Recovered from tool error")
         #expect(result.requestCount == 2)
     }
@@ -137,15 +137,15 @@ struct AgentToolFailureTests {
             )
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)],
+            tools: [tool],
             maxIterations: 3
         )
 
         do {
-            _ = try await agent.run("Loop forever", deps: ()).result()
+            _ = try await agent.run("Loop forever").result()
             Issue.record("Expected AgentError.iterationLimitReached")
         } catch let error as AgentError<String> {
             guard case .iterationLimitReached(let run) = error else {
@@ -189,13 +189,13 @@ struct AgentToolFailureTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(alpha), AnyAgentTool(beta), AnyAgentTool(gamma)]
+            tools: [alpha, beta, gamma]
         )
 
-        let result = try await agent.run("Use all tools", deps: ())
+        let result = try await agent.run("Use all tools")
         #expect(result.output == "All processed")
         #expect(result.toolCallCount == 3)
     }
@@ -224,13 +224,13 @@ struct AgentToolFailureTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Go", deps: ())
+        let result = try await agent.run("Go")
         #expect(result.output == "Recovered")
 
         let calls = await tool.calls
@@ -261,13 +261,13 @@ struct AgentToolFailureTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Do something", deps: ())
+        let result = try await agent.run("Do something")
         #expect(result.output == "Worked around it")
         #expect(result.requestCount == 2)
     }

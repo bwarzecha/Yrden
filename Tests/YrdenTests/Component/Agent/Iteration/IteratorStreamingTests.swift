@@ -26,9 +26,9 @@ struct IteratorStreamingTests {
                 return [.contentDelta("Hello"), .done(response)]
             }
         )
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .beforeModel(let ctx) = node {
                 // Stream triggers execution
                 for try await _ in ctx.stream() { }
@@ -48,12 +48,12 @@ struct IteratorStreamingTests {
             await counter.increment()
             return MockResponse.text("Hello")
         })
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var seenBeforeModel = false
         var seenAfterModel = false
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             switch node {
             case .beforeModel:
                 seenBeforeModel = true
@@ -88,10 +88,10 @@ struct IteratorStreamingTests {
                 .done(response)
             ]]
         )
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var deltas: [String] = []
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .beforeModel(let ctx) = node {
                 for try await event in ctx.stream() {
                     if case .contentDelta(let text, _) = event {
@@ -135,12 +135,12 @@ struct IteratorStreamingTests {
             }
         )
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var toolCallStarted = false
         var toolCallEnded = false
 
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeModel(let ctx) = node {
                 for try await event in ctx.stream() {
                     switch event {
@@ -173,11 +173,11 @@ struct IteratorStreamingTests {
                 .done(response)
             ]]
         )
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var responseContent: String?
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             switch node {
             case .beforeModel(let ctx):
                 for try await _ in ctx.stream() { }
@@ -213,11 +213,11 @@ struct IteratorStreamingTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var startedEvents: [String] = []
 
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 for try await event in ctx.stream() {
                     if case .toolStarted(let call) = event {
@@ -250,11 +250,11 @@ struct IteratorStreamingTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var completedResults: [String] = []
 
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 for try await event in ctx.stream() {
                     if case .toolCompleted(_, let result, _) = event {
@@ -292,11 +292,11 @@ struct IteratorStreamingTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(failingTool)])
+        let agent = try Agent<String>(model: model, tools: [failingTool])
 
         var failedEvents: [String] = []
 
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 for try await event in ctx.stream() {
                     if case .toolFailed(let call, let error, _) = event {
@@ -329,11 +329,11 @@ struct IteratorStreamingTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var deniedEvents: [(name: String, message: String)] = []
 
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 // Deny the tool
                 ctx.deny(ctx.pendingCalls[0].call, message: "Not allowed")
@@ -371,14 +371,14 @@ struct IteratorStreamingTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(toolA), AnyAgentTool(toolB)]
+            tools: [toolA, toolB]
         )
 
         var eventOrder: [String] = []
 
-        for try await node in agent.iter("Use tools", deps: ()) {
+        for try await node in agent.iter("Use tools") {
             if case .beforeTools(let ctx) = node {
                 for try await event in ctx.stream() {
                     switch event {
@@ -408,9 +408,9 @@ struct IteratorStreamingTests {
         let model = FakeModel(
             streamEventSequences: [[.contentDelta("Hello"), .done(response)]]
         )
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .beforeModel(let ctx) = node {
                 // First call should work
                 for try await _ in ctx.stream() { }
@@ -433,11 +433,11 @@ struct IteratorStreamingTests {
     func streamAfterAdvanceFails() async throws {
         // Test uses responses (not streaming) because user doesn't call stream() in beforeModel
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
-        var capturedContext: BeforeModelContext<Void, String>?
+        var capturedContext: BeforeModelContext<String>?
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             switch node {
             case .beforeModel(let ctx):
                 capturedContext = ctx
@@ -498,12 +498,12 @@ struct IteratorStreamingTests {
             }
         )
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var toolCallDeltas: [String] = []
 
         var streamedSuccessfully = false
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeModel(let ctx) = node {
                 for try await event in ctx.stream() {
                     if case .toolCallDelta(_, let delta) = event {
@@ -549,13 +549,13 @@ struct IteratorStreamingTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var startedTools: Set<String> = []
         var completedTools: Set<String> = []
         var eventSequence: [String] = []
 
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 for try await event in ctx.stream() {
                     switch event {
@@ -605,12 +605,12 @@ struct IteratorStreamingTests {
                 .done(response)
             ]]
         )
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var thinkingDeltas: [String] = []
         var textDeltas: [String] = []
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .beforeModel(let ctx) = node {
                 for try await event in ctx.stream() {
                     switch event {
@@ -643,12 +643,12 @@ struct IteratorStreamingTests {
                 .done(response)
             ]]
         )
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var responseThinking: String?
         var responseContent: String?
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             switch node {
             case .beforeModel(let ctx):
                 for try await _ in ctx.stream() { }
@@ -703,9 +703,9 @@ struct IteratorStreamingTests {
             }
         )
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeModel(let ctx) = node {
                 for try await _ in ctx.stream() { }
             }
@@ -743,10 +743,10 @@ struct IteratorStreamingTests {
                 return [.contentDelta("Should not reach"), .done(MockResponse.text("Done"))]
             }
         )
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         let task = Task {
-            for try await node in agent.iter("Hi", deps: ()) {
+            for try await node in agent.iter("Hi") {
                 if case .beforeModel(let ctx) = node {
                     for try await _ in ctx.stream() {
                         // Keep consuming until cancelled
@@ -796,10 +796,10 @@ struct IteratorStreamingTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(slowTool)])
+        let agent = try Agent<String>(model: model, tools: [slowTool])
 
         let task = Task {
-            for try await node in agent.iter("Use tool", deps: ()) {
+            for try await node in agent.iter("Use tool") {
                 if case .beforeTools(let ctx) = node {
                     for try await _ in ctx.stream() {
                         // Keep consuming until cancelled

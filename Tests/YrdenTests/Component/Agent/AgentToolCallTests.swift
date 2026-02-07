@@ -32,13 +32,13 @@ struct AgentToolCallTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Use the tool", deps: ())
+        let result = try await agent.run("Use the tool")
 
         #expect(result.output == "Done")
         #expect(result.requestCount == 2)
@@ -67,13 +67,13 @@ struct AgentToolCallTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Go", deps: ())
+        let result = try await agent.run("Go")
         #expect(result.output == "Done")
     }
 
@@ -106,13 +106,13 @@ struct AgentToolCallTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(searchTool), AnyAgentTool(calcTool)]
+            tools: [searchTool, calcTool]
         )
 
-        let result = try await agent.run("Search and calculate", deps: ())
+        let result = try await agent.run("Search and calculate")
 
         #expect(result.output == "Done")
         #expect(result.requestCount == 3)
@@ -142,13 +142,13 @@ struct AgentToolCallTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(alphaTool), AnyAgentTool(betaTool)]
+            tools: [alphaTool, betaTool]
         )
 
-        let result = try await agent.run("Use both tools", deps: ())
+        let result = try await agent.run("Use both tools")
 
         #expect(result.output == "Done")
         #expect(result.toolCallCount == 2)
@@ -178,13 +178,13 @@ struct AgentToolCallTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Go", deps: ())
+        let result = try await agent.run("Go")
 
         #expect(result.usage.inputTokens == 300)
         #expect(result.usage.outputTokens == 125)
@@ -218,13 +218,13 @@ struct AgentToolCallTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(searchTool)]
+            tools: [searchTool]
         )
 
-        let result = try await agent.run("Search twice", deps: ())
+        let result = try await agent.run("Search twice")
         #expect(result.output == "Done")
         #expect(result.toolCallCount == 2)
     }

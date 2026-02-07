@@ -86,11 +86,11 @@ struct IteratorStateTests {
     @Test("usage is accessible in all phases via state")
     func usageAvailableAtEveryPhase() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var usageValues: [String: Usage] = [:]
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             switch node {
             case .beforeModel(let ctx):
                 usageValues["beforeModel"] = ctx.state.usage
@@ -118,11 +118,11 @@ struct IteratorStateTests {
         let model = FakeModel(responses: [
             MockResponse.text("Hello", usage: Usage(inputTokens: 42, outputTokens: 17))
         ])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var usageAfterModel: Usage?
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .afterModel(let ctx) = node {
                 usageAfterModel = ctx.state.usage
             }
@@ -162,10 +162,10 @@ struct IteratorStateTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var finalUsage: Usage?
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .finished(let ctx) = node {
                 finalUsage = ctx.usage
             }

@@ -54,15 +54,12 @@ public enum ToolStreamEvent: Sendable {
 /// - You can modify messages (context engineering)
 /// - You can call `stream()` to observe token generation
 /// - Continuing iteration will execute the model call
-public final class BeforeModelContext<Deps: Sendable, Output: SchemaType>: @unchecked Sendable {
+public final class BeforeModelContext<Output: SchemaType>: @unchecked Sendable {
     /// Current iteration state. Mutable for context engineering.
     public var state: IterationState<Output>
 
-    /// User-provided dependencies.
-    public let deps: Deps
-
     /// Reference to the agent for model access.
-    private let agent: Agent<Deps, Output>
+    private let agent: Agent<Output>
 
     /// Whether stream() has been called or iterator advanced without streaming.
     internal var hasStreamed: Bool = false
@@ -70,9 +67,8 @@ public final class BeforeModelContext<Deps: Sendable, Output: SchemaType>: @unch
     /// Response from streaming, if stream() was called.
     internal var streamedResponse: CompletionResponse?
 
-    internal init(state: IterationState<Output>, deps: Deps, agent: Agent<Deps, Output>) {
+    internal init(state: IterationState<Output>, agent: Agent<Output>) {
         self.state = state
-        self.deps = deps
         self.agent = agent
     }
 
@@ -168,12 +164,9 @@ public final class BeforeModelContext<Deps: Sendable, Output: SchemaType>: @unch
 /// - Model has responded
 /// - `response` contains the full completion response
 /// - Continuing iteration will process tool calls (or finish if none)
-public final class AfterModelContext<Deps: Sendable, Output: SchemaType>: @unchecked Sendable {
+public final class AfterModelContext<Output: SchemaType>: @unchecked Sendable {
     /// Current iteration state.
     public var state: IterationState<Output>
-
-    /// User-provided dependencies.
-    public let deps: Deps
 
     /// The model's response.
     public var response: CompletionResponse {
@@ -183,9 +176,8 @@ public final class AfterModelContext<Deps: Sendable, Output: SchemaType>: @unche
         return resp
     }
 
-    internal init(state: IterationState<Output>, deps: Deps) {
+    internal init(state: IterationState<Output>) {
         self.state = state
-        self.deps = deps
     }
 }
 
@@ -198,15 +190,12 @@ public final class AfterModelContext<Deps: Sendable, Output: SchemaType>: @unche
 /// - You can approve, deny, or replace each tool call
 /// - You can call `stream()` to observe tool execution events
 /// - Continuing iteration executes approved tools
-public final class BeforeToolsContext<Deps: Sendable, Output: SchemaType>: @unchecked Sendable {
+public final class BeforeToolsContext<Output: SchemaType>: @unchecked Sendable {
     /// Current iteration state.
     public var state: IterationState<Output>
 
-    /// User-provided dependencies.
-    public let deps: Deps
-
     /// Reference to the agent for tool execution.
-    private let agent: Agent<Deps, Output>
+    private let agent: Agent<Output>
 
     /// Whether stream() has been called or iterator advanced without streaming.
     internal var hasStreamed: Bool = false
@@ -222,9 +211,8 @@ public final class BeforeToolsContext<Deps: Sendable, Output: SchemaType>: @unch
         return calls
     }
 
-    internal init(state: IterationState<Output>, deps: Deps, agent: Agent<Deps, Output>) {
+    internal init(state: IterationState<Output>, agent: Agent<Output>) {
         self.state = state
-        self.deps = deps
         self.agent = agent
     }
 
@@ -324,8 +312,7 @@ public final class BeforeToolsContext<Deps: Sendable, Output: SchemaType>: @unch
                         }
 
                         // Build context and execute
-                        let toolContext = AgentContext<Deps>(
-                            deps: deps,
+                        let toolContext = ToolContext(
                             model: model,
                             usage: state.usage,
                             toolCallID: pending.call.id,
@@ -388,8 +375,8 @@ public final class BeforeToolsContext<Deps: Sendable, Output: SchemaType>: @unch
 
     /// Execute a single tool call with optional timeout.
     private func executeToolWithTimeout(
-        tool: AnyAgentTool<Deps>,
-        context: AgentContext<Deps>,
+        tool: any Tool,
+        context: ToolContext,
         arguments: String,
         timeout: Duration?
     ) async -> AnyToolResult {
@@ -421,7 +408,7 @@ public final class BeforeToolsContext<Deps: Sendable, Output: SchemaType>: @unch
                 // Task 2: Timeout
                 group.addTask {
                     try await Task.sleep(for: timeout)
-                    throw ToolTimeoutError(toolName: tool.definition.name, timeout: timeout)
+                    throw ToolTimeoutError(toolName: tool.name, timeout: timeout)
                 }
 
                 // Wait for first result
@@ -460,12 +447,9 @@ public final class BeforeToolsContext<Deps: Sendable, Output: SchemaType>: @unch
 /// - Results are in `results`
 /// - You can modify results before they're added to messages
 /// - Continuing iteration adds results to messages and starts next iteration
-public final class AfterToolsContext<Deps: Sendable, Output: SchemaType>: @unchecked Sendable {
+public final class AfterToolsContext<Output: SchemaType>: @unchecked Sendable {
     /// Current iteration state.
     public var state: IterationState<Output>
-
-    /// User-provided dependencies.
-    public let deps: Deps
 
     /// Tool execution results.
     public var results: [ToolCallResult] {
@@ -473,9 +457,8 @@ public final class AfterToolsContext<Deps: Sendable, Output: SchemaType>: @unche
         return r
     }
 
-    internal init(state: IterationState<Output>, deps: Deps) {
+    internal init(state: IterationState<Output>) {
         self.state = state
-        self.deps = deps
     }
 
     /// Replace a tool result with a transformed version.
@@ -487,15 +470,12 @@ public final class AfterToolsContext<Deps: Sendable, Output: SchemaType>: @unche
 // MARK: - FinishedContext
 
 /// Context when iteration completes successfully.
-public struct FinishedContext<Deps: Sendable, Output: SchemaType>: Sendable {
+public struct FinishedContext<Output: SchemaType>: Sendable {
     /// Final iteration state.
     public let state: IterationState<Output>
 
     /// The structured output extracted from the model response.
     public let output: Output
-
-    /// User-provided dependencies.
-    public let deps: Deps
 
     /// Convenience: total token usage.
     public var usage: Usage { state.usage }
@@ -506,9 +486,8 @@ public struct FinishedContext<Deps: Sendable, Output: SchemaType>: Sendable {
     /// Convenience: run identifier.
     public var runID: String { state.runID }
 
-    public init(state: IterationState<Output>, output: Output, deps: Deps) {
+    public init(state: IterationState<Output>, output: Output) {
         self.state = state
         self.output = output
-        self.deps = deps
     }
 }

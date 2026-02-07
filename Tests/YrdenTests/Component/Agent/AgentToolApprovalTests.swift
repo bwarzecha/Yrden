@@ -35,14 +35,14 @@ struct AgentToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool, requiresApproval: true)]
+            tools: [ApprovalRequired(tool)]
         )
 
         // run() returns AgentRun with status, doesn't throw for approvals
-        let run = try await agent.run("Do it", deps: ())
+        let run = try await agent.run("Do it")
 
         // Check status is needsApproval
         guard case .needsApproval(let pending) = run.status else {
@@ -78,16 +78,16 @@ struct AgentToolApprovalTests {
             ])
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: [
-                AnyAgentTool(normalA),
-                AnyAgentTool(approvalB, requiresApproval: true),
+                normalA,
+                ApprovalRequired(approvalB),
             ]
         )
 
-        let run = try await agent.run("Use all tools", deps: ())
+        let run = try await agent.run("Use all tools")
 
         guard case .needsApproval(let pending) = run.status else {
             Issue.record("Expected .needsApproval, got \(run.status)")
@@ -129,14 +129,14 @@ struct AgentToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool, requiresApproval: true)]
+            tools: [ApprovalRequired(tool)]
         )
 
         // Run → deferred
-        let initialRun = try await agent.run("Do it", deps: ())
+        let initialRun = try await agent.run("Do it")
         guard case .needsApproval(let pending) = initialRun.status else {
             Issue.record("Expected .needsApproval, got \(initialRun.status)")
             return
@@ -144,7 +144,7 @@ struct AgentToolApprovalTests {
 
         // Resume with approval
         let options = ResumeOptions.approve([pending[0].call.id])
-        let result = try await agent.resume(from: initialRun, with: options, deps: ())
+        let result = try await agent.resume(from: initialRun, with: options)
 
         guard case .completed(let output) = result.status else {
             Issue.record("Expected .completed, got \(result.status)")
@@ -181,20 +181,20 @@ struct AgentToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool, requiresApproval: true)]
+            tools: [ApprovalRequired(tool)]
         )
 
-        let initialRun = try await agent.run("Do it", deps: ())
+        let initialRun = try await agent.run("Do it")
         guard case .needsApproval(let pending) = initialRun.status else {
             Issue.record("Expected .needsApproval")
             return
         }
 
         let options = ResumeOptions.deny([pending[0].call.id], message: "User rejected")
-        let result = try await agent.resume(from: initialRun, with: options, deps: ())
+        let result = try await agent.resume(from: initialRun, with: options)
 
         guard case .completed(let output) = result.status else {
             Issue.record("Expected .completed, got \(result.status)")
@@ -231,20 +231,20 @@ struct AgentToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool, requiresApproval: true)]
+            tools: [ApprovalRequired(tool)]
         )
 
-        let initialRun = try await agent.run("Do it", deps: ())
+        let initialRun = try await agent.run("Do it")
         guard case .needsApproval(let pending) = initialRun.status else {
             Issue.record("Expected .needsApproval")
             return
         }
 
         let options = ResumeOptions.replace([pending[0].call.id: "external data"])
-        let result = try await agent.resume(from: initialRun, with: options, deps: ())
+        let result = try await agent.resume(from: initialRun, with: options)
 
         guard case .completed(let output) = result.status else {
             Issue.record("Expected .completed, got \(result.status)")
@@ -280,13 +280,13 @@ struct AgentToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool, requiresApproval: true)]
+            tools: [ApprovalRequired(tool)]
         )
 
-        let initialRun = try await agent.run("Do it", deps: ())
+        let initialRun = try await agent.run("Do it")
         guard case .needsApproval = initialRun.status else {
             Issue.record("Expected .needsApproval")
             return
@@ -294,7 +294,7 @@ struct AgentToolApprovalTests {
 
         // Deny all pending tools
         let options = ResumeOptions.denyAll(from: initialRun, message: "Service timeout")
-        let result = try await agent.resume(from: initialRun, with: options, deps: ())
+        let result = try await agent.resume(from: initialRun, with: options)
 
         guard case .completed(let output) = result.status else {
             Issue.record("Expected .completed, got \(result.status)")
@@ -330,13 +330,13 @@ struct AgentToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool, requiresApproval: true)]
+            tools: [ApprovalRequired(tool)]
         )
 
-        let initialRun = try await agent.run("Do it", deps: ())
+        let initialRun = try await agent.run("Do it")
         guard case .needsApproval = initialRun.status else {
             Issue.record("Expected .needsApproval")
             return
@@ -344,7 +344,7 @@ struct AgentToolApprovalTests {
 
         // Resume with empty decisions - should deny all by default
         let options = ResumeOptions.decisions([:])
-        let result = try await agent.resume(from: initialRun, with: options, deps: ())
+        let result = try await agent.resume(from: initialRun, with: options)
 
         guard case .completed(let output) = result.status else {
             Issue.record("Expected .completed, got \(result.status)")
@@ -371,13 +371,13 @@ struct AgentToolApprovalTests {
             )
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool, requiresApproval: true)]
+            tools: [ApprovalRequired(tool)]
         )
 
-        let run = try await agent.run("Test prompt", deps: ())
+        let run = try await agent.run("Test prompt")
 
         guard case .needsApproval(let pending) = run.status else {
             Issue.record("Expected .needsApproval, got \(run.status)")

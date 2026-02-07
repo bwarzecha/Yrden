@@ -25,7 +25,7 @@ struct AgentStreamTests {
             ]]
         )
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful."
         )
@@ -33,7 +33,7 @@ struct AgentStreamTests {
         var deltas: [String] = []
         var finishedRun: AgentRun<String>?
 
-        for try await event in agent.runStream("Hi", deps: ()) {
+        for try await event in agent.runStream("Hi") {
             switch event {
             case .contentDelta(let text, _):
                 deltas.append(text)
@@ -81,10 +81,10 @@ struct AgentStreamTests {
 
         let tool = ConfigurableTool.succeeding("3 results for swift", name: "search")
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
         var toolStarts: [(id: String, name: String)] = []
@@ -94,7 +94,7 @@ struct AgentStreamTests {
         var contentDeltas: [String] = []
         var finishedRun: AgentRun<String>?
 
-        for try await event in agent.runStream("Search for swift", deps: ()) {
+        for try await event in agent.runStream("Search for swift") {
             switch event {
             case .contentDelta(let text, _):
                 contentDeltas.append(text)
@@ -160,16 +160,16 @@ struct AgentStreamTests {
             name: "crashy"
         )
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
         var toolResults: [(id: String, result: String)] = []
         var finishedRun: AgentRun<String>?
 
-        for try await event in agent.runStream("Do it", deps: ()) {
+        for try await event in agent.runStream("Do it") {
             switch event {
             case .toolResult(let id, let result):
                 toolResults.append((id: id, result: result))
@@ -206,7 +206,7 @@ struct AgentStreamTests {
             ]]
         )
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful."
         )
@@ -215,7 +215,7 @@ struct AgentStreamTests {
         var textDeltas: [String] = []
         var finishedRun: AgentRun<String>?
 
-        for try await event in agent.runStream("What is the meaning?", deps: ()) {
+        for try await event in agent.runStream("What is the meaning?") {
             switch event {
             case .contentDelta(let text, let kind):
                 switch kind {
@@ -283,14 +283,14 @@ struct AgentStreamTests {
         )
 
         let tool = ConfigurableTool.succeeding("3 results", name: "search")
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
         var finishedRun: AgentRun<String>?
-        for try await event in agent.runStream("Find swift info", deps: ()) {
+        for try await event in agent.runStream("Find swift info") {
             if case .finished(let run) = event {
                 finishedRun = run
             }
@@ -309,13 +309,13 @@ struct AgentStreamTests {
             ]]
         )
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful."
         )
 
         var finishedRun: AgentRun<String>?
-        for try await event in agent.runStream("Hello", deps: ()) {
+        for try await event in agent.runStream("Hello") {
             if case .finished(let run) = event {
                 finishedRun = run
             }
@@ -347,7 +347,7 @@ struct AgentStreamTests {
             ]]
         )
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful."
         )
@@ -355,7 +355,7 @@ struct AgentStreamTests {
         var allDeltas: [(text: String, kind: ContentKind)] = []
         var finishedRun: AgentRun<String>?
 
-        for try await event in agent.runStream("Analyze", deps: ()) {
+        for try await event in agent.runStream("Analyze") {
             switch event {
             case .contentDelta(let text, let kind):
                 allDeltas.append((text, kind))
@@ -435,14 +435,14 @@ struct AgentStreamTests {
         )
 
         let tool = ConfigurableTool.succeeding("3 results", name: "search")
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
         var finishedRun: AgentRun<String>?
-        for try await event in agent.runStream("Find swift info", deps: ()) {
+        for try await event in agent.runStream("Find swift info") {
             if case .finished(let run) = event {
                 finishedRun = run
             }
@@ -466,13 +466,13 @@ struct AgentStreamTests {
             throw LLMError.serverError("Service unavailable (503)")
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful."
         )
 
         do {
-            for try await _ in agent.runStream("Hello", deps: ()) {
+            for try await _ in agent.runStream("Hello") {
                 // consume stream
             }
             Issue.record("Expected LLMError.serverError")

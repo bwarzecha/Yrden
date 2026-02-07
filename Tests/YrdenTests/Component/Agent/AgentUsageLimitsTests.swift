@@ -27,15 +27,15 @@ struct AgentUsageLimitsTests {
 
         let tool = ConfigurableTool.succeeding("ok", name: "tool")
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)],
+            tools: [tool],
             maxIterations: 20,
             usageLimits: UsageLimits(maxRequests: 2)
         )
 
-        let run = try await agent.run("Use tool", deps: ())
+        let run = try await agent.run("Use tool")
 
         guard case .usageLimitReached(let limit) = run.status else {
             Issue.record("Expected .usageLimitReached, got \(run.status)")
@@ -69,15 +69,15 @@ struct AgentUsageLimitsTests {
 
         let tool = ConfigurableTool.succeeding("ok", name: "tool")
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)],
+            tools: [tool],
             maxIterations: 10,
             usageLimits: UsageLimits(maxToolCalls: 2)
         )
 
-        let run = try await agent.run("Use tools", deps: ())
+        let run = try await agent.run("Use tools")
 
         guard case .usageLimitReached(let limit) = run.status else {
             Issue.record("Expected .usageLimitReached, got \(run.status)")
@@ -105,15 +105,15 @@ struct AgentUsageLimitsTests {
 
         let tool = ConfigurableTool.succeeding("ok", name: "tool")
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)],
+            tools: [tool],
             maxIterations: 10,
             usageLimits: UsageLimits(maxTotalTokens: 100)
         )
 
-        let run = try await agent.run("Use tool", deps: ())
+        let run = try await agent.run("Use tool")
 
         guard case .usageLimitReached(let limit) = run.status else {
             Issue.record("Expected .usageLimitReached, got \(run.status)")

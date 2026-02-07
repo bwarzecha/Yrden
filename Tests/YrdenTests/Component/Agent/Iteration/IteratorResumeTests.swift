@@ -1,4 +1,4 @@
-/// Tests for cross-session resume via iter(from: state, deps:).
+/// Tests for cross-session resume via iter(from: state).
 ///
 /// Covers resumption functionality:
 /// - Resume from each phase (beforeModel, afterModel, beforeTools, afterTools)
@@ -23,11 +23,11 @@ struct IteratorResumeTests {
             await modelCounter.increment()
             return MockResponse.text("Completed")
         })
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         // First run - capture state at beforeModel and break (model not yet called)
         var savedState: IterationState<String>?
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .beforeModel(let ctx) = node {
                 savedState = ctx.state
                 break
@@ -45,7 +45,7 @@ struct IteratorResumeTests {
 
         // Resume from saved state
         var output: String?
-        for try await node in agent.iter(from: state, deps: ()) {
+        for try await node in agent.iter(from: state) {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -66,11 +66,11 @@ struct IteratorResumeTests {
             await modelCounter.increment()
             return MockResponse.text("Hello")
         })
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         // First run - capture state at afterModel and break
         var savedState: IterationState<String>?
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .afterModel(let ctx) = node {
                 savedState = ctx.state
                 break
@@ -87,7 +87,7 @@ struct IteratorResumeTests {
 
         // Resume from saved state - should proceed to finished WITHOUT calling model again
         var output: String?
-        for try await node in agent.iter(from: state, deps: ()) {
+        for try await node in agent.iter(from: state) {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -125,11 +125,11 @@ struct IteratorResumeTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         // First run - capture state at beforeTools (tool NOT executed yet)
         var savedState: IterationState<String>?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 savedState = ctx.state
                 break
@@ -148,7 +148,7 @@ struct IteratorResumeTests {
         // Resume from saved state - should execute tools
         var output: String?
         var sawAfterTools = false
-        for try await node in agent.iter(from: state, deps: ()) {
+        for try await node in agent.iter(from: state) {
             if case .afterTools(let ctx) = node {
                 sawAfterTools = true
                 // Verify tool result is present
@@ -196,11 +196,11 @@ struct IteratorResumeTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         // First run - capture state at afterTools
         var savedState: IterationState<String>?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .afterTools(let ctx) = node {
                 savedState = ctx.state
                 break
@@ -217,7 +217,7 @@ struct IteratorResumeTests {
 
         // Resume - should NOT call tool again
         var output: String?
-        for try await node in agent.iter(from: state, deps: ()) {
+        for try await node in agent.iter(from: state) {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -248,11 +248,11 @@ struct IteratorResumeTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         // Run through tool execution and capture state
         var savedState: IterationState<String>?
-        for try await node in agent.iter("Original prompt", deps: ()) {
+        for try await node in agent.iter("Original prompt") {
             if case .afterTools(let ctx) = node {
                 savedState = ctx.state
                 break
@@ -286,7 +286,7 @@ struct IteratorResumeTests {
         #expect(hasUserMessage, "Should have user message with original prompt")
 
         // Resume and verify messages still correct
-        for try await node in agent.iter(from: state, deps: ()) {
+        for try await node in agent.iter(from: state) {
             if case .beforeModel(let ctx) = node {
                 // All original messages should be present
                 #expect(ctx.state.messages.count >= state.messages.count)
@@ -302,11 +302,11 @@ struct IteratorResumeTests {
         let model = FakeModel(responses: [
             MockResponse.text("Hello", usage: Usage(inputTokens: 123, outputTokens: 456))
         ])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         // Capture state after model call
         var savedState: IterationState<String>?
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .afterModel(let ctx) = node {
                 savedState = ctx.state
                 break
@@ -353,13 +353,13 @@ struct IteratorResumeTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         // Run through one full iteration, then capture at second iteration
         var savedState: IterationState<String>?
         var iterationsBeforeSave: [Int] = []
 
-        for try await node in agent.iter("Multi-turn", deps: ()) {
+        for try await node in agent.iter("Multi-turn") {
             if case .beforeModel(let ctx) = node {
                 iterationsBeforeSave.append(ctx.state.iteration)
                 if ctx.state.iteration == 1 {
@@ -379,7 +379,7 @@ struct IteratorResumeTests {
 
         // Resume and verify iteration continues
         var iterationsAfterResume: [Int] = []
-        for try await node in agent.iter(from: state, deps: ()) {
+        for try await node in agent.iter(from: state) {
             if case .beforeModel(let ctx) = node {
                 iterationsAfterResume.append(ctx.state.iteration)
             }
@@ -397,13 +397,13 @@ struct IteratorResumeTests {
     @Test("resuming preserves the exact same runID")
     func resumePreservesRunID() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         // Capture original runID
         var originalRunID: String?
         var savedState: IterationState<String>?
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .beforeModel(let ctx) = node {
                 originalRunID = ctx.state.runID
                 savedState = ctx.state
@@ -426,7 +426,7 @@ struct IteratorResumeTests {
 
         // Resume and verify runID in all phases
         var runIDsInResume: Set<String> = []
-        for try await node in agent.iter(from: restored, deps: ()) {
+        for try await node in agent.iter(from: restored) {
             switch node {
             case .beforeModel(let ctx): runIDsInResume.insert(ctx.state.runID)
             case .afterModel(let ctx): runIDsInResume.insert(ctx.state.runID)
@@ -466,11 +466,11 @@ struct IteratorResumeTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         // Approve tool and capture state
         var savedState: IterationState<String>?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 ctx.approve(ctx.pendingCalls[0].call)
                 savedState = ctx.state
@@ -495,7 +495,7 @@ struct IteratorResumeTests {
         let restored = try JSONDecoder().decode(IterationState<String>.self, from: data)
 
         var output: String?
-        for try await node in agent.iter(from: restored, deps: ()) {
+        for try await node in agent.iter(from: restored) {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -534,11 +534,11 @@ struct IteratorResumeTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         // Deny tool and capture state
         var savedState: IterationState<String>?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 ctx.deny(ctx.pendingCalls[0].call, message: "Forbidden action")
                 savedState = ctx.state
@@ -563,7 +563,7 @@ struct IteratorResumeTests {
         let restored = try JSONDecoder().decode(IterationState<String>.self, from: data)
 
         var output: String?
-        for try await node in agent.iter(from: restored, deps: ()) {
+        for try await node in agent.iter(from: restored) {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -617,11 +617,11 @@ struct IteratorResumeTests {
             return MockResponse.text("Done")
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         // Replace tool with synthetic result and capture state
         var savedState: IterationState<String>?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 ctx.replace(ctx.pendingCalls[0].call, withResult: "SYNTHETIC_CACHED_RESULT")
                 savedState = ctx.state
@@ -638,7 +638,7 @@ struct IteratorResumeTests {
         let data = try JSONEncoder().encode(state)
         let restored = try JSONDecoder().decode(IterationState<String>.self, from: data)
 
-        for try await node in agent.iter(from: restored, deps: ()) {
+        for try await node in agent.iter(from: restored) {
             if case .finished = node { break }
         }
 
@@ -678,11 +678,11 @@ struct IteratorResumeTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         // First: deny tool and capture state
         var savedState: IterationState<String>?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 ctx.deny(ctx.pendingCalls[0].call, message: "Initially denied")
                 savedState = ctx.state
@@ -701,7 +701,7 @@ struct IteratorResumeTests {
 
         // Resume and CHANGE decision to approved
         var output: String?
-        for try await node in agent.iter(from: state, deps: ()) {
+        for try await node in agent.iter(from: state) {
             if case .beforeTools(let ctx) = node {
                 // Override the denial with approval
                 ctx.approve(ctx.pendingCalls[0].call)

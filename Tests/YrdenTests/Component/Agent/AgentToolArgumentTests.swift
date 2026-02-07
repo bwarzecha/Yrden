@@ -41,13 +41,13 @@ struct AgentToolArgumentTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Go", deps: ())
+        let result = try await agent.run("Go")
         #expect(result.output == "Done")
 
         let calls = await tool.calls
@@ -80,13 +80,13 @@ struct AgentToolArgumentTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Go", deps: ())
+        let result = try await agent.run("Go")
         #expect(result.output == "Done")
 
         let calls = await tool.calls
@@ -114,13 +114,13 @@ struct AgentToolArgumentTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Go", deps: ())
+        let result = try await agent.run("Go")
         #expect(result.output == "Recovered")
         #expect(result.requestCount == 2)
     }
@@ -148,13 +148,13 @@ struct AgentToolArgumentTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Go", deps: ())
+        let result = try await agent.run("Go")
         #expect(result.output == "Recovered")
 
         let calls = await tool.calls
@@ -183,13 +183,13 @@ struct AgentToolArgumentTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Go", deps: ())
+        let result = try await agent.run("Go")
         #expect(result.output == "Recovered")
     }
 
@@ -230,13 +230,13 @@ struct AgentToolArgumentTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Go", deps: ())
+        let result = try await agent.run("Go")
         #expect(result.output == "Done")
         #expect(result.requestCount == 3)
     }

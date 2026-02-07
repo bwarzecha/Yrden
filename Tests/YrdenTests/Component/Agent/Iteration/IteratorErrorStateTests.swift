@@ -24,11 +24,11 @@ struct IteratorErrorStateTests {
         let model = FakeModel(onComplete: { _ in
             throw LLMError.networkError("Not connected to internet")
         })
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var caughtError: LLMError?
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
         } catch let error as LLMError {
             caughtError = error
         }
@@ -44,12 +44,12 @@ struct IteratorErrorStateTests {
     @Test("model refusal causes modelRefusal error with state")
     func modelRefusalThrowsWithState() async throws {
         let model = FakeModel(responses: [MockResponse.refusal("I cannot help with that")])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var refusalMessage: String?
         var hasState = false
         do {
-            for try await _ in agent.iter("Bad request", deps: ()) { }
+            for try await _ in agent.iter("Bad request") { }
         } catch let error as AgentError<String> {
             if case .modelRefusal(let state, let refusal) = error {
                 refusalMessage = refusal
@@ -76,20 +76,20 @@ struct IteratorErrorStateTests {
             return MockResponse.text("This is a sufficiently long response")
         })
 
-        let validator = OutputValidator<Void, String> { _, output in
+        let validator = OutputValidator<String> { _, output in
             guard output.count >= 20 else {
                 throw ValidationRetry("Output must be at least 20 characters")
             }
             return output
         }
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             outputValidators: [validator]
         )
 
         var output: String?
-        for try await node in agent.iter("Get output", deps: ()) {
+        for try await node in agent.iter("Get output") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -120,16 +120,16 @@ struct IteratorErrorStateTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(slowTool)],
+            tools: [slowTool],
             toolTimeout: .milliseconds(5)
         )
 
         var toolName: String?
         var timeoutDuration: Duration?
         do {
-            for try await _ in agent.iter("Use tool", deps: ()) { }
+            for try await _ in agent.iter("Use tool") { }
         } catch let error as AgentError<String> {
             // When fully implemented, agent wraps tool errors in toolError(state:toolName:underlying:)
             if case .toolError(_, let name, let underlying) = error {
@@ -168,15 +168,15 @@ struct IteratorErrorStateTests {
             )
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(tool)],
+            tools: [tool],
             maxIterations: 2
         )
 
         var errorState: IterationState<String>?
         do {
-            for try await _ in agent.iter("Loop", deps: ()) { }
+            for try await _ in agent.iter("Loop") { }
         } catch let error as AgentError<String> {
             // Per design doc, maxIterationsReached should carry IterationState
             if case .maxIterationsReached(let state) = error {
@@ -199,14 +199,14 @@ struct IteratorErrorStateTests {
             MockResponse.text("Response", usage: Usage(inputTokens: 500, outputTokens: 600))
         ])
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             usageLimits: UsageLimits(maxTotalTokens: 100)
         )
 
         var limitKind: UsageLimit?
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
         } catch let error as AgentError<String> {
             if case .usageLimitExceeded(_, let limit) = error {
                 limitKind = limit
@@ -235,13 +235,13 @@ struct IteratorErrorStateTests {
                 throw LLMError.serverError("Unexpected")
             }
         })
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var checkpoint: IterationState<String>?
 
         // First run fails - capture state at beforeModel
         do {
-            for try await node in agent.iter("Hi", deps: ()) {
+            for try await node in agent.iter("Hi") {
                 if case .beforeModel(let ctx) = node {
                     checkpoint = ctx.state
                 }
@@ -257,7 +257,7 @@ struct IteratorErrorStateTests {
 
         // Resume from saved state
         var output: String?
-        for try await node in agent.iter(from: savedState, deps: ()) {
+        for try await node in agent.iter(from: savedState) {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -282,15 +282,15 @@ struct IteratorErrorStateTests {
             )
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(tool)],
+            tools: [tool],
             maxIterations: 2
         )
 
         var errorState: IterationState<String>?
         do {
-            for try await _ in agent.iter("Loop", deps: ()) { }
+            for try await _ in agent.iter("Loop") { }
         } catch let error as AgentError<String> {
             // Per design doc, iter() errors carry IterationState for resumption
             if case .maxIterationsReached(let state) = error {
@@ -329,9 +329,9 @@ struct IteratorErrorStateTests {
             return MockResponse.text("Finally done")
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(tool)],
+            tools: [tool],
             maxIterations: 2
         )
 
@@ -339,7 +339,7 @@ struct IteratorErrorStateTests {
 
         // First run hits limit - capture state from error
         do {
-            for try await node in agent.iter("Hi", deps: ()) {
+            for try await node in agent.iter("Hi") {
                 // Capture state at each phase for recovery
                 switch node {
                 case .beforeModel(let ctx): savedState = ctx.state
@@ -359,14 +359,14 @@ struct IteratorErrorStateTests {
         }
 
         // Create new agent with higher limit and resume from saved state
-        let agentWithHigherLimit = try Agent<Void, String>(
+        let agentWithHigherLimit = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(tool)],
+            tools: [tool],
             maxIterations: 10
         )
 
         var output: String?
-        for try await node in agentWithHigherLimit.iter(from: state, deps: ()) {
+        for try await node in agentWithHigherLimit.iter(from: state) {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -405,10 +405,10 @@ struct IteratorErrorStateTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var output: String?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -425,11 +425,11 @@ struct IteratorErrorStateTests {
         let model = FakeModel(onComplete: { _ in
             throw LLMError.serverError("Error")
         })
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var caughtLLMError = false
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
         } catch is LLMError {
             caughtLLMError = true
         } catch {
@@ -446,12 +446,12 @@ struct IteratorErrorStateTests {
         let model = FakeModel(onComplete: { _ in
             throw LLMError.serverError("Error")
         })
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var checkpoint: IterationState<String>?
 
         do {
-            for try await node in agent.iter("Hi", deps: ()) {
+            for try await node in agent.iter("Hi") {
                 if case .beforeModel(let ctx) = node {
                     checkpoint = ctx.state
                 }
@@ -479,7 +479,7 @@ struct IteratorErrorStateTests {
             try await Task.sleep(for: .seconds(10))
             return MockResponse.text("Done")
         })
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         actor CancelTracker {
             var cancelled = false
@@ -489,7 +489,7 @@ struct IteratorErrorStateTests {
         let tracker = CancelTracker()
         let task = Task {
             do {
-                for try await _ in agent.iter("Hi", deps: ()) { }
+                for try await _ in agent.iter("Hi") { }
             } catch let error as AgentError<String> {
                 if case .cancelled = error {
                     await tracker.markCancelled()
@@ -528,12 +528,12 @@ struct IteratorErrorStateTests {
         let model = FakeModel(onComplete: { _ in
             throw LLMError.serverError("Error after beforeModel")
         })
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var capturedState: IterationState<String>?
 
         do {
-            for try await node in agent.iter("Hi", deps: ()) {
+            for try await node in agent.iter("Hi") {
                 if case .beforeModel(let ctx) = node {
                     capturedState = ctx.state
                 }

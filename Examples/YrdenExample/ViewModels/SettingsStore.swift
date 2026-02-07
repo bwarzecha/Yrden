@@ -157,7 +157,7 @@ class SettingsStore: ObservableObject {
         canLoadModels && !selectedModelId.isEmpty
     }
 
-    var allConnectedTools: [AnyAgentTool<AppDependencies>] {
+    var allConnectedTools: [any Tool] {
         // This will be populated by ChatViewModel when connecting
         []
     }

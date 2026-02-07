@@ -21,10 +21,10 @@ struct IteratorErrorTests {
             throw LLMError.serverError("Internal server error")
         })
 
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
             Issue.record("Expected error to be thrown")
         } catch let error as AgentError<String> {
             // Per design doc: modelError carries state and underlying error
@@ -53,10 +53,10 @@ struct IteratorErrorTests {
     @Test("model refusal causes modelRefusal error with state")
     func modelRefusalThrows() async throws {
         let model = FakeModel(responses: [MockResponse.refusal("I cannot help with that request")])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         do {
-            for try await _ in agent.iter("Bad request", deps: ()) { }
+            for try await _ in agent.iter("Bad request") { }
             Issue.record("Expected error to be thrown")
         } catch let error as AgentError<String> {
             // Per design doc: modelRefusal carries state and refusal message
@@ -75,10 +75,10 @@ struct IteratorErrorTests {
     @Test("max tokens response causes modelError with ResponseUnusable")
     func maxTokensThrows() async throws {
         let model = FakeModel(responses: [MockResponse.maxTokens("Partial respon")])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         do {
-            for try await _ in agent.iter("Generate long text", deps: ()) { }
+            for try await _ in agent.iter("Generate long text") { }
             Issue.record("Expected error to be thrown")
         } catch let error as AgentError<String> {
             // Max tokens causes modelError with ResponseUnusable.maxTokensReached
@@ -101,10 +101,10 @@ struct IteratorErrorTests {
     @Test("content filtered response causes modelError with ResponseUnusable")
     func contentFilteredThrows() async throws {
         let model = FakeModel(responses: [MockResponse.contentFiltered()])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         do {
-            for try await _ in agent.iter("Filtered request", deps: ()) { }
+            for try await _ in agent.iter("Filtered request") { }
             Issue.record("Expected error to be thrown")
         } catch let error as AgentError<String> {
             // Content filtered causes modelError with ResponseUnusable.contentFiltered
@@ -129,13 +129,13 @@ struct IteratorErrorTests {
             MockResponse.text("Response", usage: Usage(inputTokens: 1000, outputTokens: 10))
         ])
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             usageLimits: UsageLimits(maxInputTokens: 500)
         )
 
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
             Issue.record("Expected usageLimitExceeded error")
         } catch let error as AgentError<String> {
             // Per design doc: usageLimitExceeded carries state and limit
@@ -161,13 +161,13 @@ struct IteratorErrorTests {
             MockResponse.text("Response", usage: Usage(inputTokens: 10, outputTokens: 1000))
         ])
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             usageLimits: UsageLimits(maxOutputTokens: 500)
         )
 
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
             Issue.record("Expected usageLimitExceeded error")
         } catch let error as AgentError<String> {
             switch error {
@@ -192,13 +192,13 @@ struct IteratorErrorTests {
             MockResponse.text("Response", usage: Usage(inputTokens: 600, outputTokens: 600))
         ])
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             usageLimits: UsageLimits(maxTotalTokens: 1000)
         )
 
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
             Issue.record("Expected usageLimitExceeded error")
         } catch let error as AgentError<String> {
             switch error {
@@ -232,15 +232,15 @@ struct IteratorErrorTests {
             )
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(tool)],
+            tools: [tool],
             maxIterations: 100,  // High to not hit this first
             usageLimits: UsageLimits(maxRequests: 2)
         )
 
         do {
-            for try await _ in agent.iter("Loop", deps: ()) { }
+            for try await _ in agent.iter("Loop") { }
             Issue.record("Expected usageLimitExceeded error")
         } catch let error as AgentError<String> {
             switch error {
@@ -274,15 +274,15 @@ struct IteratorErrorTests {
             ])
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(tool)],
+            tools: [tool],
             maxIterations: 100,
             usageLimits: UsageLimits(maxToolCalls: 5)
         )
 
         do {
-            for try await _ in agent.iter("Loop", deps: ()) { }
+            for try await _ in agent.iter("Loop") { }
             Issue.record("Expected usageLimitExceeded error")
         } catch let error as AgentError<String> {
             switch error {
@@ -307,10 +307,10 @@ struct IteratorErrorTests {
             throw LLMError.networkError("Not connected to internet")
         })
 
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
             Issue.record("Expected error to be thrown")
         } catch let error as AgentError<String> {
             // Per design doc: wrapped as modelError
@@ -341,10 +341,10 @@ struct IteratorErrorTests {
             throw LLMError.rateLimited(retryAfter: 60)
         })
 
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
             Issue.record("Expected error to be thrown")
         } catch let error as AgentError<String> {
             // Per design doc: wrapped as modelError
@@ -376,10 +376,10 @@ struct IteratorErrorTests {
             return MockResponse.text("Done")
         })
 
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         let task = Task {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
         }
 
         // Cancel after a short delay
@@ -430,10 +430,10 @@ struct IteratorErrorTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var output: String?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }

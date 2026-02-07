@@ -11,8 +11,7 @@ struct ConfigurableToolArgs {
 }
 
 /// A generic test tool that can be configured to return any behavior.
-struct ConfigurableTool: AgentTool {
-    typealias Deps = Void
+struct ConfigurableTool: TypedTool {
     typealias Args = ConfigurableToolArgs
 
     /// The behavior to exhibit when called.
@@ -29,8 +28,8 @@ struct ConfigurableTool: AgentTool {
     var name: String { toolName }
     var description: String { toolDescription }
 
-    func call(
-        context: AgentContext<Void>,
+    func execute(
+        context: ToolContext,
         arguments: Args
     ) async throws -> ToolResult<String> {
         switch behavior {

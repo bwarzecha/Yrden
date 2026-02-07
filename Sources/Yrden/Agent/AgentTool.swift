@@ -1,89 +1,139 @@
 /// Tool protocol and result types for agent execution.
 ///
-/// Tools are the bridge between LLM requests and real-world actions.
-/// The `AgentTool` protocol defines:
-/// - Tool metadata (name, description)
-/// - Typed arguments via `@Schema`
-/// - Execution logic with context access
+/// ## Protocol Hierarchy
+/// ```
+/// Tool                    ← base: JSON string → AnyToolResult, zero associated types
+///   ├── TypedTool         ← adds Args + Output, auto-implements Tool.call()
+///   ├── MCPToolProxy      ← raw Tool (schema from server)
+///   ├── RetryingTool<T>   ← wraps any Tool, retries on .failed
+///   ├── ApprovalRequired<T> ← overrides requiresApproval to true
+///   └── ClosureTool<A,O>  ← inline closure definition (future)
+/// ```
 ///
 /// ## Creating a Tool
 /// ```swift
-/// struct WeatherTool: AgentTool {
-///     typealias Deps = AppDeps
+/// struct SearchTool: TypedTool {
+///     var name: String { "search" }
+///     var description: String { "Search the web" }
 ///
-///     @Schema(description: "Weather query parameters")
-///     struct Args: SchemaType {
-///         @Guide(description: "City name")
-///         let city: String
-///     }
-///
-///     var name: String { "get_weather" }
-///     var description: String { "Get current weather for a city" }
-///
-///     func call(
-///         context: AgentContext<AppDeps>,
-///         arguments: Args
+///     func execute(
+///         context: ToolContext,
+///         arguments: SearchArgs
 ///     ) async throws -> ToolResult<String> {
-///         let weather = try await context.deps.weatherAPI.get(arguments.city)
-///         return .success("Weather in \(arguments.city): \(weather.temp)°F")
+///         .success("results for: \(arguments.query)")
 ///     }
 /// }
+///
+/// // All tools in one array — no wrapping needed
+/// let tools: [any Tool] = [SearchTool(), mcpProxy, flakyTool.withRetries(3)]
 /// ```
 
 import Foundation
 
-// MARK: - AgentTool Protocol
+// MARK: - Tool Protocol
 
-/// A tool that can be called by an agent.
+/// Base tool protocol. The agent stores `[any Tool]`.
 ///
-/// Tools provide functionality that the LLM can invoke during execution.
-/// The agent:
-/// 1. Sends `ToolDefinition` (derived from this protocol) to the LLM
-/// 2. Receives `ToolCall` when LLM wants to use the tool
-/// 3. Parses arguments into `Args` type
-/// 4. Calls this protocol's `call` method
-/// 5. Handles the `ToolResult`
-public protocol AgentTool<Deps>: Sendable {
-    /// Type of dependencies this tool requires.
-    /// Use `Void` for tools with no dependencies.
-    associatedtype Deps: Sendable = Void
-
-    /// Arguments type, must conform to SchemaType for JSON Schema generation.
-    associatedtype Args: SchemaType
-
-    /// Output type returned on success.
-    associatedtype Output: Sendable = String
-
-    /// Unique identifier for the tool.
-    /// Must match regex `[a-zA-Z0-9_-]+`.
+/// Zero associated types — enables heterogeneous arrays with no type parameter.
+/// The call interface uses raw JSON strings and erased results.
+public protocol Tool: Sendable {
+    /// Unique identifier for the tool. Must match `[a-zA-Z0-9_-]+`.
     var name: String { get }
 
     /// Description shown to the LLM.
-    /// Should clearly explain when and how to use the tool.
     var description: String { get }
 
-    /// Execute the tool with the given arguments.
-    ///
-    /// - Parameters:
-    ///   - context: Agent context with dependencies and run state
-    ///   - arguments: Parsed and validated arguments from the LLM
-    /// - Returns: Result of execution (success, failure, or deferred)
-    func call(
-        context: AgentContext<Deps>,
-        arguments: Args
-    ) async throws -> ToolResult<Output>
+    /// Full definition including JSON schema.
+    var definition: ToolDefinition { get }
+
+    /// Whether this tool requires human approval before execution.
+    var requiresApproval: Bool { get }
+
+    /// Execute the tool with JSON-encoded arguments.
+    func call(context: ToolContext, argumentsJSON: String) async throws -> AnyToolResult
 }
 
-// MARK: - Tool Definition Generation
+extension Tool {
+    public var requiresApproval: Bool { false }
+}
 
-extension AgentTool {
-    /// Generate the `ToolDefinition` to send to the LLM.
+// MARK: - TypedTool Protocol
+
+/// Typed tool with compile-time argument and output types.
+///
+/// Default `call()` decodes JSON → Args, calls `execute()`,
+/// then erases Output → String via `ToolResult.erased()`.
+///
+/// Swift infers `Args` (and `Output` if defaulted) from the `execute()` signature:
+/// ```swift
+/// // Zero typealiases for the common case
+/// struct SearchTool: TypedTool {
+///     var name: String { "search" }
+///     var description: String { "Search the web" }
+///
+///     func execute(context: ToolContext, arguments: SearchArgs) async throws -> ToolResult<String> {
+///         .success("results for: \(arguments.query)")
+///     }
+/// }
+/// ```
+public protocol TypedTool: Tool {
+    /// Arguments type with JSON Schema generation.
+    associatedtype Args: SchemaType
+
+    /// Output type returned on success. Defaults to `String`.
+    associatedtype Output: Sendable = String
+
+    /// Execute the tool with typed arguments.
+    func execute(context: ToolContext, arguments: Args) async throws -> ToolResult<Output>
+}
+
+extension TypedTool {
     public var definition: ToolDefinition {
-        ToolDefinition(
-            name: name,
-            description: description,
-            inputSchema: Args.jsonSchema
-        )
+        ToolDefinition(name: name, description: description, inputSchema: Args.jsonSchema)
+    }
+
+    public func call(
+        context: ToolContext,
+        argumentsJSON: String
+    ) async throws -> AnyToolResult {
+        guard let data = argumentsJSON.data(using: .utf8) else {
+            throw ToolExecutionError.argumentParsing("Invalid UTF-8 in arguments")
+        }
+        let args: Args
+        do {
+            args = try JSONDecoder().decode(Args.self, from: data)
+        } catch {
+            throw ToolExecutionError.argumentParsing(error.localizedDescription)
+        }
+        let result = try await execute(context: context, arguments: args)
+        return result.erased()
+    }
+}
+
+// MARK: - ApprovalRequired
+
+/// Wraps any tool and overrides `requiresApproval` to `true`.
+public struct ApprovalRequired<Wrapped: Tool>: Tool {
+    private let wrapped: Wrapped
+
+    public var name: String { wrapped.name }
+    public var description: String { wrapped.description }
+    public var definition: ToolDefinition { wrapped.definition }
+    public var requiresApproval: Bool { true }
+
+    init(_ tool: Wrapped) { self.wrapped = tool }
+
+    public func call(
+        context: ToolContext, argumentsJSON: String
+    ) async throws -> AnyToolResult {
+        try await wrapped.call(context: context, argumentsJSON: argumentsJSON)
+    }
+}
+
+extension Tool {
+    /// Mark this tool as requiring human approval before execution.
+    public func requireApproval() -> ApprovalRequired<Self> {
+        ApprovalRequired(self)
     }
 }
 
@@ -91,23 +141,14 @@ extension AgentTool {
 
 /// Result of a tool execution.
 ///
-/// Tools return one of three outcomes:
-/// - `.success`: Tool executed successfully with output
-/// - `.failure`: Tool failed permanently
-/// - `.deferred`: Tool needs external resolution (human approval, async operation)
+/// - `.success`: Tool executed successfully with typed output
+/// - `.failure`: Tool failed, error sent to LLM for retry
+/// - `.deferred`: Tool needs external resolution (human approval)
 public enum ToolResult<T: Sendable>: Sendable {
-    /// Tool succeeded with output.
     case success(T)
-
-    /// Tool failed permanently with an error.
     case failure(Error)
-
-    /// Tool is deferred - needs external resolution.
-    /// Used for human-in-the-loop approval or async operations.
     case deferred(DeferredToolCall)
 }
-
-// MARK: - Convenience Initializers
 
 extension ToolResult where T == String {
     /// Create a success result from a string literal.
@@ -123,20 +164,56 @@ extension ToolResult {
     }
 }
 
+// MARK: - ToolResult Erasure
+
+extension ToolResult {
+    /// Convert typed result to erased result for the agent loop.
+    func erased() -> AnyToolResult {
+        switch self {
+        case .success(let value):
+            if let string = value as? String {
+                return .success(string)
+            } else if let jsonValue = value as? JSONValue {
+                if let data = try? JSONEncoder().encode(jsonValue),
+                   let string = String(data: data, encoding: .utf8) {
+                    return .success(string)
+                }
+                return .success(String(describing: value))
+            } else if let encodable = value as? Encodable {
+                if let data = try? JSONEncoder().encode(AnyEncodable(encodable)),
+                   let string = String(data: data, encoding: .utf8) {
+                    return .success(string)
+                }
+                return .success(String(describing: value))
+            } else {
+                return .success(String(describing: value))
+            }
+        case .failure(let error):
+            return .failed(error)
+        case .deferred(let call):
+            return .deferred(call)
+        }
+    }
+}
+
+// MARK: - AnyEncodable Helper
+
+private struct AnyEncodable: Encodable {
+    private let _encode: (Encoder) throws -> Void
+    init(_ encodable: Encodable) {
+        self._encode = { try encodable.encode(to: $0) }
+    }
+    func encode(to encoder: Encoder) throws {
+        try _encode(encoder)
+    }
+}
+
 // MARK: - DeferredToolCall
 
 /// Information about a deferred tool call.
-///
-/// When a tool returns `.deferred`, the agent pauses and provides
-/// this information for external resolution.
 public struct DeferredToolCall: Sendable, Codable, Equatable, Hashable {
-    /// Unique identifier for this deferred call.
     public let id: String
-
-    /// Reason the tool was deferred.
     public let reason: String
-
-    /// Type of deferral.
     public let kind: DeferralKind
 
     public init(id: String, reason: String, kind: DeferralKind = .approval) {
@@ -148,17 +225,10 @@ public struct DeferredToolCall: Sendable, Codable, Equatable, Hashable {
 
 /// Type of tool deferral.
 public enum DeferralKind: String, Sendable, Codable, Equatable, Hashable {
-    /// Needs human approval before execution.
     case approval
-
-    /// Waiting for external async operation.
     case external
-
-    /// Custom deferral reason.
     case custom
 }
-
-// MARK: - Convenience Factory
 
 extension DeferredToolCall {
     /// Create a deferral for approval.
@@ -181,186 +251,41 @@ extension DeferredToolCall {
 // MARK: - ToolExecutionError
 
 /// Errors that can occur during tool execution.
-///
-/// ## Argument Error Hierarchy
-/// When processing tool arguments, errors fall into two categories:
-///
-/// **Parsing errors** (`.argumentParsing`):
-/// - Invalid JSON syntax
-/// - Invalid UTF-8 encoding
-/// - Type mismatch (expected object, got array)
-/// These indicate the LLM produced malformed output.
-///
-/// **Validation errors** (`.argumentValidation`):
-/// - Missing required fields
-/// - Value out of range
-/// - Invalid format (email, URL, etc.)
-/// These indicate the LLM understood the schema but provided invalid values.
-///
-/// This distinction helps with error handling:
-/// - Parsing errors are usually unrecoverable (LLM bug or misunderstanding)
-/// - Validation errors can be retried with feedback to the LLM
 public enum ToolExecutionError: Error, Sendable, Equatable {
-    /// Custom error message.
     case custom(String)
-
-    /// Failed to parse arguments JSON.
-    /// The JSON was malformed or couldn't be decoded.
     case argumentParsing(String)
-
-    /// Arguments parsed but failed validation.
-    /// The JSON was valid but values didn't meet constraints.
     case argumentValidation(String)
-
-    /// Tool not found.
     case toolNotFound(String)
 }
 
 extension ToolExecutionError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case .custom(let message):
-            return message
-        case .argumentParsing(let details):
-            return "Failed to parse tool arguments: \(details)"
-        case .argumentValidation(let details):
-            return "Tool argument validation failed: \(details)"
-        case .toolNotFound(let name):
-            return "Tool not found: \(name)"
+        case .custom(let message): return message
+        case .argumentParsing(let details): return "Failed to parse tool arguments: \(details)"
+        case .argumentValidation(let details): return "Tool argument validation failed: \(details)"
+        case .toolNotFound(let name): return "Tool not found: \(name)"
         }
-    }
-}
-
-// MARK: - Type-Erased Tool Wrapper
-
-/// Type-erased wrapper for heterogeneous tool collections.
-///
-/// Since tools have associated types, we need a wrapper to store
-/// them in arrays. This wrapper handles:
-/// - Definition generation
-/// - Argument parsing
-/// - Execution with type erasure
-public struct AnyAgentTool<Deps: Sendable>: Sendable {
-    public let name: String
-    public let description: String
-    public let definition: ToolDefinition
-
-    /// Whether this tool requires human approval before execution.
-    /// When `true`, the tool execution engine will return a `.deferred` result
-    /// with kind `.approval` instead of executing the tool directly.
-    public let requiresApproval: Bool
-
-    private let _call: @Sendable (AgentContext<Deps>, String) async throws -> AnyToolResult
-
-    /// Create a type-erased wrapper from a concrete tool.
-    ///
-    /// - Parameters:
-    ///   - tool: The concrete tool to wrap
-    ///   - requiresApproval: Whether this tool requires human approval before execution
-    public init<T: AgentTool>(_ tool: T, requiresApproval: Bool = false) where T.Deps == Deps {
-        self.name = tool.name
-        self.description = tool.description
-        self.definition = tool.definition
-        self.requiresApproval = requiresApproval
-
-        self._call = { context, argumentsJSON in
-            // ToolCall.init guarantees arguments is valid JSON (empty normalized to "{}")
-            guard let data = argumentsJSON.data(using: .utf8) else {
-                throw ToolExecutionError.argumentParsing("Invalid UTF-8 in arguments")
-            }
-
-            let args: T.Args
-            do {
-                args = try JSONDecoder().decode(T.Args.self, from: data)
-            } catch {
-                throw ToolExecutionError.argumentParsing(error.localizedDescription)
-            }
-
-            // Execute tool
-            let result = try await tool.call(context: context, arguments: args)
-
-            // Convert to AnyToolResult
-            return result.erased()
-        }
-    }
-
-    /// Execute the tool with JSON arguments.
-    public func call(
-        context: AgentContext<Deps>,
-        argumentsJSON: String
-    ) async throws -> AnyToolResult {
-        try await _call(context, argumentsJSON)
-    }
-
-    /// Returns a copy of this tool with the specified `requiresApproval` flag.
-    ///
-    /// Use this to mark tools as requiring human approval after they've been created.
-    /// - Parameter requiresApproval: Whether the tool requires human approval
-    /// - Returns: A new tool with the updated flag
-    public func withRequiresApproval(_ requiresApproval: Bool) -> AnyAgentTool<Deps> {
-        AnyAgentTool<Deps>(
-            name: name,
-            description: description,
-            definition: definition,
-            requiresApproval: requiresApproval,
-            call: _call
-        )
-    }
-
-    /// Create a type-erased tool from components.
-    ///
-    /// This initializer is useful for creating tools from external sources
-    /// like MCP servers where the schema is already defined.
-    ///
-    /// - Parameters:
-    ///   - name: Tool name
-    ///   - description: Tool description
-    ///   - definition: Tool definition with schema
-    ///   - requiresApproval: Whether this tool requires human approval before execution
-    ///   - call: Execution closure that takes context and JSON arguments
-    public init(
-        name: String,
-        description: String,
-        definition: ToolDefinition,
-        requiresApproval: Bool = false,
-        call: @escaping @Sendable (AgentContext<Deps>, String) async throws -> AnyToolResult
-    ) {
-        self.name = name
-        self.description = description
-        self.definition = definition
-        self.requiresApproval = requiresApproval
-        self._call = call
     }
 }
 
 // MARK: - AnyToolResult
 
-/// Type-erased tool result.
-///
-/// Cases per design doc:
-/// - `.success(String)` - Tool executed successfully
-/// - `.denied(String)` - Tool was denied by user, message explains why
-/// - `.replaced(String)` - Tool result was replaced with synthetic value
-/// - `.failed(Error)` - Tool execution failed with error
-/// - `.deferred(DeferredToolCall)` - Tool needs external resolution
+/// Type-erased tool result used by the agent loop.
 public enum AnyToolResult: Sendable {
     /// Tool succeeded with string output.
     case success(String)
 
     /// Tool was denied by user with message.
-    /// Per design doc: Model receives "Tool denied: {message}".
     case denied(String)
 
     /// Tool result was replaced with synthetic value.
-    /// Per design doc: Model receives the exact replacement string.
     case replaced(String)
 
     /// Tool failed permanently.
-    /// Per design doc: Model receives "Tool failed: {error}".
     case failed(Error)
 
-    /// Legacy alias for `.failed` - use `.failed` instead.
-    /// Kept for backward compatibility with existing pattern matching.
+    /// Legacy alias for `.failed` — use `.failed` instead.
     @available(*, deprecated, message: "Use .failed instead")
     case failure(Error)
 
@@ -370,37 +295,24 @@ public enum AnyToolResult: Sendable {
     /// Convert to ToolOutput for sending back to LLM.
     public var toolOutput: ToolOutput {
         switch self {
-        case .success(let value):
-            return .text(value)
-        case .denied(let message):
-            return .error("Tool denied: \(message)")
-        case .replaced(let result):
-            return .text(result)
+        case .success(let value): return .text(value)
+        case .denied(let message): return .error("Tool denied: \(message)")
+        case .replaced(let result): return .text(result)
         case .failed(let error), .failure(let error):
             return .error("Tool failed: \(error.localizedDescription)")
-        case .deferred(let call):
-            return .error("Tool deferred: \(call.reason)")
+        case .deferred(let call): return .error("Tool deferred: \(call.reason)")
         }
     }
 
-    /// Convenience: the output string regardless of result type.
-    /// Per design doc, formats are:
-    /// - success: the value
-    /// - denied: "Tool denied: {message}"
-    /// - replaced: the replacement string
-    /// - failed: "Tool failed: {error}"
+    /// The output string regardless of result type.
     public var output: String {
         switch self {
-        case .success(let value):
-            return value
-        case .denied(let message):
-            return "Tool denied: \(message)"
-        case .replaced(let result):
-            return result
+        case .success(let value): return value
+        case .denied(let message): return "Tool denied: \(message)"
+        case .replaced(let result): return result
         case .failed(let error), .failure(let error):
             return "Tool failed: \(error.localizedDescription)"
-        case .deferred(let call):
-            return "Tool deferred: \(call.reason)"
+        case .deferred(let call): return "Tool deferred: \(call.reason)"
         }
     }
 
@@ -413,7 +325,6 @@ public enum AnyToolResult: Sendable {
 
 // MARK: - AnyToolResult Codable
 
-/// Simple error wrapper for decoding serialized errors.
 private struct SerializedError: Error, LocalizedError {
     let message: String
     var errorDescription: String? { message }
@@ -421,50 +332,34 @@ private struct SerializedError: Error, LocalizedError {
 
 extension AnyToolResult: Codable {
     private enum CodingKeys: String, CodingKey {
-        case type
-        case value
-        case message
-        case error
-        case deferred
+        case type, value, message, error, deferred
     }
 
     private enum ResultType: String, Codable {
-        case success
-        case denied
-        case replaced
-        case failed
-        case deferred
-        // Legacy support
-        case failure
+        case success, denied, replaced, failed, deferred, failure
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decode(ResultType.self, forKey: .type)
-
         switch type {
         case .success:
-            let value = try container.decode(String.self, forKey: .value)
-            self = .success(value)
+            self = .success(try container.decode(String.self, forKey: .value))
         case .denied:
-            let message = try container.decode(String.self, forKey: .message)
-            self = .denied(message)
+            self = .denied(try container.decode(String.self, forKey: .message))
         case .replaced:
-            let value = try container.decode(String.self, forKey: .value)
-            self = .replaced(value)
+            self = .replaced(try container.decode(String.self, forKey: .value))
         case .failed, .failure:
-            // Support both new "failed" and legacy "failure" type
-            let errorMessage = try container.decode(String.self, forKey: .error)
-            self = .failed(SerializedError(message: errorMessage))
+            self = .failed(SerializedError(
+                message: try container.decode(String.self, forKey: .error)
+            ))
         case .deferred:
-            let call = try container.decode(DeferredToolCall.self, forKey: .deferred)
-            self = .deferred(call)
+            self = .deferred(try container.decode(DeferredToolCall.self, forKey: .deferred))
         }
     }
 
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
-
         switch self {
         case .success(let value):
             try container.encode(ResultType.success, forKey: .type)
@@ -476,116 +371,11 @@ extension AnyToolResult: Codable {
             try container.encode(ResultType.replaced, forKey: .type)
             try container.encode(value, forKey: .value)
         case .failed(let error), .failure(let error):
-            // Encode both as "failed" (canonical form)
             try container.encode(ResultType.failed, forKey: .type)
             try container.encode(error.localizedDescription, forKey: .error)
         case .deferred(let call):
             try container.encode(ResultType.deferred, forKey: .type)
             try container.encode(call, forKey: .deferred)
         }
-    }
-}
-
-// MARK: - ToolResult Erasure
-
-extension ToolResult {
-    /// Convert to type-erased result.
-    func erased() -> AnyToolResult {
-        switch self {
-        case .success(let value):
-            // Convert output to string
-            if let string = value as? String {
-                return .success(string)
-            } else if let jsonValue = value as? JSONValue {
-                // Encode JSONValue to string
-                if let data = try? JSONEncoder().encode(jsonValue),
-                   let string = String(data: data, encoding: .utf8) {
-                    return .success(string)
-                }
-                return .success(String(describing: value))
-            } else if let encodable = value as? Encodable {
-                // Try to encode as JSON
-                if let data = try? JSONEncoder().encode(AnyEncodable(encodable)),
-                   let string = String(data: data, encoding: .utf8) {
-                    return .success(string)
-                }
-                return .success(String(describing: value))
-            } else {
-                return .success(String(describing: value))
-            }
-        case .failure(let error):
-            return .failure(error)
-        case .deferred(let call):
-            return .deferred(call)
-        }
-    }
-}
-
-// MARK: - AnyEncodable Helper
-
-private struct AnyEncodable: Encodable {
-    private let _encode: (Encoder) throws -> Void
-
-    init(_ encodable: Encodable) {
-        self._encode = { encoder in
-            try encodable.encode(to: encoder)
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        try _encode(encoder)
-    }
-}
-
-// MARK: - Deps Lifting
-
-extension AnyAgentTool where Deps == Void {
-    /// Lift a Void-deps tool to work with any deps type.
-    ///
-    /// This is useful for mixing MCP tools (which use Void deps) with
-    /// local tools that require specific dependencies.
-    ///
-    /// ## Example
-    /// ```swift
-    /// // MCP tools use Void deps
-    /// let mcpTools: [AnyAgentTool<Void>] = manager.allTools()
-    ///
-    /// // Local tools use custom deps
-    /// let localTools: [AnyAgentTool<MyDeps>] = [myTool.erased()]
-    ///
-    /// // Lift MCP tools to match
-    /// let allTools: [AnyAgentTool<MyDeps>] = mcpTools.lifted() + localTools
-    /// ```
-    ///
-    /// - Returns: Tool that ignores deps and works with any deps type
-    public func lifted<D: Sendable>() -> AnyAgentTool<D> {
-        AnyAgentTool<D>(
-            name: name,
-            description: description,
-            definition: definition,
-            requiresApproval: requiresApproval
-        ) { context, args in
-            // Create a void context passing through the context metadata
-            let voidContext = AgentContext<Void>(
-                deps: (),
-                model: context.model,
-                usage: context.usage,
-                toolCallID: context.toolCallID,
-                toolName: context.toolName,
-                runStep: context.runStep,
-                runID: context.runID,
-                messages: context.messages
-            )
-            return try await self.call(context: voidContext, argumentsJSON: args)
-        }
-    }
-}
-
-extension Array where Element == AnyAgentTool<Void> {
-    /// Lift all Void-deps tools to work with any deps type.
-    ///
-    /// - Returns: Array of tools that work with the specified deps type
-    public func lifted<D: Sendable>() -> [AnyAgentTool<D>] {
-        map { $0.lifted() }
     }
 }

@@ -8,7 +8,7 @@
 ///
 /// ## Usage
 /// ```swift
-/// for try await node in agent.iter("Task", deps: deps) {
+/// for try await node in agent.iter("Task") {
 ///     switch node {
 ///     case .beforeModel(let ctx):
 ///         // Optionally modify messages or stream
@@ -32,19 +32,19 @@ import Foundation
 
 // MARK: - IterationNode
 
-public enum IterationNode<Deps: Sendable, Output: SchemaType>: Sendable {
+public enum IterationNode<Output: SchemaType>: Sendable {
     /// About to call the model.
-    case beforeModel(BeforeModelContext<Deps, Output>)
+    case beforeModel(BeforeModelContext<Output>)
 
     /// Model has responded.
-    case afterModel(AfterModelContext<Deps, Output>)
+    case afterModel(AfterModelContext<Output>)
 
     /// About to execute tools.
-    case beforeTools(BeforeToolsContext<Deps, Output>)
+    case beforeTools(BeforeToolsContext<Output>)
 
     /// Tools have been executed.
-    case afterTools(AfterToolsContext<Deps, Output>)
+    case afterTools(AfterToolsContext<Output>)
 
     /// Execution completed with final output.
-    case finished(FinishedContext<Deps, Output>)
+    case finished(FinishedContext<Output>)
 }

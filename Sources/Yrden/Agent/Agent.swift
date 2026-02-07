@@ -10,31 +10,30 @@
 /// ## Basic Usage
 /// ```swift
 /// // Define tools
-/// struct SearchTool: AgentTool {
-///     @Schema struct Args: SchemaType { let query: String }
+/// struct SearchTool: TypedTool {
 ///     var name: String { "search" }
 ///     var description: String { "Search the knowledge base" }
 ///
-///     func call(context: AgentContext<Void>, arguments: Args) async throws -> ToolResult<String> {
+///     func execute(context: ToolContext, arguments: SearchArgs) async throws -> ToolResult<String> {
 ///         return .success("Results for: \(arguments.query)")
 ///     }
 /// }
 ///
 /// // Create agent
-/// let agent = Agent<Void, Report>(
+/// let agent = Agent<Report>(
 ///     model: claude,
 ///     systemPrompt: "You are a research assistant.",
-///     tools: [AnyAgentTool(SearchTool())]
+///     tools: [SearchTool()]
 /// )
 ///
 /// // Run and get output
-/// let run = try await agent.run("Find information about Swift", deps: ())
+/// let run = try await agent.run("Find information about Swift")
 /// if let output = run.output {
 ///     print(output)
 /// }
 ///
 /// // Or use .result() for throw-on-pause behavior
-/// let output = try await agent.run("Find information about Swift", deps: ()).result()
+/// let output = try await agent.run("Find information about Swift").result()
 /// ```
 
 import Foundation
@@ -42,7 +41,7 @@ import Foundation
 // MARK: - Agent
 
 /// An agent that orchestrates LLM tool use and produces typed output.
-public actor Agent<Deps: Sendable, Output: SchemaType> {
+public actor Agent<Output: SchemaType> {
     /// The model to use for completions.
     public let model: any Model
 
@@ -50,10 +49,10 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
     public let systemPrompt: String
 
     /// Available tools.
-    public let tools: [AnyAgentTool<Deps>]
+    public let tools: [any Tool]
 
     /// Output validators run after LLM produces output.
-    public let outputValidators: [OutputValidator<Deps, Output>]
+    public let outputValidators: [OutputValidator<Output>]
 
     /// Maximum iterations before pausing.
     public let maxIterations: Int
@@ -83,10 +82,10 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
     public init(
         model: any Model,
         systemPrompt: String = "",
-        tools: [AnyAgentTool<Deps>] = [],
+        tools: [any Tool] = [],
         maxIterations: Int = 10,
         maxValidationRetries: Int = 3,
-        outputValidators: [OutputValidator<Deps, Output>] = [],
+        outputValidators: [OutputValidator<Output>] = [],
         usageLimits: UsageLimits = .none,
         endStrategy: EndStrategy = .early,
         retryPolicy: RetryPolicy = .none,
@@ -139,22 +138,20 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
     ///
     /// For the simple "throw on pause" pattern, use `.result()`:
     /// ```swift
-    /// let output = try await agent.run("task", deps: ()).result()
+    /// let output = try await agent.run("task").result()
     /// ```
     ///
     /// - Parameters:
     ///   - prompt: User prompt to start the conversation
-    ///   - deps: Dependencies to pass to tools
     ///   - messageHistory: Optional previous messages to continue from
     /// - Returns: AgentRun containing status and full state
     /// - Throws: `AgentError` for actual errors (not pauses)
     public func run(
         _ prompt: String,
-        deps: Deps,
         messageHistory: [Message] = []
     ) async throws -> AgentRun<Output> {
         try await executeLoop(
-            iterator: iter(prompt, deps: deps, messageHistory: messageHistory),
+            iterator: iter(prompt, messageHistory: messageHistory),
             maxIterations: maxIterations
         )
     }
@@ -166,12 +163,10 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
     ///
     /// - Parameters:
     ///   - prompt: New user prompt
-    ///   - deps: Dependencies to pass to tools
     ///   - continuingFrom: Previous AgentRun to continue from
     /// - Returns: AgentRun containing status and full state
     public func run(
         _ prompt: String,
-        deps: Deps,
         continuingFrom previous: AgentRun<Output>
     ) async throws -> AgentRun<Output> {
         var messages = previous.messages
@@ -189,7 +184,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             messages.append(.toolResults(toolResultEntries))
         }
 
-        return try await run(prompt, deps: deps, messageHistory: messages)
+        return try await run(prompt, messageHistory: messages)
     }
 
     // MARK: - Resume
@@ -204,32 +199,22 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
     ///
     /// **Approve all pending tools:**
     /// ```swift
-    /// let continued = try await agent.resume(
-    ///     from: run,
-    ///     with: .approveAll(from: run),
-    ///     deps: myDeps
-    /// )
+    /// let continued = try await agent.resume(from: run, with: .approveAll(from: run))
     /// ```
     ///
     /// **Continue with more iterations:**
     /// ```swift
-    /// let continued = try await agent.resume(
-    ///     from: run,
-    ///     with: .additionalIterations(10),
-    ///     deps: myDeps
-    /// )
+    /// let continued = try await agent.resume(from: run, with: .additionalIterations(10))
     /// ```
     ///
     /// - Parameters:
     ///   - run: The paused AgentRun to resume
     ///   - options: ResumeOptions appropriate for the run's status
-    ///   - deps: Dependencies to pass to tools
     /// - Returns: New AgentRun with updated status
     /// - Throws: `AgentError.invalidResume` if options don't match status
     public func resume(
         from run: AgentRun<Output>,
-        with options: ResumeOptions,
-        deps: Deps
+        with options: ResumeOptions
     ) async throws -> AgentRun<Output> {
         switch run.status {
         case .needsApproval:
@@ -262,7 +247,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
 
             let updatedState = run.state.with(phase: .beforeTools(calls: calls))
             return try await executeLoop(
-                iterator: iter(from: updatedState, deps: deps),
+                iterator: iter(from: updatedState),
                 maxIterations: maxIterations
             )
 
@@ -274,7 +259,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
             }
 
             return try await executeLoop(
-                iterator: iter(from: run.state, deps: deps),
+                iterator: iter(from: run.state),
                 maxIterations: maxIterations + additional
             )
 
@@ -300,19 +285,17 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
     ///
     /// - Parameters:
     ///   - prompt: User prompt to start the conversation
-    ///   - deps: Dependencies to pass to tools
     ///   - messageHistory: Optional previous messages to continue from
     /// - Returns: Stream of `AgentStreamEvent` values
     public nonisolated func runStream(
         _ prompt: String,
-        deps: Deps,
         messageHistory: [Message] = []
     ) -> AsyncThrowingStream<AgentStreamEvent<Output>, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
                     let run = try await self.executeStreamLoop(
-                        iterator: self.iter(prompt, deps: deps, messageHistory: messageHistory),
+                        iterator: self.iter(prompt, messageHistory: messageHistory),
                         maxIterations: self.maxIterations,
                         continuation: continuation
                     )
@@ -330,12 +313,10 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
     /// - Parameters:
     ///   - run: The paused AgentRun to resume
     ///   - options: ResumeOptions appropriate for the run's status
-    ///   - deps: Dependencies to pass to tools
     /// - Returns: Stream of `AgentStreamEvent` values
     public nonisolated func resumeStream(
         from run: AgentRun<Output>,
-        with options: ResumeOptions,
-        deps: Deps
+        with options: ResumeOptions
     ) -> AsyncThrowingStream<AgentStreamEvent<Output>, Error> {
         AsyncThrowingStream { continuation in
             Task {
@@ -366,7 +347,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
                         }
                         let updatedState = run.state.with(phase: .beforeTools(calls: calls))
                         result = try await self.executeStreamLoop(
-                            iterator: self.iter(from: updatedState, deps: deps),
+                            iterator: self.iter(from: updatedState),
                             maxIterations: self.maxIterations,
                             continuation: continuation
                         )
@@ -378,7 +359,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
                             )
                         }
                         result = try await self.executeStreamLoop(
-                            iterator: self.iter(from: run.state, deps: deps),
+                            iterator: self.iter(from: run.state),
                             maxIterations: self.maxIterations + additional,
                             continuation: continuation
                         )
@@ -410,7 +391,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
     ///
     /// ## Usage
     /// ```swift
-    /// for try await node in agent.iter("Task", deps: deps) {
+    /// for try await node in agent.iter("Task") {
     ///     switch node {
     ///     case .beforeModel(let ctx):
     ///         // Modify messages before model call
@@ -432,18 +413,15 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
     ///
     /// - Parameters:
     ///   - prompt: User prompt to start the conversation
-    ///   - deps: Dependencies to pass to tools
     ///   - messageHistory: Optional previous messages to continue from
     /// - Returns: An `AgentIterator` that yields `IterationNode` values
     public nonisolated func iter(
         _ prompt: String,
-        deps: Deps,
         messageHistory: [Message] = []
-    ) -> AgentIterator<Deps, Output> {
+    ) -> AgentIterator<Output> {
         AgentIterator(
             agent: self,
             prompt: prompt,
-            deps: deps,
             messageHistory: messageHistory
         )
     }
@@ -452,20 +430,17 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
     ///
     /// Use this to continue execution across sessions:
     /// 1. Save `node.state` when pausing
-    /// 2. Later, call `iter(from: savedState, deps: deps)` to continue
+    /// 2. Later, call `iter(from: savedState)` to continue
     ///
     /// - Parameters:
     ///   - state: Previously saved iteration state
-    ///   - deps: Dependencies to pass to tools
     /// - Returns: An `AgentIterator` that continues from the saved state
     public nonisolated func iter(
-        from state: IterationState<Output>,
-        deps: Deps
-    ) -> AgentIterator<Deps, Output> {
+        from state: IterationState<Output>
+    ) -> AgentIterator<Output> {
         AgentIterator(
             agent: self,
-            resumeFrom: state,
-            deps: deps
+            resumeFrom: state
         )
     }
 
@@ -480,7 +455,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
     ///
     /// Limits are run()'s responsibility — iter() doesn't check limits.
     private func executeLoop(
-        iterator: AgentIterator<Deps, Output>,
+        iterator: AgentIterator<Output>,
         maxIterations: Int
     ) async throws -> AgentRun<Output> {
         do {
@@ -536,7 +511,7 @@ public actor Agent<Deps: Sendable, Output: SchemaType> {
     /// Same policy as executeLoop(), but streams model and tool events
     /// through the continuation.
     private func executeStreamLoop(
-        iterator: AgentIterator<Deps, Output>,
+        iterator: AgentIterator<Output>,
         maxIterations: Int,
         continuation: AsyncThrowingStream<AgentStreamEvent<Output>, Error>.Continuation
     ) async throws -> AgentRun<Output> {

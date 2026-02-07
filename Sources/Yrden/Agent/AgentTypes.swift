@@ -251,7 +251,7 @@ public enum EndStrategy: String, Sendable, Codable, Equatable, Hashable {
 ///
 /// ## Usage
 /// ```swift
-/// for try await event in agent.runStream("Analyze data", deps: myDeps) {
+/// for try await event in agent.runStream("Analyze data") {
 ///     switch event {
 ///     case .contentDelta(let text):
 ///         print(text, terminator: "")
@@ -362,7 +362,7 @@ public struct ToolCallResult: Sendable, Codable {
 ///
 /// ## Example
 /// ```swift
-/// let validator = OutputValidator<MyDeps, Report> { context, report in
+/// let validator = OutputValidator<Report> { context, report in
 ///     guard report.sections.count >= 3 else {
 ///         throw ValidationRetry("Report must have at least 3 sections")
 ///     }
@@ -374,18 +374,18 @@ public struct ToolCallResult: Sendable, Codable {
 ///     outputValidators: [validator]
 /// )
 /// ```
-public struct OutputValidator<Deps: Sendable, Output: SchemaType>: Sendable {
-    private let _validate: @Sendable (AgentContext<Deps>, Output) async throws -> Output
+public struct OutputValidator<Output: SchemaType>: Sendable {
+    private let _validate: @Sendable (ToolContext, Output) async throws -> Output
 
     public init(
-        _ validate: @escaping @Sendable (AgentContext<Deps>, Output) async throws -> Output
+        _ validate: @escaping @Sendable (ToolContext, Output) async throws -> Output
     ) {
         self._validate = validate
     }
 
     /// Validate and optionally transform the output.
     public func validate(
-        context: AgentContext<Deps>,
+        context: ToolContext,
         output: Output
     ) async throws -> Output {
         try await _validate(context, output)

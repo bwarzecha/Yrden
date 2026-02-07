@@ -17,17 +17,17 @@ struct AgentOutputValidatorTests {
     func outputValidatorTransformsOutput() async throws {
         let model = FakeModel(responses: [MockResponse.text("hello world")])
 
-        let uppercaseValidator = OutputValidator<Void, String> { _, output in
+        let uppercaseValidator = OutputValidator<String> { _, output in
             output.uppercased()
         }
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
             outputValidators: [uppercaseValidator]
         )
 
-        let run = try await agent.run("Say hello", deps: ())
+        let run = try await agent.run("Say hello")
         #expect(run.output == "HELLO WORLD")
         #expect(await model.completeCallCount == 1)
     }
@@ -57,20 +57,20 @@ struct AgentOutputValidatorTests {
             }
         })
 
-        let validator = OutputValidator<Void, String> { _, output in
+        let validator = OutputValidator<String> { _, output in
             guard output.count > 10 else {
                 throw ValidationRetry("Response must be longer than 10 characters.")
             }
             return output
         }
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
             outputValidators: [validator]
         )
 
-        let run = try await agent.run("Say hello", deps: ())
+        let run = try await agent.run("Say hello")
         #expect(run.output == "hello, this is a longer response")
         #expect(await model.completeCallCount == 2)
     }

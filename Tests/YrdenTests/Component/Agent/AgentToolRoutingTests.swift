@@ -47,13 +47,13 @@ struct AgentToolRoutingTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(alphaTool), AnyAgentTool(betaTool), AnyAgentTool(gammaTool)]
+            tools: [alphaTool, betaTool, gammaTool]
         )
 
-        let result = try await agent.run("Call beta", deps: ())
+        let result = try await agent.run("Call beta")
         #expect(result.output == "Done")
 
         let alphaCalls = await alphaTool.calls
@@ -87,13 +87,13 @@ struct AgentToolRoutingTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(realTool)]
+            tools: [realTool]
         )
 
-        let result = try await agent.run("Go", deps: ())
+        let result = try await agent.run("Go")
         #expect(result.output == "Recovered")
         #expect(result.requestCount == 2)
 
@@ -107,10 +107,10 @@ struct AgentToolRoutingTests {
 
         let model = FakeModel(responses: [])
 
-        let agent = try Agent<Void, SimpleOutput>(
+        let agent = try Agent<SimpleOutput>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(userTool)]
+            tools: [userTool]
         )
 
         let outputName = await agent.outputToolName
@@ -126,10 +126,10 @@ struct AgentToolRoutingTests {
         let tool2 = ConfigurableTool.succeeding("second", name: "duplicate_tool")
 
         #expect(throws: AgentError<String>.self) {
-            _ = try Agent<Void, String>(
+            _ = try Agent<String>(
                 model: FakeModel(responses: []),
                 systemPrompt: "You are helpful.",
-                tools: [AnyAgentTool(tool1), AnyAgentTool(tool2)]
+                tools: [tool1, tool2]
             )
         }
     }
@@ -144,13 +144,13 @@ struct AgentToolRoutingTests {
             return MockResponse.text("Done")
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Go", deps: ())
+        let result = try await agent.run("Go")
         #expect(result.output == "Done")
     }
 
@@ -175,13 +175,13 @@ struct AgentToolRoutingTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(tool)]
+            tools: [tool]
         )
 
-        let result = try await agent.run("Go", deps: ())
+        let result = try await agent.run("Go")
         #expect(result.output == "Done")
     }
 }

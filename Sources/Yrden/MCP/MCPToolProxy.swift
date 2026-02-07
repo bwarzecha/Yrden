@@ -14,8 +14,8 @@
 ///     coordinator: coordinator
 /// )
 ///
-/// // Convert to AnyAgentTool for use with Agent
-/// let tool: AnyAgentTool<Void> = proxy.asAnyAgentTool()
+/// // Use directly as a Tool — no wrapping needed
+/// let agent = try Agent(model: model, tools: [proxy])
 /// ```
 
 import Foundation
@@ -28,8 +28,11 @@ import MCP
 /// This is the recommended way to expose MCP tools to agents.
 /// The proxy doesn't hold connection state - it routes through
 /// the coordinator which manages connection lifecycle.
+///
+/// Conforms to `Tool` directly, so it can be used in `[any Tool]` arrays
+/// without wrapping.
 /// - Note: Internal type for testing infrastructure.
-struct MCPToolProxy: Sendable {
+struct MCPToolProxy: Tool {
     /// Server ID this tool belongs to.
     let serverID: String
 
@@ -111,7 +114,7 @@ struct MCPToolProxy: Sendable {
         self.requiresApproval = requiresApproval
     }
 
-    // MARK: - Tool Execution
+    // MARK: - Tool Protocol
 
     /// Call the tool with JSON arguments.
     ///
@@ -120,9 +123,11 @@ struct MCPToolProxy: Sendable {
     /// - Timeout enforcement
     /// - Error mapping
     ///
-    /// - Parameter argumentsJSON: JSON-encoded arguments string
+    /// - Parameters:
+    ///   - context: Tool execution context (not used for MCP tools)
+    ///   - argumentsJSON: JSON-encoded arguments string
     /// - Returns: Tool result
-    func call(argumentsJSON: String) async throws -> AnyToolResult {
+    func call(context: ToolContext, argumentsJSON: String) async throws -> AnyToolResult {
         // Parse arguments using shared helper
         let arguments: [String: Value]?
         switch parseMCPArguments(argumentsJSON) {
@@ -187,33 +192,5 @@ struct MCPToolProxy: Sendable {
                 message: "Internal error: \(message)"
             ))
         }
-    }
-
-    // MARK: - Conversion
-
-    /// Convert to type-erased AnyAgentTool for use with Agent.
-    ///
-    /// The returned tool uses `Void` deps since MCP tools don't
-    /// require local dependencies.
-    ///
-    /// - Returns: Type-erased agent tool
-    func asAnyAgentTool() -> AnyAgentTool<Void> {
-        AnyAgentTool<Void>(
-            name: name,
-            description: description,
-            definition: definition,
-            requiresApproval: requiresApproval
-        ) { _, args in
-            try await self.call(argumentsJSON: args)
-        }
-    }
-}
-
-// MARK: - Array Extension
-
-extension Array where Element == MCPToolProxy {
-    /// Convert all proxies to type-erased agent tools.
-    func asAnyAgentTools() -> [AnyAgentTool<Void>] {
-        map { $0.asAnyAgentTool() }
     }
 }

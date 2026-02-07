@@ -176,7 +176,7 @@ struct MCPSettingsSection: View {
 
         do {
             let toolNames: [String]
-            var agentTools: [AnyAgentTool<AppDependencies>]
+            var agentTools: [any Tool]
             let connection: MCPServerConnection
 
             switch server.mode {
@@ -202,7 +202,7 @@ struct MCPSettingsSection: View {
 
             // Apply requiresApproval flag from server config to all tools
             if server.requiresApproval {
-                agentTools = agentTools.map { $0.withRequiresApproval(true) }
+                agentTools = agentTools.map { $0.requireApproval() }
             }
 
             // Register tools with viewModel (pass the already-discovered tools)

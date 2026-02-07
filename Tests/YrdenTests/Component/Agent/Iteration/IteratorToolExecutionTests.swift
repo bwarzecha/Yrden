@@ -39,9 +39,9 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
-        for try await _ in agent.iter("Use tool", deps: ()) { }
+        for try await _ in agent.iter("Use tool") { }
         let calls = await tool.calls
 
         #expect(calls.count == 1)
@@ -73,11 +73,11 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var messagesAfterTools: [Message]?
         var iterationAfterTools: Int = -1
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeModel(let ctx) = node {
                 if ctx.state.iteration > 0 {
                     messagesAfterTools = ctx.state.messages
@@ -119,10 +119,10 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var resultId: String?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeModel(let ctx) = node, ctx.state.iteration > 0 {
                 for message in ctx.state.messages {
                     if case .toolResults(let results) = message {
@@ -159,12 +159,12 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(toolA), AnyAgentTool(toolB), AnyAgentTool(toolC)]
+            tools: [toolA, toolB, toolC]
         )
 
-        for try await _ in agent.iter("Use all", deps: ()) { }
+        for try await _ in agent.iter("Use all") { }
 
         let aCalls = await toolA.calls
         let bCalls = await toolB.calls
@@ -199,13 +199,13 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(toolA), AnyAgentTool(toolB), AnyAgentTool(toolC)]
+            tools: [toolA, toolB, toolC]
         )
 
         var resultOrder: [String] = []
-        for try await node in agent.iter("Use all", deps: ()) {
+        for try await node in agent.iter("Use all") {
             if case .afterTools(let ctx) = node {
                 resultOrder = ctx.results.map { $0.call.name }
             }
@@ -246,11 +246,11 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         // Should NOT throw - tool errors are results, not exceptions
         var output: String?
-        for try await node in agent.iter("Use failing tool", deps: ()) {
+        for try await node in agent.iter("Use failing tool") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -279,10 +279,10 @@ struct IteratorToolExecutionTests {
         })
 
         // No tools registered!
-        let agent = try Agent<Void, String>(model: model, tools: [])
+        let agent = try Agent<String>(model: model, tools: [])
 
         var output: String?
-        for try await node in agent.iter("Use unknown tool", deps: ()) {
+        for try await node in agent.iter("Use unknown tool") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -313,11 +313,11 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         // Should complete without throwing
         var output: String?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -347,14 +347,14 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(slowTool)],
+            tools: [slowTool],
             toolTimeout: .milliseconds(10)  // 10ms timeout
         )
 
         var toolResult: ToolCallResult?
-        for try await node in agent.iter("Use slow tool", deps: ()) {
+        for try await node in agent.iter("Use slow tool") {
             if case .afterTools(let ctx) = node {
                 toolResult = ctx.results.first
             }
@@ -397,10 +397,10 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var toolResultContent: String?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeModel(let ctx) = node, ctx.state.iteration > 0 {
                 for message in ctx.state.messages {
                     if case .toolResults(let results) = message {
@@ -443,14 +443,14 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(slowTool)],  // No per-tool timeout
+            tools: [slowTool],  // No per-tool timeout
             toolTimeout: .milliseconds(10)  // Engine default
         )
 
         var toolResult: ToolCallResult?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .afterTools(let ctx) = node {
                 toolResult = ctx.results.first
             }
@@ -487,14 +487,14 @@ struct IteratorToolExecutionTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(slowTool)],
+            tools: [slowTool],
             toolTimeout: nil  // No timeout
         )
 
         var toolResult: ToolCallResult?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .afterTools(let ctx) = node {
                 toolResult = ctx.results.first
             }

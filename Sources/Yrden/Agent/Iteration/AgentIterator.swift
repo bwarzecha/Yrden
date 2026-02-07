@@ -2,7 +2,7 @@
 ///
 /// Conforms to `AsyncSequence` for use with `for await`:
 /// ```swift
-/// for await node in agent.iter("Task", deps: deps) {
+/// for await node in agent.iter("Task") {
 ///     switch node {
 ///     case .beforeModel(let ctx): ...
 ///     case .afterModel(let ctx): ...
@@ -17,36 +17,31 @@ import Foundation
 
 // MARK: - AgentIterator
 
-public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence, Sendable {
-    public typealias Element = IterationNode<Deps, Output>
+public struct AgentIterator<Output: SchemaType>: AsyncSequence, Sendable {
+    public typealias Element = IterationNode<Output>
 
-    private let agent: Agent<Deps, Output>
+    private let agent: Agent<Output>
     private let initialPrompt: String
-    private let deps: Deps
     private let messageHistory: [Message]
     private let resumeState: IterationState<Output>?
 
     internal init(
-        agent: Agent<Deps, Output>,
+        agent: Agent<Output>,
         prompt: String,
-        deps: Deps,
         messageHistory: [Message]
     ) {
         self.agent = agent
         self.initialPrompt = prompt
-        self.deps = deps
         self.messageHistory = messageHistory
         self.resumeState = nil
     }
 
     internal init(
-        agent: Agent<Deps, Output>,
-        resumeFrom state: IterationState<Output>,
-        deps: Deps
+        agent: Agent<Output>,
+        resumeFrom state: IterationState<Output>
     ) {
         self.agent = agent
         self.initialPrompt = ""
-        self.deps = deps
         self.messageHistory = []
         self.resumeState = state
     }
@@ -55,7 +50,6 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
         AsyncIterator(
             agent: agent,
             initialPrompt: initialPrompt,
-            deps: deps,
             messageHistory: messageHistory,
             resumeState: resumeState
         )
@@ -64,16 +58,15 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
     // MARK: - AsyncIterator
 
     public struct AsyncIterator: AsyncIteratorProtocol {
-        private let agent: Agent<Deps, Output>
-        private let deps: Deps
+        private let agent: Agent<Output>
 
         /// The current state - nil means iteration complete.
         private var state: IterationState<Output>?
 
         /// Retained context references for reading back user modifications.
         /// Context classes modify their internal state; we read it back in executeAndTransition.
-        private var currentBeforeModelContext: BeforeModelContext<Deps, Output>?
-        private var currentBeforeToolsContext: BeforeToolsContext<Deps, Output>?
+        private var currentBeforeModelContext: BeforeModelContext<Output>?
+        private var currentBeforeToolsContext: BeforeToolsContext<Output>?
 
         /// Internal step within the current phase.
         /// Used to track whether we've yielded the current phase yet.
@@ -90,14 +83,12 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
         private var needsToolValidationOnResume: Bool = false
 
         internal init(
-            agent: Agent<Deps, Output>,
+            agent: Agent<Output>,
             initialPrompt: String,
-            deps: Deps,
             messageHistory: [Message],
             resumeState: IterationState<Output>?
         ) {
             self.agent = agent
-            self.deps = deps
 
             if let resumeState {
                 self.state = resumeState
@@ -122,7 +113,7 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
             }
         }
 
-        public mutating func next() async throws -> IterationNode<Deps, Output>? {
+        public mutating func next() async throws -> IterationNode<Output>? {
             switch step {
             case .done:
                 return nil
@@ -132,7 +123,7 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
                     step = .done
                     return nil
                 }
-                let finishedContext = FinishedContext(state: finalState, output: output, deps: deps)
+                let finishedContext = FinishedContext(state: finalState, output: output)
                 step = .done
                 state = nil
                 return .finished(finishedContext)
@@ -154,20 +145,20 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
         }
 
         /// Yield the current phase node.
-        private mutating func yieldCurrentPhase() async throws -> IterationNode<Deps, Output>? {
+        private mutating func yieldCurrentPhase() async throws -> IterationNode<Output>? {
             // Clear any previous context references
             currentBeforeModelContext = nil
             currentBeforeToolsContext = nil
 
             switch state!.phase {
             case .beforeModel:
-                let context = BeforeModelContext<Deps, Output>(state: state!, deps: deps, agent: agent)
+                let context = BeforeModelContext<Output>(state: state!, agent: agent)
                 currentBeforeModelContext = context  // Retain for reading back modifications
                 step = .executeAndTransition
                 return .beforeModel(context)
 
             case .afterModel:
-                let context = AfterModelContext<Deps, Output>(state: state!, deps: deps)
+                let context = AfterModelContext<Output>(state: state!)
                 step = .executeAndTransition
                 return .afterModel(context)
 
@@ -178,20 +169,20 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
                     needsToolValidationOnResume = false  // Clear flag after validation
                 }
 
-                let context = BeforeToolsContext<Deps, Output>(state: state!, deps: deps, agent: agent)
+                let context = BeforeToolsContext<Output>(state: state!, agent: agent)
                 currentBeforeToolsContext = context  // Retain for reading back modifications
                 step = .executeAndTransition
                 return .beforeTools(context)
 
             case .afterTools:
-                let context = AfterToolsContext<Deps, Output>(state: state!, deps: deps)
+                let context = AfterToolsContext<Output>(state: state!)
                 step = .executeAndTransition
                 return .afterTools(context)
             }
         }
 
         /// Execute logic for current phase and transition to next.
-        private mutating func executeAndTransition() async throws -> IterationNode<Deps, Output>? {
+        private mutating func executeAndTransition() async throws -> IterationNode<Output>? {
             switch state!.phase {
             case .beforeModel:
                 // Apply potentially modified state from context (for message modifications)
@@ -390,9 +381,8 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
                     continue
                 }
 
-                // Build context — reads from self.state without triggering COW
-                let toolContext = AgentContext<Deps>(
-                    deps: deps,
+                // Build context
+                let toolContext = ToolContext(
                     model: model,
                     usage: state!.usage,
                     toolCallID: pending.call.id,
@@ -422,8 +412,8 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
 
         /// Execute a single tool call with optional timeout.
         private func executeToolWithTimeout(
-            tool: AnyAgentTool<Deps>,
-            context: AgentContext<Deps>,
+            tool: any Tool,
+            context: ToolContext,
             arguments: String,
             timeout: Duration?,
             startTime: ContinuousClock.Instant
@@ -456,7 +446,7 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
                     // Task 2: Timeout
                     group.addTask {
                         try await Task.sleep(for: timeout)
-                        throw ToolTimeoutError(toolName: tool.definition.name, timeout: timeout)
+                        throw ToolTimeoutError(toolName: tool.name, timeout: timeout)
                     }
 
                     // Wait for first result
@@ -523,8 +513,7 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
             let validators = await agent.outputValidators
             let model = await agent.model
             for validator in validators {
-                let context = AgentContext<Deps>(
-                    deps: deps,
+                let context = ToolContext(
                     model: model,
                     usage: state!.usage,
                     runStep: state!.iteration,
@@ -647,8 +636,7 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
             let model = await agent.model
 
             for validator in validators {
-                let context = AgentContext<Deps>(
-                    deps: deps,
+                let context = ToolContext(
                     model: model,
                     usage: state!.usage,
                     runStep: state!.iteration,
@@ -664,7 +652,7 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
         /// Create pending tool decisions from tool calls, looking up approval requirements.
         private func makePendingDecisions(
             from calls: [ToolCall],
-            using tools: [AnyAgentTool<Deps>]
+            using tools: [any Tool]
         ) -> [PendingToolDecision] {
             calls.map { call in
                 let tool = tools.first { $0.definition.name == call.name }
@@ -677,7 +665,7 @@ public struct   AgentIterator<Deps: Sendable, Output: SchemaType>: AsyncSequence
         /// Validation retries do NOT consume iterations but have their own limit.
         private mutating func retryWithValidationMessage(
             _ message: String
-        ) async throws -> IterationNode<Deps, Output>? {
+        ) async throws -> IterationNode<Output>? {
             // Increment validation retry count
             state!.validationRetryCount += 1
 

@@ -7,8 +7,7 @@ import Foundation
 
 /// A tool that takes a configurable amount of time to complete.
 /// Useful for testing timeouts and cancellation.
-struct SlowTool: AgentTool {
-    typealias Deps = Void
+struct SlowTool: TypedTool {
     typealias Args = ConfigurableToolArgs
 
     let delay: Duration
@@ -22,8 +21,8 @@ struct SlowTool: AgentTool {
         self.result = result
     }
 
-    func call(
-        context: AgentContext<Void>,
+    func execute(
+        context: ToolContext,
         arguments: Args
     ) async throws -> ToolResult<String> {
         try await Task.sleep(for: delay)

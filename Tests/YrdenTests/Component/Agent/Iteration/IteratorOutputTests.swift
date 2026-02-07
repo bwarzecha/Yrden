@@ -31,10 +31,10 @@ struct IteratorOutputTests {
     @Test("model text content becomes String output")
     func stringOutputExtractedFromContent() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello, World!")])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var output: String?
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -48,10 +48,10 @@ struct IteratorOutputTests {
     @Test("empty content is valid String output")
     func emptyStringOutputAllowed() async throws {
         let model = FakeModel(responses: [MockResponse.text("")])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var output: String?
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -70,7 +70,7 @@ struct IteratorOutputTests {
         }
 
         let tracker = InvocationTracker()
-        let validator = OutputValidator<Void, String> { _, output in
+        let validator = OutputValidator<String> { _, output in
             await tracker.markInvoked()
             guard output.count >= 5 else {
                 throw ValidationRetry("Output must be at least 5 characters")
@@ -79,12 +79,12 @@ struct IteratorOutputTests {
         }
 
         let model = FakeModel(responses: [MockResponse.text("hello world")])
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             outputValidators: [validator]
         )
 
-        for try await _ in agent.iter("Hi", deps: ()) { }
+        for try await _ in agent.iter("Hi") { }
 
         let validatorInvoked = await tracker.invoked
         #expect(validatorInvoked)
@@ -96,7 +96,7 @@ struct IteratorOutputTests {
     func stringValidatorRetryLoops() async throws {
         let validatorCounter = CallCounter()
 
-        let validator = OutputValidator<Void, String> { _, output in
+        let validator = OutputValidator<String> { _, output in
             _ = await validatorCounter.increment()
             guard output.count >= 10 else {
                 throw ValidationRetry("Output must be at least 10 characters")
@@ -116,13 +116,13 @@ struct IteratorOutputTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             outputValidators: [validator]
         )
 
         var output: String?
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -144,10 +144,10 @@ struct IteratorOutputTests {
             )
         ])
 
-        let agent = try Agent<Void, TestReport>(model: model)
+        let agent = try Agent<TestReport>(model: model)
 
         var output: TestReport?
-        for try await node in agent.iter("Generate report", deps: ()) {
+        for try await node in agent.iter("Generate report") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -167,7 +167,7 @@ struct IteratorOutputTests {
         }
 
         let tracker = InvocationTracker()
-        let validator = OutputValidator<Void, TestReport> { _, report in
+        let validator = OutputValidator<TestReport> { _, report in
             await tracker.markInvoked()
             guard report.score >= 0 && report.score <= 100 else {
                 throw ValidationRetry("Score must be between 0 and 100")
@@ -183,12 +183,12 @@ struct IteratorOutputTests {
             )
         ])
 
-        let agent = try Agent<Void, TestReport>(
+        let agent = try Agent<TestReport>(
             model: model,
             outputValidators: [validator]
         )
 
-        for try await _ in agent.iter("Generate report", deps: ()) { }
+        for try await _ in agent.iter("Generate report") { }
 
         let validatorInvoked = await tracker.invoked
         #expect(validatorInvoked)
@@ -220,10 +220,10 @@ struct IteratorOutputTests {
             }
         })
 
-        let agent = try Agent<Void, TestReport>(model: model)
+        let agent = try Agent<TestReport>(model: model)
 
         var output: TestReport?
-        for try await node in agent.iter("Generate report", deps: ()) {
+        for try await node in agent.iter("Generate report") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -259,10 +259,10 @@ struct IteratorOutputTests {
             }
         })
 
-        let agent = try Agent<Void, TestReport>(model: model)
+        let agent = try Agent<TestReport>(model: model)
 
         var output: TestReport?
-        for try await node in agent.iter("Generate report", deps: ()) {
+        for try await node in agent.iter("Generate report") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -297,14 +297,14 @@ struct IteratorOutputTests {
             }
         })
 
-        let agent = try Agent<Void, TestReport>(
+        let agent = try Agent<TestReport>(
             model: model,
-            tools: [AnyAgentTool(regularTool)],
+            tools: [regularTool],
             endStrategy: .exhaustive  // Run all tools before finishing
         )
 
         var pendingCallNames: [String] = []
-        for try await node in agent.iter("Generate report", deps: ()) {
+        for try await node in agent.iter("Generate report") {
             if case .beforeTools(let ctx) = node {
                 pendingCallNames = ctx.pendingCalls.map { $0.call.name }
             }
@@ -321,7 +321,7 @@ struct IteratorOutputTests {
     @Test("default output tool name is final_result when no collision")
     func defaultOutputToolName() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         let outputName = await agent.outputToolName
         #expect(outputName == "final_result")
@@ -339,7 +339,7 @@ struct IteratorOutputTests {
         let tracker = OrderTracker()
 
         // Validator 1: Check minimum length
-        let validator1 = OutputValidator<Void, String> { _, output in
+        let validator1 = OutputValidator<String> { _, output in
             await tracker.append(1)
             guard output.count >= 3 else {
                 throw ValidationRetry("Must be at least 3 chars")
@@ -348,7 +348,7 @@ struct IteratorOutputTests {
         }
 
         // Validator 2: Check contains letter 'e'
-        let validator2 = OutputValidator<Void, String> { _, output in
+        let validator2 = OutputValidator<String> { _, output in
             await tracker.append(2)
             guard output.contains("e") else {
                 throw ValidationRetry("Must contain letter 'e'")
@@ -357,7 +357,7 @@ struct IteratorOutputTests {
         }
 
         // Validator 3: Check not all uppercase
-        let validator3 = OutputValidator<Void, String> { _, output in
+        let validator3 = OutputValidator<String> { _, output in
             await tracker.append(3)
             guard output != output.uppercased() else {
                 throw ValidationRetry("Must not be all uppercase")
@@ -366,13 +366,13 @@ struct IteratorOutputTests {
         }
 
         let model = FakeModel(responses: [MockResponse.text("hello")])  // Passes all
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             outputValidators: [validator1, validator2, validator3]
         )
 
         var output: String?
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -384,49 +384,18 @@ struct IteratorOutputTests {
     }
 
     // MARK: - Test 8.12: Validator receives correct context
-
-    @Test("validator receives context with correct deps")
-    func validatorReceivesCorrectContext() async throws {
-        struct TestDeps: Sendable {
-            let minLength: Int
-        }
-
-        actor MinLengthCapture {
-            var value: Int?
-            func set(_ v: Int) { value = v }
-        }
-
-        let capture = MinLengthCapture()
-        let validator = OutputValidator<TestDeps, String> { context, output in
-            await capture.set(context.deps.minLength)
-            guard output.count >= context.deps.minLength else {
-                throw ValidationRetry("Output must be at least \(context.deps.minLength) characters")
-            }
-            return output
-        }
-
-        let model = FakeModel(responses: [MockResponse.text("Hello world")])
-        let agent = try Agent<TestDeps, String>(
-            model: model,
-            outputValidators: [validator]
-        )
-
-        let deps = TestDeps(minLength: 5)
-        for try await _ in agent.iter("Hi", deps: deps) { }
-
-        let receivedMinLength = await capture.value
-        #expect(receivedMinLength == 5)
-    }
+    // NOTE: Removed - Deps generic parameter removed from Agent/Tool protocol.
+    // Dependencies are no longer part of the agent/context API.
 
     // MARK: - Test 8.13: Whitespace-only content is valid String output
 
     @Test("whitespace-only content is valid String output")
     func whitespaceOnlyContentIsValid() async throws {
         let model = FakeModel(responses: [MockResponse.text("   \n\t  ")])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var output: String?
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -441,18 +410,18 @@ struct IteratorOutputTests {
     func validatorNonRetryErrorPropagates() async throws {
         struct CustomValidationError: Error {}
 
-        let validator = OutputValidator<Void, String> { _, _ in
+        let validator = OutputValidator<String> { _, _ in
             throw CustomValidationError()
         }
 
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             outputValidators: [validator]
         )
 
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
             Issue.record("Expected error to be thrown")
         } catch is CustomValidationError {
             // Expected

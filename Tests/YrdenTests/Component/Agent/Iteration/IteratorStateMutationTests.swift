@@ -37,9 +37,9 @@ struct IteratorStateMutationTests {
             return MockResponse.text("Done")
         })
 
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .beforeModel(let ctx) = node {
                 ctx.state.messages.append(.system("INJECTED CONTEXT"))
             }
@@ -69,9 +69,9 @@ struct IteratorStateMutationTests {
             return MockResponse.text("Done")
         })
 
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .beforeModel(let ctx) = node {
                 // Replace with just one user message
                 ctx.state.messages = [.user("Only this")]
@@ -109,9 +109,9 @@ struct IteratorStateMutationTests {
             return MockResponse.text("Done")
         })
 
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
-        for try await node in agent.iter("New message", deps: (), messageHistory: history) {
+        for try await node in agent.iter("New message", messageHistory: history) {
             if case .beforeModel(let ctx) = node {
                 // Keep only last 10 messages plus the new one
                 ctx.state.messages = Array(ctx.state.messages.suffix(11))
@@ -127,10 +127,10 @@ struct IteratorStateMutationTests {
     @Test("context is a class - mutations visible without reassignment")
     func contextIsReferenceType() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var mutationVisible = false
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .beforeModel(let ctx) = node {
                 let originalCount = ctx.state.messages.count
                 ctx.state.messages.append(.system("Added"))
@@ -150,12 +150,12 @@ struct IteratorStateMutationTests {
     @Test("state changes made through context are visible in subsequent phases")
     func stateChangeVisibleToIterator() async throws {
         let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var messageCountBeforeModel: Int?
         var messageCountAfterModel: Int?
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .beforeModel(let ctx) = node {
                 ctx.state.messages.append(.system("Added in beforeModel"))
                 messageCountBeforeModel = ctx.state.messages.count
@@ -183,10 +183,10 @@ struct IteratorStateMutationTests {
             return MockResponse.text("Response \(n)")
         })
 
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         // First iteration - break early
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .beforeModel = node {
                 break  // Exit early, before finished
             }
@@ -194,7 +194,7 @@ struct IteratorStateMutationTests {
 
         // Agent should be usable for new iteration
         var output: String?
-        for try await node in agent.iter("Second", deps: ()) {
+        for try await node in agent.iter("Second") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -225,12 +225,12 @@ struct IteratorStateMutationTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var addedMessageInIteration0 = false
         var sawMessageInIteration1 = false
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .beforeModel(let ctx) = node {
                 if ctx.state.iteration == 0 {
                     ctx.state.messages.append(.system("PERSISTENT_MARKER"))
@@ -259,12 +259,12 @@ struct IteratorStateMutationTests {
         let model = FakeModel(responses: [
             MockResponse.text("Hello", usage: Usage(inputTokens: 50, outputTokens: 25))
         ])
-        let agent = try Agent<Void, String>(model: model)
+        let agent = try Agent<String>(model: model)
 
         var usageInAfterModel: Usage?
         var usageInFinished: Usage?
 
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .afterModel(let ctx) = node {
                 usageInAfterModel = ctx.state.usage
             }
@@ -280,40 +280,6 @@ struct IteratorStateMutationTests {
     }
 
     // MARK: - Test 5.9: Dependencies accessible in all contexts
-
-    @Test("dependencies are accessible in all context types")
-    func dependenciesAccessibleInAllContexts() async throws {
-        struct TestDeps: Sendable {
-            let marker: String
-        }
-
-        let model = FakeModel(responses: [MockResponse.text("Hello")])
-        let agent = try Agent<TestDeps, String>(model: model)
-
-        let deps = TestDeps(marker: "test_marker_123")
-
-        var beforeModelDeps: TestDeps?
-        var afterModelDeps: TestDeps?
-        var finishedDeps: TestDeps?
-
-        for try await node in agent.iter("Hi", deps: deps) {
-            switch node {
-            case .beforeModel(let ctx):
-                beforeModelDeps = ctx.deps
-            case .afterModel(let ctx):
-                afterModelDeps = ctx.deps
-            case .beforeTools(let ctx):
-                // Verify deps available here too (won't be hit in this test)
-                _ = ctx.deps
-            case .afterTools(let ctx):
-                _ = ctx.deps
-            case .finished(let ctx):
-                finishedDeps = ctx.deps
-            }
-        }
-
-        #expect(beforeModelDeps?.marker == "test_marker_123")
-        #expect(afterModelDeps?.marker == "test_marker_123")
-        #expect(finishedDeps?.marker == "test_marker_123")
-    }
+    // NOTE: Removed - Deps generic parameter removed from Agent/Tool protocol.
+    // Dependencies are no longer part of the agent/context API.
 }

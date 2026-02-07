@@ -49,12 +49,12 @@ struct IteratorCrossAgentResumeTests {
             return MockResponse.text("Model2 completed")
         })
 
-        let agent1 = try Agent<Void, String>(model: model1, tools: [AnyAgentTool(tool)])
-        let agent2 = try Agent<Void, String>(model: model2, tools: [AnyAgentTool(tool)])
+        let agent1 = try Agent<String>(model: model1, tools: [tool])
+        let agent2 = try Agent<String>(model: model2, tools: [tool])
 
         // Run agent1 until beforeTools, then break
         var savedState: IterationState<String>?
-        for try await node in agent1.iter("Use tool", deps: ()) {
+        for try await node in agent1.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 savedState = ctx.state
                 break
@@ -72,7 +72,7 @@ struct IteratorCrossAgentResumeTests {
 
         // Resume with agent2 (different model, same tool)
         var output: String?
-        for try await node in agent2.iter(from: state, deps: ()) {
+        for try await node in agent2.iter(from: state) {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -114,13 +114,13 @@ struct IteratorCrossAgentResumeTests {
 
         let model2 = FakeModel(responses: [MockResponse.text("Agent2 completed")])
 
-        let agent1 = try Agent<Void, String>(model: model1, tools: [AnyAgentTool(tool1)])
+        let agent1 = try Agent<String>(model: model1, tools: [tool1])
         // Agent2 has BOTH tools (superset)
-        let agent2 = try Agent<Void, String>(model: model2, tools: [AnyAgentTool(tool1), AnyAgentTool(tool2)])
+        let agent2 = try Agent<String>(model: model2, tools: [tool1, tool2])
 
         // Run agent1 until beforeTools
         var savedState: IterationState<String>?
-        for try await node in agent1.iter("Use tool", deps: ()) {
+        for try await node in agent1.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 savedState = ctx.state
                 break
@@ -134,7 +134,7 @@ struct IteratorCrossAgentResumeTests {
 
         // Resume with agent2 (has more tools) - should work
         var output: String?
-        for try await node in agent2.iter(from: state, deps: ()) {
+        for try await node in agent2.iter(from: state) {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -162,12 +162,12 @@ struct IteratorCrossAgentResumeTests {
         // Second agent has tool_2 (different tool!)
         let model2 = FakeModel(responses: [MockResponse.text("Should not reach here")])
 
-        let agent1 = try Agent<Void, String>(model: model1, tools: [AnyAgentTool(tool1)])
-        let agent2 = try Agent<Void, String>(model: model2, tools: [AnyAgentTool(tool2)])
+        let agent1 = try Agent<String>(model: model1, tools: [tool1])
+        let agent2 = try Agent<String>(model: model2, tools: [tool2])
 
         // Run agent1 until beforeTools (pending call for tool_1)
         var savedState: IterationState<String>?
-        for try await node in agent1.iter("Use tool", deps: ()) {
+        for try await node in agent1.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 savedState = ctx.state
                 break
@@ -189,7 +189,7 @@ struct IteratorCrossAgentResumeTests {
         // Resume with agent2 (missing tool_1) - should fail
         var caughtError: AgentError<String>?
         do {
-            for try await _ in agent2.iter(from: state, deps: ()) { }
+            for try await _ in agent2.iter(from: state) { }
         } catch let error as AgentError<String> {
             caughtError = error
         }
@@ -223,11 +223,11 @@ struct IteratorCrossAgentResumeTests {
             }
         })
 
-        let agent1 = try Agent<Void, String>(model: model1, tools: [AnyAgentTool(tool1)])
+        let agent1 = try Agent<String>(model: model1, tools: [tool1])
 
         // Run agent1 through tool execution to afterTools
         var savedState: IterationState<String>?
-        for try await node in agent1.iter("Use tool", deps: ()) {
+        for try await node in agent1.iter("Use tool") {
             if case .afterTools(let ctx) = node {
                 savedState = ctx.state
                 break
@@ -245,10 +245,10 @@ struct IteratorCrossAgentResumeTests {
         // Resume with agent that has NO tools - should work
         // because the tool reference is just history, not pending
         let model2 = FakeModel(responses: [MockResponse.text("Agent2 completed")])
-        let agent2 = try Agent<Void, String>(model: model2, tools: [])  // No tools!
+        let agent2 = try Agent<String>(model: model2, tools: [])  // No tools!
 
         var output: String?
-        for try await node in agent2.iter(from: state, deps: ()) {
+        for try await node in agent2.iter(from: state) {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -272,11 +272,11 @@ struct IteratorCrossAgentResumeTests {
             )
         ])
 
-        let agent1 = try Agent<Void, String>(model: model1, tools: [AnyAgentTool(tool1)])
+        let agent1 = try Agent<String>(model: model1, tools: [tool1])
 
         // Run agent1 until beforeTools and DENY the call
         var savedState: IterationState<String>?
-        for try await node in agent1.iter("Use tool", deps: ()) {
+        for try await node in agent1.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 ctx.deny(ctx.pendingCalls[0].call, message: "Denied")
                 savedState = ctx.state
@@ -292,10 +292,10 @@ struct IteratorCrossAgentResumeTests {
         // Resume with agent that has NO tools - should work
         // because the pending call is DENIED (won't execute)
         let model2 = FakeModel(responses: [MockResponse.text("Continued after denial")])
-        let agent2 = try Agent<Void, String>(model: model2, tools: [])  // No tools!
+        let agent2 = try Agent<String>(model: model2, tools: [])  // No tools!
 
         var output: String?
-        for try await node in agent2.iter(from: state, deps: ()) {
+        for try await node in agent2.iter(from: state) {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -319,11 +319,11 @@ struct IteratorCrossAgentResumeTests {
             )
         ])
 
-        let agent1 = try Agent<Void, String>(model: model1, tools: [AnyAgentTool(tool1)])
+        let agent1 = try Agent<String>(model: model1, tools: [tool1])
 
         // Run agent1 until beforeTools and REPLACE the call
         var savedState: IterationState<String>?
-        for try await node in agent1.iter("Use tool", deps: ()) {
+        for try await node in agent1.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 ctx.replace(ctx.pendingCalls[0].call, withResult: "Cached result")
                 savedState = ctx.state
@@ -339,10 +339,10 @@ struct IteratorCrossAgentResumeTests {
         // Resume with agent that has NO tools - should work
         // because the pending call is REPLACED (won't execute)
         let model2 = FakeModel(responses: [MockResponse.text("Continued with cached")])
-        let agent2 = try Agent<Void, String>(model: model2, tools: [])  // No tools!
+        let agent2 = try Agent<String>(model: model2, tools: [])  // No tools!
 
         var output: String?
-        for try await node in agent2.iter(from: state, deps: ()) {
+        for try await node in agent2.iter(from: state) {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -358,11 +358,11 @@ struct IteratorCrossAgentResumeTests {
         let tool1 = ConfigurableTool.succeeding("result1", name: "tool_1")
 
         let model1 = FakeModel(responses: [MockResponse.text("Agent1 response")])
-        let agent1 = try Agent<Void, String>(model: model1, tools: [AnyAgentTool(tool1)])
+        let agent1 = try Agent<String>(model: model1, tools: [tool1])
 
         // Capture state at beforeModel (no pending tool calls)
         var savedState: IterationState<String>?
-        for try await node in agent1.iter("Hi", deps: ()) {
+        for try await node in agent1.iter("Hi") {
             if case .beforeModel(let ctx) = node {
                 savedState = ctx.state
                 break
@@ -377,10 +377,10 @@ struct IteratorCrossAgentResumeTests {
         // Resume with agent that has completely different tools
         let tool2 = ConfigurableTool.succeeding("result2", name: "totally_different_tool")
         let model2 = FakeModel(responses: [MockResponse.text("Agent2 response")])
-        let agent2 = try Agent<Void, String>(model: model2, tools: [AnyAgentTool(tool2)])
+        let agent2 = try Agent<String>(model: model2, tools: [tool2])
 
         var output: String?
-        for try await node in agent2.iter(from: state, deps: ()) {
+        for try await node in agent2.iter(from: state) {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -404,11 +404,11 @@ struct IteratorCrossAgentResumeTests {
             ])
         ])
 
-        let agent1 = try Agent<Void, String>(model: model1, tools: [AnyAgentTool(tool1), AnyAgentTool(tool2)])
+        let agent1 = try Agent<String>(model: model1, tools: [tool1, tool2])
 
         // Capture state at beforeTools
         var savedState: IterationState<String>?
-        for try await node in agent1.iter("Use tools", deps: ()) {
+        for try await node in agent1.iter("Use tools") {
             if case .beforeTools(let ctx) = node {
                 savedState = ctx.state
                 break
@@ -422,11 +422,11 @@ struct IteratorCrossAgentResumeTests {
 
         // Resume with agent that has only tool_1 (missing tool_2)
         let model2 = FakeModel(responses: [MockResponse.text("Should not reach")])
-        let agent2 = try Agent<Void, String>(model: model2, tools: [AnyAgentTool(tool1)])
+        let agent2 = try Agent<String>(model: model2, tools: [tool1])
 
         var caughtError: AgentError<String>?
         do {
-            for try await _ in agent2.iter(from: state, deps: ()) { }
+            for try await _ in agent2.iter(from: state) { }
         } catch let error as AgentError<String> {
             caughtError = error
         }

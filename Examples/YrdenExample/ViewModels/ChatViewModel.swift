@@ -16,22 +16,21 @@ class ChatViewModel: ObservableObject {
     @Published var totalUsage: Usage?             // Accumulated usage for conversation
     @Published var maxContextTokens: Int?         // Model's context window size
 
-    private let deps: AppDependencies
-    private var agent: Agent<AppDependencies, String>?
+    private var agent: Agent<String>?
     private var currentModel: (any Model)?  // Store model for reconfiguration
     private var messageHistory: [Message] = []  // Conversation history for multi-turn
 
     // MCP - supports multiple servers
-    private var mcpToolsCache: [UUID: [AnyAgentTool<AppDependencies>]] = [:]
+    private var mcpToolsCache: [UUID: [any Tool]] = [:]
 
     // Paused agent run (for tool approval or iteration limits)
-    private var pausedRun: PausedAgentRun?
+    private var pausedRun: AgentRun<String>?
 
     // Approval continuation - pauses send() while waiting for user decision
     // Returns nil for approval, or rejection reason string for rejection
     private var approvalContinuation: CheckedContinuation<String?, Never>?
 
-    init(deps: AppDependencies = .default()) { self.deps = deps }
+    init() {}
 
     /// Context usage as a percentage (0.0 to 1.0), or nil if unknown
     var contextUsagePercent: Double? {
@@ -60,14 +59,20 @@ class ChatViewModel: ObservableObject {
         logs.removeAll()
     }
 
-    func configure(model: any Model, mcpTools: [AnyAgentTool<AppDependencies>] = []) {
+    func configure(model: any Model, mcpTools: [any Tool] = []) {
         currentModel = model  // Store for reconfiguration
-        agent = Agent(
-            model: model,
-            systemPrompt: "You are a helpful assistant. Use tools when appropriate.",
-            tools: mcpTools,
-            maxIterations: 10
-        )
+        do {
+            agent = try Agent(
+                model: model,
+                systemPrompt: "You are a helpful assistant. Use tools when appropriate.",
+                tools: mcpTools,
+                maxIterations: 10
+            )
+        } catch {
+            log(.error, "Failed to configure agent", details: error.localizedDescription)
+            self.error = error
+            return
+        }
         // Store model's context window size for usage indicator
         maxContextTokens = model.capabilities.maxContextTokens
         log(.info, "Configured agent", details: "Model: \(model.name), Context: \(maxContextTokens.map { "\($0)" } ?? "unknown"), Tools: \(mcpTools.map { $0.name }.joined(separator: ", "))")
@@ -76,11 +81,11 @@ class ChatViewModel: ObservableObject {
     // MARK: - MCP (Multi-Server Support)
 
     /// Connect to an MCP server via stdio and return the connection, tools, and tool names.
-    func connectMCPStdioRaw(commandLine: String) async throws -> (MCPServerConnection, [AnyAgentTool<AppDependencies>], [String]) {
+    func connectMCPStdioRaw(commandLine: String) async throws -> (MCPServerConnection, [any Tool], [String]) {
         log(.info, "Connecting MCP stdio", details: commandLine)
         do {
             let server = try await mcpConnect(commandLine)
-            let tools: [AnyAgentTool<AppDependencies>] = try await server.discoverTools()
+            let tools: [any Tool] = try await server.discoverTools()
             log(.info, "MCP connected", details: "Tools: \(tools.map { $0.name }.joined(separator: ", "))")
             return (server, tools, tools.map { $0.name })
         } catch {
@@ -94,7 +99,7 @@ class ChatViewModel: ObservableObject {
         url: URL,
         redirectScheme: String,
         onProgress: @escaping @Sendable (MCPOAuthProgress) -> Void
-    ) async throws -> (MCPServerConnection, [AnyAgentTool<AppDependencies>], [String]) {
+    ) async throws -> (MCPServerConnection, [any Tool], [String]) {
         log(.info, "Connecting MCP OAuth", details: url.absoluteString)
         do {
             let server = try await mcpConnect(
@@ -102,7 +107,7 @@ class ChatViewModel: ObservableObject {
                 redirectScheme: redirectScheme,
                 onProgress: onProgress
             )
-            let tools: [AnyAgentTool<AppDependencies>] = try await server.discoverTools()
+            let tools: [any Tool] = try await server.discoverTools()
             log(.info, "MCP OAuth connected", details: "Tools: \(tools.map { $0.name }.joined(separator: ", "))")
             return (server, tools, tools.map { $0.name })
         } catch {
@@ -112,7 +117,7 @@ class ChatViewModel: ObservableObject {
     }
 
     /// Register tools from a connected server (by server ID).
-    func registerMCPTools(serverId: UUID, tools: [AnyAgentTool<AppDependencies>]) {
+    func registerMCPTools(serverId: UUID, tools: [any Tool]) {
         mcpToolsCache[serverId] = tools
     }
 
@@ -122,7 +127,7 @@ class ChatViewModel: ObservableObject {
     }
 
     /// Get all MCP tools from all connected servers.
-    func getAllMCPTools() -> [AnyAgentTool<AppDependencies>] {
+    func getAllMCPTools() -> [any Tool] {
         mcpToolsCache.values.flatMap { $0 }
     }
 
@@ -131,12 +136,18 @@ class ChatViewModel: ObservableObject {
     func reconfigureTools() {
         guard let model = currentModel else { return }
         let mcpTools = getAllMCPTools()
-        agent = Agent(
-            model: model,
-            systemPrompt: "You are a helpful assistant. Use tools when appropriate.",
-            tools: mcpTools,
-            maxIterations: 10
-        )
+        do {
+            agent = try Agent(
+                model: model,
+                systemPrompt: "You are a helpful assistant. Use tools when appropriate.",
+                tools: mcpTools,
+                maxIterations: 10
+            )
+        } catch {
+            log(.error, "Failed to reconfigure agent", details: error.localizedDescription)
+            self.error = error
+            return
+        }
         log(.info, "Reconfigured agent with tools", details: mcpTools.map { $0.name }.joined(separator: ", "))
     }
 
@@ -150,114 +161,91 @@ class ChatViewModel: ObservableObject {
         messages.append(.user(text))
         messages.append(.assistant("", isStreaming: true))
 
-        // Track paused state for approval loop
-        var currentPaused: PausedAgentRun? = nil
+        // Track paused run for approval loop
+        var currentPausedRun: AgentRun<String>? = nil
 
         // Main processing loop - handles initial run and approval resumes
         processingLoop: while true {
             do {
-                if let paused = currentPaused {
-                    // Resuming after approval - use streaming to get UI updates
-                    log(.info, "Resuming after approval", details: paused.pendingCalls.map { $0.toolCall.name }.joined(separator: ", "))
-                    let resolutions = paused.pendingCalls.map { ResolvedTool(id: $0.deferral.id, resolution: .approved) }
+                let stream: AsyncThrowingStream<AgentStreamEvent<String>, Error>
 
-                    for try await event in agent.resumeStream(paused: paused, resolutions: resolutions, deps: deps) {
-                        switch event {
-                        case .contentDelta(let t):
-                            messages[messages.count - 1].appendText(t)
-                        case .toolCallStart(let name, let id):
-                            log(.info, "Tool call start", details: "[\(id)] \(name)")
-                            messages[messages.count - 1].appendToolCall(ToolCallInfo(id: id, name: name, status: .running))
-                        case .toolCallDelta(let id, let delta):
-                            log(.debug, "Tool args delta", details: "[\(id)] \(delta)")
-                        case .toolCallEnd(let id):
-                            log(.info, "Tool call end", details: "[\(id)]")
-                        case .toolResult(let id, let result):
-                            let resultStr = String(describing: result)
-                            log(.info, "Tool result", details: "[\(id)] \(resultStr.prefix(1000))\(resultStr.count > 1000 ? "..." : "")")
-                            messages[messages.count - 1].updateToolCall(id: id) { info in
-                                info.result = result
-                                info.status = .completed
-                            }
-                        case .usage(let usage):
-                            currentTurnUsage = usage
-                            log(.debug, "Usage (streaming)", details: "Input: \(usage.inputTokens), Output: \(usage.outputTokens), Cached: \(usage.cachedTokens ?? 0)")
-                        case .result(let r):
-                            log(.info, "Resume completed", details: "Output length: \(r.output.count)")
-                            messageHistory = r.messages
-                            updateTotalUsage(with: r.usage)
-                            currentTurnUsage = nil
-                            if messages.last?.content.isEmpty == true {
-                                messages[messages.count - 1].appendText(r.output)
-                            }
-                        }
-                    }
-                    break processingLoop  // Success - exit loop
+                if let paused = currentPausedRun {
+                    // Resuming after approval
+                    let approvalIds = paused.toolsRequiringApproval.map { $0.call.id }
+                    log(.info, "Resuming after approval", details: approvalIds.joined(separator: ", "))
+                    stream = agent.resumeStream(from: paused, with: .approve(approvalIds))
                 } else {
                     // Initial streaming run
-                    for try await event in agent.runStream(text, deps: deps, messageHistory: messageHistory) {
-                        switch event {
-                        case .contentDelta(let t):
-                            messages[messages.count - 1].appendText(t)
-                        case .toolCallStart(let name, let id):
-                            log(.info, "Tool call start", details: "[\(id)] \(name)")
-                            messages[messages.count - 1].appendToolCall(ToolCallInfo(id: id, name: name, status: .running))
-                        case .toolCallDelta(let id, let delta):
-                            log(.debug, "Tool args delta", details: "[\(id)] \(delta)")
-                        case .toolCallEnd(let id):
-                            log(.info, "Tool call end", details: "[\(id)]")
-                        case .toolResult(let id, let result):
-                            let resultStr = String(describing: result)
-                            log(.info, "Tool result", details: "[\(id)] \(resultStr.prefix(1000))\(resultStr.count > 1000 ? "..." : "")")
-                            messages[messages.count - 1].updateToolCall(id: id) { info in
-                                info.result = result
-                                info.status = .completed
-                            }
-                        case .usage(let usage):
-                            currentTurnUsage = usage
-                            log(.debug, "Usage (streaming)", details: "Input: \(usage.inputTokens), Output: \(usage.outputTokens), Cached: \(usage.cachedTokens ?? 0)")
-                        case .result(let r):
-                            let contextAfter = r.usage.inputTokens + r.usage.outputTokens
-                            let maxCtx = maxContextTokens ?? 0
-                            let pct = maxCtx > 0 ? Double(contextAfter) / Double(maxCtx) * 100 : 0
-                            log(.info, "Turn complete", details: "Input: \(r.usage.inputTokens), Output: \(r.usage.outputTokens), Context: \(contextAfter)/\(maxCtx) (\(String(format: "%.1f", pct))%)")
-                            messageHistory = r.messages
-                            updateTotalUsage(with: r.usage)
-                            currentTurnUsage = nil
-                            if messages.last?.content.isEmpty == true {
-                                messages[messages.count - 1].appendText(r.output)
-                            }
-                        }
-                    }
-                    break processingLoop  // Success - exit loop
+                    stream = agent.runStream(text, messageHistory: messageHistory)
                 }
-            } catch let e as AgentError<String> {
-                log(.error, "AgentError", details: String(describing: e))
-                if let streamingUsage = currentTurnUsage {
-                    updateTotalUsage(with: streamingUsage)
-                }
-                currentTurnUsage = nil
 
-                switch e {
-                case .hasDeferredTools(let paused):
+                var finishedRun: AgentRun<String>? = nil
+
+                for try await event in stream {
+                    switch event {
+                    case .contentDelta(let t, _):
+                        messages[messages.count - 1].appendText(t)
+                    case .toolCallStart(let id, let name):
+                        log(.info, "Tool call start", details: "[\(id)] \(name)")
+                        messages[messages.count - 1].appendToolCall(ToolCallInfo(id: id, name: name, status: .running))
+                    case .toolCallDelta(let id, let delta):
+                        log(.debug, "Tool args delta", details: "[\(id)] \(delta)")
+                    case .toolCallEnd(let id):
+                        log(.info, "Tool call end", details: "[\(id)]")
+                    case .toolResult(let id, let result):
+                        let resultStr = String(describing: result)
+                        log(.info, "Tool result", details: "[\(id)] \(resultStr.prefix(1000))\(resultStr.count > 1000 ? "..." : "")")
+                        messages[messages.count - 1].updateToolCall(id: id) { info in
+                            info.result = result
+                            info.status = .completed
+                        }
+                    case .usage(let usage):
+                        currentTurnUsage = usage
+                        log(.debug, "Usage (streaming)", details: "Input: \(usage.inputTokens), Output: \(usage.outputTokens), Cached: \(usage.cachedTokens ?? 0)")
+                    case .finished(let run):
+                        finishedRun = run
+                    }
+                }
+
+                guard let run = finishedRun else {
+                    log(.error, "Stream ended without finished event")
+                    break processingLoop
+                }
+
+                switch run.status {
+                case .completed(let output):
+                    let contextAfter = run.usage.inputTokens + run.usage.outputTokens
+                    let maxCtx = maxContextTokens ?? 0
+                    let pct = maxCtx > 0 ? Double(contextAfter) / Double(maxCtx) * 100 : 0
+                    log(.info, "Turn complete", details: "Input: \(run.usage.inputTokens), Output: \(run.usage.outputTokens), Context: \(contextAfter)/\(maxCtx) (\(String(format: "%.1f", pct))%)")
+                    messageHistory = run.messages
+                    updateTotalUsage(with: run.usage)
+                    currentTurnUsage = nil
+                    if messages.last?.content.isEmpty == true {
+                        messages[messages.count - 1].appendText(output)
+                    }
+                    break processingLoop
+
+                case .needsApproval(let pending):
                     // Tool needs approval - show UI and wait for user decision
-                    if !paused.pendingCalls.isEmpty {
-                        let tools = paused.pendingCalls.map { pending in
+                    let approvalRequired = pending.filter { $0.requiresApproval }
+                    if !approvalRequired.isEmpty {
+                        let tools = approvalRequired.map { p in
                             PendingToolInfo(
-                                id: pending.deferral.id,
-                                toolName: pending.toolCall.name,
-                                arguments: pending.toolCall.arguments
+                                id: p.call.id,
+                                toolName: p.call.name,
+                                arguments: p.call.arguments
                             )
                         }
                         pendingApproval = PendingApprovalInfo(
-                            id: paused.pendingCalls.first!.deferral.id,
+                            id: approvalRequired.first!.call.id,
                             tools: tools,
-                            reason: paused.pendingCalls.first!.deferral.reason
+                            reason: "Tool requires approval"
                         )
 
                         // Update tool status to needsApproval in the UI
-                        for pending in paused.pendingCalls {
-                            messages[messages.count - 1].updateToolCall(id: pending.toolCall.id) { info in
+                        for p in approvalRequired {
+                            messages[messages.count - 1].updateToolCall(id: p.call.id) { info in
                                 info.status = .needsApproval
                             }
                         }
@@ -270,7 +258,6 @@ class ChatViewModel: ObservableObject {
                     isProcessing = false
 
                     // Wait for user decision via continuation
-                    // Returns nil for approval, or rejection reason string
                     let rejectionReason = await withCheckedContinuation { continuation in
                         self.approvalContinuation = continuation
                     }
@@ -278,12 +265,12 @@ class ChatViewModel: ObservableObject {
                     if rejectionReason == nil {
                         // User approved - update status and resume
                         log(.info, "User approved tool call")
-                        for pending in paused.pendingCalls {
-                            messages[messages.count - 1].updateToolCall(id: pending.toolCall.id) { info in
+                        for p in (pending.filter { $0.requiresApproval }) {
+                            messages[messages.count - 1].updateToolCall(id: p.call.id) { info in
                                 info.status = .running
                             }
                         }
-                        currentPaused = paused
+                        currentPausedRun = run
                         pendingApproval = nil
                         isProcessing = true
                         continue processingLoop
@@ -291,8 +278,9 @@ class ChatViewModel: ObservableObject {
                         // User rejected - mark as failed and send rejection to LLM
                         let reason = rejectionReason!
                         log(.info, "User rejected tool call", details: reason)
-                        for pending in paused.pendingCalls {
-                            messages[messages.count - 1].updateToolCall(id: pending.toolCall.id) { info in
+                        let approvalIds = pending.filter { $0.requiresApproval }.map { $0.call.id }
+                        for p in (pending.filter { $0.requiresApproval }) {
+                            messages[messages.count - 1].updateToolCall(id: p.call.id) { info in
                                 info.status = .failed
                                 info.result = "Rejected: \(reason)"
                             }
@@ -301,15 +289,19 @@ class ChatViewModel: ObservableObject {
                         isProcessing = true
 
                         // Send rejection to LLM via resumeStream so it can adjust
-                        let resolutions = paused.pendingCalls.map {
-                            ResolvedTool(id: $0.deferral.id, resolution: .denied(reason: reason))
-                        }
+                        currentPausedRun = nil
+                        let rejectionStream = agent.resumeStream(
+                            from: run,
+                            with: .deny(approvalIds, message: reason)
+                        )
+
+                        var rejectionFinishedRun: AgentRun<String>? = nil
                         do {
-                            for try await event in agent.resumeStream(paused: paused, resolutions: resolutions, deps: deps) {
+                            for try await event in rejectionStream {
                                 switch event {
-                                case .contentDelta(let t):
+                                case .contentDelta(let t, _):
                                     messages[messages.count - 1].appendText(t)
-                                case .toolCallStart(let name, let id):
+                                case .toolCallStart(let id, let name):
                                     log(.info, "Tool call start", details: "[\(id)] \(name)")
                                     messages[messages.count - 1].appendToolCall(ToolCallInfo(id: id, name: name, status: .running))
                                 case .toolResult(let id, let result):
@@ -318,75 +310,45 @@ class ChatViewModel: ObservableObject {
                                         info.result = result
                                         info.status = .completed
                                     }
-                                case .result(let r):
-                                    log(.info, "Resume after rejection completed", details: "Output: \(r.output.prefix(100))")
-                                    messageHistory = r.messages
-                                    updateTotalUsage(with: r.usage)
-                                    if messages.last?.content.isEmpty == true {
-                                        messages[messages.count - 1].appendText(r.output)
-                                    }
+                                case .finished(let r):
+                                    rejectionFinishedRun = r
                                 default:
                                     break
                                 }
                             }
-                            break processingLoop  // Success - exit loop
-                        } catch let rejectionError as AgentError<String> {
-                            // If model calls another tool that needs approval, set up for next iteration
-                            if case .hasDeferredTools(let newPaused) = rejectionError {
-                                log(.info, "Model called another tool after rejection", details: newPaused.pendingCalls.map { $0.toolCall.name }.joined(separator: ", "))
-                                // Set up the new pending approval and continue loop
-                                let newTools = newPaused.pendingCalls.map { pending in
-                                    PendingToolInfo(
-                                        id: pending.deferral.id,
-                                        toolName: pending.toolCall.name,
-                                        arguments: pending.toolCall.arguments
-                                    )
-                                }
-                                pendingApproval = PendingApprovalInfo(
-                                    id: newPaused.pendingCalls.first!.deferral.id,
-                                    tools: newTools,
-                                    reason: newPaused.pendingCalls.first!.deferral.reason
-                                )
-                                for pending in newPaused.pendingCalls {
-                                    messages[messages.count - 1].updateToolCall(id: pending.toolCall.id) { info in
-                                        info.status = .needsApproval
+
+                            if let rejRun = rejectionFinishedRun {
+                                switch rejRun.status {
+                                case .completed(let output):
+                                    log(.info, "Resume after rejection completed", details: "Output: \(output.prefix(100))")
+                                    messageHistory = rejRun.messages
+                                    updateTotalUsage(with: rejRun.usage)
+                                    if messages.last?.content.isEmpty == true {
+                                        messages[messages.count - 1].appendText(output)
                                     }
-                                }
-                                isProcessing = false
-                                // Continue the loop - will wait for approval at the top
-                                currentPaused = nil  // Clear so we use the new paused state via pendingApproval flow
-                                // Need to actually wait for approval here too
-                                let newRejectionReason = await withCheckedContinuation { continuation in
-                                    self.approvalContinuation = continuation
-                                }
-                                if newRejectionReason == nil {
-                                    // Approved - set up for resume
-                                    for pending in newPaused.pendingCalls {
-                                        messages[messages.count - 1].updateToolCall(id: pending.toolCall.id) { info in
-                                            info.status = .running
-                                        }
-                                    }
-                                    currentPaused = newPaused
-                                    pendingApproval = nil
-                                    isProcessing = true
+                                    break processingLoop
+
+                                case .needsApproval:
+                                    // Model called another tool needing approval after rejection
+                                    log(.info, "Model called another tool after rejection")
+                                    currentPausedRun = rejRun
                                     continue processingLoop
-                                } else {
-                                    // Rejected again - recurse (will be handled in next iteration)
-                                    for pending in newPaused.pendingCalls {
-                                        messages[messages.count - 1].updateToolCall(id: pending.toolCall.id) { info in
-                                            info.status = .failed
-                                            info.result = "Rejected: \(newRejectionReason!)"
-                                        }
-                                    }
-                                    pendingApproval = nil
-                                    isProcessing = true
-                                    // Need to send this rejection too - but this gets complex
-                                    // For now, just break and let user retry
+
+                                case .iterationLimitReached(let limit):
+                                    pausedRun = rejRun
+                                    pausedForIterations = PausedIterationInfo(
+                                        iterationsUsed: rejRun.requestCount,
+                                        iterationLimit: limit,
+                                        tokensUsed: rejRun.usage.totalTokens,
+                                        toolCallsUsed: rejRun.toolCallCount
+                                    )
+                                    break processingLoop
+
+                                case .usageLimitReached:
+                                    log(.error, "Usage limit reached after rejection")
                                     break processingLoop
                                 }
                             } else {
-                                log(.error, "Error resuming after rejection", details: rejectionError.localizedDescription)
-                                error = rejectionError
                                 break processingLoop
                             }
                         } catch {
@@ -395,21 +357,22 @@ class ChatViewModel: ObservableObject {
                         }
                     }
 
-                case .maxIterationsExceeded(let paused):
+                case .iterationLimitReached(let limit):
                     // Agent hit iteration limit - allow user to continue
-                    pausedRun = paused
+                    pausedRun = run
                     pausedForIterations = PausedIterationInfo(
-                        iterationsUsed: paused.requestCount,
-                        iterationLimit: paused.reason.iterationLimit ?? paused.requestCount,
-                        tokensUsed: paused.usage.totalTokens,
-                        toolCallsUsed: paused.toolCallCount
+                        iterationsUsed: run.requestCount,
+                        iterationLimit: limit,
+                        tokensUsed: run.usage.totalTokens,
+                        toolCallsUsed: run.toolCallCount
                     )
-                    log(.warning, "Max iterations reached", details: "Used \(paused.requestCount) iterations, \(paused.usage.totalTokens) tokens")
+                    log(.warning, "Max iterations reached", details: "Used \(run.requestCount) iterations, \(run.usage.totalTokens) tokens")
                     break processingLoop
 
-                default:
-                    error = e
-                    messages.append(.error(e.localizedDescription))
+                case .usageLimitReached(let limit):
+                    log(.error, "Usage limit reached", details: String(describing: limit))
+                    error = AgentError<String>.usageLimitReached(run)
+                    messages.append(.error("Usage limit reached: \(limit)"))
                     break processingLoop
                 }
             } catch {
@@ -456,15 +419,16 @@ class ChatViewModel: ObservableObject {
         }
 
         do {
-            for try await event in agent.continueRunStream(
-                paused: paused,
-                additionalIterations: additionalIterations,
-                deps: deps
+            var finishedRun: AgentRun<String>? = nil
+
+            for try await event in agent.resumeStream(
+                from: paused,
+                with: .additionalIterations(additionalIterations)
             ) {
                 switch event {
-                case .contentDelta(let t):
+                case .contentDelta(let t, _):
                     messages[messages.count - 1].appendText(t)
-                case .toolCallStart(let name, let id):
+                case .toolCallStart(let id, let name):
                     log(.info, "Tool call start", details: "[\(id)] \(name)")
                     messages[messages.count - 1].appendToolCall(ToolCallInfo(id: id, name: name, status: .running))
                 case .toolCallDelta(let id, let delta):
@@ -481,38 +445,47 @@ class ChatViewModel: ObservableObject {
                 case .usage(let usage):
                     currentTurnUsage = usage
                     log(.debug, "Usage (streaming)", details: "Input: \(usage.inputTokens), Output: \(usage.outputTokens)")
-                case .result(let r):
-                    log(.info, "Continuation complete", details: "Output length: \(r.output.count)")
-                    messageHistory = r.messages
-                    updateTotalUsage(with: r.usage)
-                    currentTurnUsage = nil
-                    if messages.last?.content.isEmpty == true {
-                        messages[messages.count - 1].appendText(r.output)
-                    }
+                case .finished(let run):
+                    finishedRun = run
                 }
             }
-            pausedRun = nil
-        } catch let e as AgentError<String> {
-            log(.error, "Continuation error", details: String(describing: e))
-            if let streamingUsage = currentTurnUsage {
-                updateTotalUsage(with: streamingUsage)
-            }
-            currentTurnUsage = nil
 
-            if case .maxIterationsExceeded(let newPaused) = e {
-                // Still not done - show pause UI again
-                pausedRun = newPaused
-                pausedForIterations = PausedIterationInfo(
-                    iterationsUsed: newPaused.requestCount,
-                    iterationLimit: newPaused.reason.iterationLimit ?? newPaused.requestCount,
-                    tokensUsed: newPaused.usage.totalTokens,
-                    toolCallsUsed: newPaused.toolCallCount
-                )
-                log(.warning, "Max iterations reached again", details: "Used \(newPaused.requestCount) total iterations")
+            if let run = finishedRun {
+                switch run.status {
+                case .completed(let output):
+                    log(.info, "Continuation complete", details: "Output length: \(output.count)")
+                    messageHistory = run.messages
+                    updateTotalUsage(with: run.usage)
+                    currentTurnUsage = nil
+                    if messages.last?.content.isEmpty == true {
+                        messages[messages.count - 1].appendText(output)
+                    }
+                    pausedRun = nil
+
+                case .iterationLimitReached(let limit):
+                    // Still not done - show pause UI again
+                    pausedRun = run
+                    pausedForIterations = PausedIterationInfo(
+                        iterationsUsed: run.requestCount,
+                        iterationLimit: limit,
+                        tokensUsed: run.usage.totalTokens,
+                        toolCallsUsed: run.toolCallCount
+                    )
+                    log(.warning, "Max iterations reached again", details: "Used \(run.requestCount) total iterations")
+
+                case .needsApproval:
+                    // Unexpected during iteration continuation, but handle gracefully
+                    pausedRun = run
+                    log(.warning, "Approval needed during continuation")
+
+                case .usageLimitReached(let limit):
+                    pausedRun = nil
+                    log(.error, "Usage limit reached during continuation", details: String(describing: limit))
+                    error = AgentError<String>.usageLimitReached(run)
+                    messages.append(.error("Usage limit reached: \(limit)"))
+                }
             } else {
                 pausedRun = nil
-                error = e
-                messages.append(.error(e.localizedDescription))
             }
         } catch {
             log(.error, "Continuation failed", details: String(describing: error))

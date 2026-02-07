@@ -27,7 +27,7 @@ struct IteratorValidationRetryTests {
         let validatorCounter = CallCounter()
 
         // Validator fails twice, then succeeds on third attempt
-        let validator = OutputValidator<Void, String> { _, output in
+        let validator = OutputValidator<String> { _, output in
             let count = await validatorCounter.increment()
             if count < 3 {
                 throw ValidationRetry("Not ready yet, attempt \(count)")
@@ -41,14 +41,14 @@ struct IteratorValidationRetryTests {
             return MockResponse.text("hello")
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             maxValidationRetries: 3,
             outputValidators: [validator]
         )
 
         var output: String?
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -71,7 +71,7 @@ struct IteratorValidationRetryTests {
         let validatorCounter = CallCounter()
 
         // Validator always fails
-        let validator = OutputValidator<Void, String> { _, _ in
+        let validator = OutputValidator<String> { _, _ in
             await validatorCounter.increment()
             throw ValidationRetry("Always fails")
         }
@@ -83,7 +83,7 @@ struct IteratorValidationRetryTests {
             MockResponse.text("attempt 4"),  // Should not reach
         ])
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             maxValidationRetries: 3,
             outputValidators: [validator]
@@ -91,7 +91,7 @@ struct IteratorValidationRetryTests {
 
         var caughtError: AgentError<String>?
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
         } catch let error as AgentError<String> {
             caughtError = error
         }
@@ -119,7 +119,7 @@ struct IteratorValidationRetryTests {
         let validatorCounter = CallCounter()
 
         // Validator always fails
-        let validator = OutputValidator<Void, String> { _, _ in
+        let validator = OutputValidator<String> { _, _ in
             await validatorCounter.increment()
             throw ValidationRetry("Persistent failure")
         }
@@ -132,13 +132,13 @@ struct IteratorValidationRetryTests {
         ])
 
         // Agent without explicit maxValidationRetries
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             outputValidators: [validator]
         )
 
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
         } catch {
             // Expected
         }
@@ -154,7 +154,7 @@ struct IteratorValidationRetryTests {
         let validatorCounter = CallCounter()
 
         // Validator fails twice, then succeeds
-        let validator = OutputValidator<Void, String> { _, output in
+        let validator = OutputValidator<String> { _, output in
             let count = await validatorCounter.increment()
             if count < 3 {
                 throw ValidationRetry("Not ready")
@@ -169,7 +169,7 @@ struct IteratorValidationRetryTests {
         })
 
         // Agent with maxIterations = 1
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             maxIterations: 1,  // Very restrictive
             maxValidationRetries: 5,
@@ -177,7 +177,7 @@ struct IteratorValidationRetryTests {
         )
 
         var finalIteration: Int?
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .finished(let ctx) = node {
                 finalIteration = ctx.state.iteration
             }
@@ -198,21 +198,21 @@ struct IteratorValidationRetryTests {
         let validatorCounter = CallCounter()
 
         // Validator always fails
-        let validator = OutputValidator<Void, String> { _, _ in
+        let validator = OutputValidator<String> { _, _ in
             await validatorCounter.increment()
             throw ValidationRetry("Fails")
         }
 
         let model = FakeModel(responses: (1...10).map { _ in MockResponse.text("x") })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             maxValidationRetries: 5,  // Custom limit
             outputValidators: [validator]
         )
 
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
         } catch {
             // Expected
         }
@@ -225,7 +225,7 @@ struct IteratorValidationRetryTests {
 
     @Test("validationFailed error carries IterationState for recovery")
     func validationErrorCarriesState() async throws {
-        let validator = OutputValidator<Void, String> { _, _ in
+        let validator = OutputValidator<String> { _, _ in
             throw ValidationRetry("Always fails")
         }
 
@@ -235,7 +235,7 @@ struct IteratorValidationRetryTests {
             MockResponse.text("c", usage: Usage(inputTokens: 10, outputTokens: 20)),
         ])
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             maxValidationRetries: 3,
             outputValidators: [validator]
@@ -243,7 +243,7 @@ struct IteratorValidationRetryTests {
 
         var errorState: IterationState<String>?
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
         } catch let error as AgentError<String> {
             if case .validationFailed(let state, _, _) = error {
                 errorState = state
@@ -277,7 +277,7 @@ struct IteratorValidationRetryTests {
         let capture = MessageCapture()
         let validatorCounter = CallCounter()
 
-        let validator = OutputValidator<Void, String> { _, output in
+        let validator = OutputValidator<String> { _, output in
             let count = await validatorCounter.increment()
             if count < 2 {
                 throw ValidationRetry("Output must contain the word 'valid'")
@@ -298,12 +298,12 @@ struct IteratorValidationRetryTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             outputValidators: [validator]
         )
 
-        for try await _ in agent.iter("Hi", deps: ()) { }
+        for try await _ in agent.iter("Hi") { }
 
         // Check that the second model call received the retry feedback
         let lastMessages = await capture.lastMessages
@@ -333,7 +333,7 @@ struct IteratorValidationRetryTests {
         let validator1Counter = CallCounter()
         let validator2Counter = CallCounter()
 
-        let validator1 = OutputValidator<Void, String> { _, _ in
+        let validator1 = OutputValidator<String> { _, _ in
             let count = await validator1Counter.increment()
             if count < 2 {
                 throw ValidationRetry("Validator 1 fails first time")
@@ -341,7 +341,7 @@ struct IteratorValidationRetryTests {
             return "passed v1"
         }
 
-        let validator2 = OutputValidator<Void, String> { _, output in
+        let validator2 = OutputValidator<String> { _, output in
             await validator2Counter.increment()
             return output + " + passed v2"
         }
@@ -351,13 +351,13 @@ struct IteratorValidationRetryTests {
             MockResponse.text("attempt 2"),
         ])
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             outputValidators: [validator1, validator2]
         )
 
         var output: String?
-        for try await node in agent.iter("Hi", deps: ()) {
+        for try await node in agent.iter("Hi") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -378,7 +378,7 @@ struct IteratorValidationRetryTests {
     func structuredOutputValidationRetry() async throws {
         let validatorCounter = CallCounter()
 
-        let validator = OutputValidator<Void, ScoreResult> { _, result in
+        let validator = OutputValidator<ScoreResult> { _, result in
             let count = await validatorCounter.increment()
             guard result.score >= 50 else {
                 throw ValidationRetry("Score must be at least 50")
@@ -408,13 +408,13 @@ struct IteratorValidationRetryTests {
             }
         })
 
-        let agent = try Agent<Void, ScoreResult>(
+        let agent = try Agent<ScoreResult>(
             model: model,
             outputValidators: [validator]
         )
 
         var output: ScoreResult?
-        for try await node in agent.iter("Score me", deps: ()) {
+        for try await node in agent.iter("Score me") {
             if case .finished(let ctx) = node {
                 output = ctx.output
             }
@@ -430,7 +430,7 @@ struct IteratorValidationRetryTests {
     func zeroMaxRetriesMeansSingleAttempt() async throws {
         let validatorCounter = CallCounter()
 
-        let validator = OutputValidator<Void, String> { _, _ in
+        let validator = OutputValidator<String> { _, _ in
             await validatorCounter.increment()
             throw ValidationRetry("Always fails")
         }
@@ -439,14 +439,14 @@ struct IteratorValidationRetryTests {
             MockResponse.text("only one"),
         ])
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             maxValidationRetries: 0,  // Zero retries = only initial attempt
             outputValidators: [validator]
         )
 
         do {
-            for try await _ in agent.iter("Hi", deps: ()) { }
+            for try await _ in agent.iter("Hi") { }
         } catch {
             // Expected
         }

@@ -467,7 +467,7 @@ public actor MCPServerConnection {
         return try await listTools()
     }
 
-    /// Discover tools and wrap them as Yrden AgentTools.
+    /// Discover tools and wrap them as Yrden Tools.
     ///
     /// - Returns: Array of type-erased agent tools
     /// - Throws: If tool discovery fails
@@ -475,10 +475,10 @@ public actor MCPServerConnection {
     /// - Note: Deprecated. Use `MCPCoordinator` and `MCPToolProxy` instead
     ///   for proper connection lifecycle management.
     @available(*, deprecated, message: "Use MCPCoordinator with MCPToolProxy instead")
-    public func discoverTools<Deps: Sendable>() async throws -> [AnyAgentTool<Deps>] {
+    public func discoverTools() async throws -> [any Tool] {
         let mcpTools = try await listTools()
         return mcpTools.map { tool in
-            MCPTool<Deps>(tool: tool, client: client, serverID: id).asAnyAgentTool()
+            MCPTool(tool: tool, client: client, serverID: id)
         }
     }
 

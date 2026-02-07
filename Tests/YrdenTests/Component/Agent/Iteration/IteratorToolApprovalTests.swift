@@ -40,9 +40,9 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
-        for try await _ in agent.iter("Use tool", deps: ()) {
+        for try await _ in agent.iter("Use tool") {
             // Don't call approve(), deny(), or replace()
             // Just let iteration continue
         }
@@ -76,9 +76,9 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 ctx.approve(ctx.pendingCalls[0].call)
             }
@@ -113,10 +113,10 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var deniedResultOutput: String?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 ctx.deny(ctx.pendingCalls[0].call, message: "Not allowed today")
             }
@@ -162,10 +162,10 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var replacedResultContent: String?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 ctx.replace(ctx.pendingCalls[0].call, withResult: "cached value from yesterday")
             }
@@ -210,12 +210,12 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(toolA), AnyAgentTool(toolB), AnyAgentTool(toolC)]
+            tools: [toolA, toolB, toolC]
         )
 
-        for try await node in agent.iter("Use all", deps: ()) {
+        for try await node in agent.iter("Use all") {
             if case .beforeTools(let ctx) = node {
                 for pending in ctx.pendingCalls {
                     switch pending.call.name {
@@ -265,13 +265,13 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(toolA), AnyAgentTool(toolB), AnyAgentTool(toolC)]
+            tools: [toolA, toolB, toolC]
         )
 
         var afterToolsResultCount: Int?
-        for try await node in agent.iter("Use all", deps: ()) {
+        for try await node in agent.iter("Use all") {
             if case .beforeTools(let ctx) = node {
                 for pending in ctx.pendingCalls {
                     ctx.deny(pending.call, message: "all denied")
@@ -307,13 +307,13 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(toolA), AnyAgentTool(toolB)]
+            tools: [toolA, toolB]
         )
 
         var results: [ToolCallResult] = []
-        for try await node in agent.iter("Use all", deps: ()) {
+        for try await node in agent.iter("Use all") {
             if case .beforeTools(let ctx) = node {
                 for pending in ctx.pendingCalls {
                     ctx.replace(pending.call, withResult: "replaced_\(pending.call.name)")
@@ -369,18 +369,18 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             tools: [
-                AnyAgentTool(normalTool, requiresApproval: false),
-                AnyAgentTool(sensitiveTool, requiresApproval: true),
+                normalTool,
+                ApprovalRequired(sensitiveTool),
             ]
         )
 
         var normalRequiresApproval: Bool?
         var sensitiveRequiresApproval: Bool?
 
-        for try await node in agent.iter("Use both", deps: ()) {
+        for try await node in agent.iter("Use both") {
             if case .beforeTools(let ctx) = node {
                 for pending in ctx.pendingCalls {
                     switch pending.call.name {
@@ -424,12 +424,12 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
-            tools: [AnyAgentTool(tool, requiresApproval: true)]
+            tools: [ApprovalRequired(tool)]
         )
 
-        for try await _ in agent.iter("Use tool", deps: ()) {
+        for try await _ in agent.iter("Use tool") {
             // Don't call deny() - just let it execute
         }
 
@@ -459,10 +459,10 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var capturedDecision: PendingToolDecision.Decision?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 ctx.deny(ctx.pendingCalls[0].call, message: "denied")
 
@@ -500,10 +500,10 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         var resultOutput: String?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 ctx.deny(ctx.pendingCalls[0].call, message: "User said no")
             }
@@ -539,11 +539,11 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
         let specialChars = "Custom result with special chars: <>&\"'"
         var resultOutput: String?
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 ctx.replace(ctx.pendingCalls[0].call, withResult: specialChars)
             }
@@ -582,9 +582,9 @@ struct IteratorToolApprovalTests {
             }
         })
 
-        let agent = try Agent<Void, String>(model: model, tools: [AnyAgentTool(tool)])
+        let agent = try Agent<String>(model: model, tools: [tool])
 
-        for try await node in agent.iter("Use tool", deps: ()) {
+        for try await node in agent.iter("Use tool") {
             if case .beforeTools(let ctx) = node {
                 // Call approve multiple times
                 ctx.approve(ctx.pendingCalls[0].call)

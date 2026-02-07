@@ -17,13 +17,13 @@ struct AgentBasicRunTests {
             MockResponse.text("Hello from the model"),
         ])
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: []
         )
 
-        let result = try await agent.run("Say hello", deps: ())
+        let result = try await agent.run("Say hello")
 
         #expect(result.output == "Hello from the model")
         #expect(result.requestCount == 1)
@@ -39,14 +39,14 @@ struct AgentBasicRunTests {
             return MockResponse.text("Response \(call)")
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: []
         )
 
-        let result1 = try await agent.run("First", deps: ())
-        let result2 = try await agent.run("Second", deps: ())
+        let result1 = try await agent.run("First")
+        let result2 = try await agent.run("Second")
 
         #expect(result1.output == "Response 1")
         #expect(result2.output == "Response 2")
@@ -66,7 +66,7 @@ struct AgentBasicRunTests {
             .assistant("Previous answer"),
         ]
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
             tools: []
@@ -74,7 +74,6 @@ struct AgentBasicRunTests {
 
         let result = try await agent.run(
             "Follow-up question",
-            deps: (),
             messageHistory: history
         )
         #expect(result.output == "Continuation")

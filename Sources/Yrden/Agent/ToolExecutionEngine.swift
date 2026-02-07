@@ -24,9 +24,9 @@ import Foundation
 // MARK: - ToolExecutionEngine
 
 /// Executes tool calls with timeout support.
-public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
+public struct ToolExecutionEngine: Sendable {
     /// Available tools for execution.
-    private let tools: [AnyAgentTool<Deps>]
+    private let tools: [any Tool]
 
     /// Optional timeout for tool execution.
     private let timeout: Duration?
@@ -36,7 +36,7 @@ public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
     /// - Parameters:
     ///   - tools: Tools available for execution
     ///   - timeout: Optional timeout applied to each tool call
-    public init(tools: [AnyAgentTool<Deps>], timeout: Duration?) {
+    public init(tools: [any Tool], timeout: Duration?) {
         self.tools = tools
         self.timeout = timeout
     }
@@ -51,11 +51,11 @@ public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
     ///
     /// - Parameters:
     ///   - call: The tool call to execute
-    ///   - context: Execution context with dependencies
+    ///   - context: Execution context
     /// - Returns: Execution result (never throws from tool errors)
     public func execute(
         call: ToolCall,
-        context: AgentContext<Deps>
+        context: ToolContext
     ) async throws -> AnyToolResult {
         guard let tool = tools.first(where: { $0.name == call.name }) else {
             return .failure(ToolExecutionError.toolNotFound(call.name))
@@ -117,10 +117,10 @@ public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
     /// - Returns: Batch result containing all execution results
     public func executeAll(
         calls: [ToolCall],
-        baseContext: AgentContext<Deps>
+        baseContext: ToolContext
     ) async throws -> BatchResult {
         // First pass: check which tools need approval
-        var toolsNeedingApproval: [(call: ToolCall, tool: AnyAgentTool<Deps>)] = []
+        var toolsNeedingApproval: [(call: ToolCall, tool: any Tool)] = []
         for call in calls {
             if let tool = tools.first(where: { $0.name == call.name }), tool.requiresApproval {
                 toolsNeedingApproval.append((call, tool))
@@ -165,8 +165,8 @@ public struct ToolExecutionEngine<Deps: Sendable>: Sendable {
 
     /// Execute a tool with optional timeout.
     private func executeWithTimeout(
-        tool: AnyAgentTool<Deps>,
-        context: AgentContext<Deps>,
+        tool: any Tool,
+        context: ToolContext,
         argumentsJSON: String
     ) async throws -> AnyToolResult {
         guard let timeout = timeout else {

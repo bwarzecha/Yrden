@@ -32,8 +32,7 @@ import Foundation
 /// #expect(received.count == 1)
 /// #expect(received[0].input == "hello")
 /// ```
-actor FakeTool<A: SchemaType, R: Sendable>: AgentTool {
-    typealias Deps = Void
+actor FakeTool<A: SchemaType, R: Sendable>: TypedTool {
     typealias Args = A
     typealias Output = R
 
@@ -54,8 +53,8 @@ actor FakeTool<A: SchemaType, R: Sendable>: AgentTool {
         self.onCall = onCall
     }
 
-    nonisolated func call(
-        context: AgentContext<Void>,
+    nonisolated func execute(
+        context: ToolContext,
         arguments: A
     ) async throws -> ToolResult<R> {
         await record(arguments)

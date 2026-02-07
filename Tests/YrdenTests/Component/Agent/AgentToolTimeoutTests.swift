@@ -35,14 +35,14 @@ struct AgentToolTimeoutTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(slow)],
+            tools: [slow],
             toolTimeout: .milliseconds(50)
         )
 
-        let result = try await agent.run("Do it", deps: ())
+        let result = try await agent.run("Do it")
         #expect(result.output == "Recovered from timeout")
         #expect(result.requestCount == 2)
     }
@@ -68,14 +68,14 @@ struct AgentToolTimeoutTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(slow)],
+            tools: [slow],
             toolTimeout: .seconds(5)
         )
 
-        let result = try await agent.run("Do it", deps: ())
+        let result = try await agent.run("Do it")
         #expect(result.output == "Got the result")
     }
 
@@ -100,14 +100,14 @@ struct AgentToolTimeoutTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(slow)]
+            tools: [slow]
             // No toolTimeout — defaults to nil
         )
 
-        let result = try await agent.run("Do it", deps: ())
+        let result = try await agent.run("Do it")
         #expect(result.output == "Completed")
     }
 
@@ -135,14 +135,14 @@ struct AgentToolTimeoutTests {
             }
         })
 
-        let agent = try Agent<Void, String>(
+        let agent = try Agent<String>(
             model: model,
             systemPrompt: "You are helpful.",
-            tools: [AnyAgentTool(slow)],
+            tools: [slow],
             toolTimeout: .milliseconds(200)
         )
 
-        let result = try await agent.run("Do it", deps: ())
+        let result = try await agent.run("Do it")
         #expect(result.output == "Both completed")
         #expect(result.toolCallCount == 2)
     }
