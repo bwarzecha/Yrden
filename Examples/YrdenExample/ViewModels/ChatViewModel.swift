@@ -20,6 +20,9 @@ class ChatViewModel: ObservableObject {
     private var currentModel: (any Model)?  // Store model for reconfiguration
     private var messageHistory: [Message] = []  // Conversation history for multi-turn
 
+    // Built-in tools (shell, read_file, write_file)
+    private var builtInToolsCache: [any Tool] = []
+
     // MCP - supports multiple servers
     private var mcpToolsCache: [UUID: [any Tool]] = [:]
 
@@ -60,12 +63,13 @@ class ChatViewModel: ObservableObject {
     }
 
     func configure(model: any Model, mcpTools: [any Tool] = []) {
-        currentModel = model  // Store for reconfiguration
+        currentModel = model
+        let allTools = builtInToolsCache + mcpTools
         do {
             agent = try Agent(
                 model: model,
-                systemPrompt: "You are a helpful assistant. Use tools when appropriate.",
-                tools: mcpTools,
+                systemPrompt: buildSystemPrompt(tools: allTools),
+                tools: allTools,
                 maxIterations: 10
             )
         } catch {
@@ -73,9 +77,47 @@ class ChatViewModel: ObservableObject {
             self.error = error
             return
         }
-        // Store model's context window size for usage indicator
         maxContextTokens = model.capabilities.maxContextTokens
-        log(.info, "Configured agent", details: "Model: \(model.name), Context: \(maxContextTokens.map { "\($0)" } ?? "unknown"), Tools: \(mcpTools.map { $0.name }.joined(separator: ", "))")
+        let toolNames = allTools.map { $0.name }.joined(separator: ", ")
+        log(.info, "Configured agent", details: "Model: \(model.name), Context: \(maxContextTokens.map { "\($0)" } ?? "unknown"), Tools: \(toolNames)")
+    }
+
+    private func buildSystemPrompt(tools: [any Tool]) -> String {
+        var prompt = "You are a helpful assistant."
+        if tools.isEmpty { return prompt }
+
+        let toolNames = tools.map { $0.name }
+        prompt += " You have access to the following tools: \(toolNames.joined(separator: ", "))."
+        prompt += " Use tools proactively when the user's request can be fulfilled by executing commands, reading files, or writing files."
+        prompt += " Prefer using tools over asking the user to do things manually."
+        return prompt
+    }
+
+    // MARK: - Built-in Tools
+
+    /// Create and cache built-in tools (shell, read_file, write_file).
+    func configureBuiltInTools(
+        workingDirectory: String,
+        shellApprovalRequired: Bool
+    ) async {
+        let expandedPath = NSString(string: workingDirectory).expandingTildeInPath
+        do {
+            let tools = try await BuiltInTools(
+                workingDirectory: expandedPath,
+                shellApprovalRequired: shellApprovalRequired
+            )
+            builtInToolsCache = tools.all
+            log(.info, "Built-in tools enabled", details: "Working directory: \(expandedPath), Shell approval: \(shellApprovalRequired)")
+        } catch {
+            log(.error, "Failed to create built-in tools", details: error.localizedDescription)
+            self.error = error
+        }
+    }
+
+    /// Remove cached built-in tools.
+    func disableBuiltInTools() {
+        builtInToolsCache = []
+        log(.info, "Built-in tools disabled")
     }
 
     // MARK: - MCP (Multi-Server Support)
@@ -85,7 +127,7 @@ class ChatViewModel: ObservableObject {
         log(.info, "Connecting MCP stdio", details: commandLine)
         do {
             let server = try await mcpConnect(commandLine)
-            let tools: [any Tool] = try await server.discoverTools()
+            let tools: [any Tool] = try await server.tools()
             log(.info, "MCP connected", details: "Tools: \(tools.map { $0.name }.joined(separator: ", "))")
             return (server, tools, tools.map { $0.name })
         } catch {
@@ -107,7 +149,7 @@ class ChatViewModel: ObservableObject {
                 redirectScheme: redirectScheme,
                 onProgress: onProgress
             )
-            let tools: [any Tool] = try await server.discoverTools()
+            let tools: [any Tool] = try await server.tools()
             log(.info, "MCP OAuth connected", details: "Tools: \(tools.map { $0.name }.joined(separator: ", "))")
             return (server, tools, tools.map { $0.name })
         } catch {
@@ -131,16 +173,16 @@ class ChatViewModel: ObservableObject {
         mcpToolsCache.values.flatMap { $0 }
     }
 
-    /// Reconfigure the agent with current model and all MCP tools.
-    /// Call this after MCP tools change (connect/disconnect).
+    /// Reconfigure the agent with current model and all tools (built-in + MCP).
+    /// Call this after tools change (connect/disconnect/built-in toggle).
     func reconfigureTools() {
         guard let model = currentModel else { return }
-        let mcpTools = getAllMCPTools()
+        let allTools = builtInToolsCache + getAllMCPTools()
         do {
             agent = try Agent(
                 model: model,
-                systemPrompt: "You are a helpful assistant. Use tools when appropriate.",
-                tools: mcpTools,
+                systemPrompt: buildSystemPrompt(tools: allTools),
+                tools: allTools,
                 maxIterations: 10
             )
         } catch {
@@ -148,7 +190,7 @@ class ChatViewModel: ObservableObject {
             self.error = error
             return
         }
-        log(.info, "Reconfigured agent with tools", details: mcpTools.map { $0.name }.joined(separator: ", "))
+        log(.info, "Reconfigured agent with tools", details: allTools.map { $0.name }.joined(separator: ", "))
     }
 
     // MARK: - Chat

@@ -70,9 +70,6 @@ public actor Agent<Output: SchemaType> {
     /// Description for the output tool.
     let outputToolDescription: String
 
-    /// Retry policy for transient LLM errors.
-    public let retryPolicy: RetryPolicy
-
     /// Default timeout for tool execution.
     public let toolTimeout: Duration?
 
@@ -88,7 +85,6 @@ public actor Agent<Output: SchemaType> {
         outputValidators: [OutputValidator<Output>] = [],
         usageLimits: UsageLimits = .none,
         endStrategy: EndStrategy = .early,
-        retryPolicy: RetryPolicy = .none,
         toolTimeout: Duration? = nil
     ) throws {
         var seenToolNames: Set<String> = []
@@ -113,7 +109,6 @@ public actor Agent<Output: SchemaType> {
             toolNames: seenToolNames
         )
         self.outputToolDescription = "Provide the final result"
-        self.retryPolicy = retryPolicy
         self.toolTimeout = toolTimeout
     }
 

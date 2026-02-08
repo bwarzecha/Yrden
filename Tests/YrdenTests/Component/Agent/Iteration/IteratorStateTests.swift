@@ -132,10 +132,10 @@ struct IteratorStateTests {
         #expect(usageAfterModel?.outputTokens == 17)
     }
 
-    // MARK: - Test 7.5: Usage accumulates across iterations
+    // MARK: - Test 7.5: Usage reflects last response across iterations
 
-    @Test("usage accumulates across multiple model calls")
-    func usageAccumulatesAcrossIterations() async throws {
+    @Test("usage reflects last response across multiple model calls")
+    func usageReflectsLastResponseAcrossIterations() async throws {
         let tool = ConfigurableTool.succeeding("result", name: "my_tool")
 
         let counter = CallCounter()
@@ -171,9 +171,9 @@ struct IteratorStateTests {
             }
         }
 
-        // Should be sum of both calls
-        #expect(finalUsage?.inputTokens == 250)  // 100 + 150
-        #expect(finalUsage?.outputTokens == 125) // 50 + 75
+        // Usage is a snapshot from the last response, not a sum
+        #expect(finalUsage?.inputTokens == 150)
+        #expect(finalUsage?.outputTokens == 75)
     }
 
     // MARK: - Test 7.6: beforeModel phase has no associated value

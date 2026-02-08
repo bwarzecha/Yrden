@@ -23,7 +23,7 @@ public struct ShellTool: TypedTool {
     public typealias Args = ShellToolArgs
 
     public let name = "shell"
-    public let description = "Execute a shell command and return its output. The user's shell environment is available (Homebrew, nvm, pyenv, etc.). Working directory persists between calls. Output is truncated to 30,000 characters with head+tail preservation; when truncated, full output is saved to a file whose path is shown — use read_file with offset/limit to inspect specific sections. Do not use for interactive commands (vim, less, password prompts) or file reading/writing (use read_file/write_file instead)."
+    public let description = "Execute a shell command and return its output. The user's full shell environment is available (Homebrew, nvm, pyenv, etc.). Working directory persists between calls. Output is truncated to 30,000 characters; when truncated, full output is saved to a file whose path is shown."
 
     public let maxOutputLength: Int
     public let spilloverDirectory: String

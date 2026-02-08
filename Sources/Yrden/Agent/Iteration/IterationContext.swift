@@ -139,6 +139,7 @@ public final class BeforeModelContext<Output: SchemaType>: @unchecked Sendable {
     private func buildCompletionRequest() async -> CompletionRequest {
         // Build new array with append instead of copy + insert to avoid COW copy
         let systemPrompt = await agent.systemPrompt
+
         var requestMessages: [Message] = []
         requestMessages.reserveCapacity(state.messages.count + 1)
         if !systemPrompt.isEmpty {
@@ -308,7 +309,7 @@ public final class BeforeToolsContext<Output: SchemaType>: @unchecked Sendable {
                         let toolName = pending.call.name
                         guard let tool = agentTools.first(where: { $0.definition.name == toolName }) else {
                             let duration = ContinuousClock.now - startTime
-                            let error = ToolExecutionError.toolNotFound(toolName)
+                            let error = ToolExecutionError.toolNotFound(toolName, available: agentTools.map { $0.definition.name }.joined(separator: ", "))
                             continuation.yield(.toolFailed(
                                 call: pending.call,
                                 error: error.localizedDescription,

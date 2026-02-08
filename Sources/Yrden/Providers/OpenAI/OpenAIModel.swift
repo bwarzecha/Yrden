@@ -56,13 +56,13 @@ public struct OpenAIModel: Model, Sendable {
     /// - Parameters:
     ///   - name: Model identifier (e.g., "gpt-4o", "o1-mini")
     ///   - provider: Provider for authentication
-    ///   - defaultMaxTokens: Default max tokens (default: 4096)
+    ///   - defaultMaxTokens: Default max tokens (default: 16384)
     ///   - retryConfig: Retry configuration for transient errors (default: 2 retries)
     ///   - foreignThinkingBehavior: How to handle thinking blocks from other providers (default: .drop)
     public init(
         name: String,
         provider: any Provider & OpenAICompatibleProvider,
-        defaultMaxTokens: Int = 4096,
+        defaultMaxTokens: Int = 16384,
         retryConfig: RetryConfig = .default,
         foreignThinkingBehavior: ForeignThinkingBehavior = .drop
     ) {

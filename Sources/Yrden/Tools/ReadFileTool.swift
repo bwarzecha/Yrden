@@ -23,7 +23,7 @@ public struct ReadFileTool: TypedTool {
     public typealias Args = ReadFileArgs
 
     public let name = "read_file"
-    public let description = "Read a file's contents with line numbers. Returns at most 500 lines starting from offset. Individual lines longer than 4,000 characters are truncated. Total output capped at 100,000 characters. Use offset and limit to paginate through large files."
+    public let description = "Read a file's contents with line numbers. Supports ~ (tilde) and relative paths. Returns at most 500 lines starting from offset. Use offset and limit to paginate through large files."
 
     public let pathValidator: PathValidator
     public let totalCharacterLimit: Int

@@ -1,7 +1,7 @@
 /// Tests for Agent tool call round-trip behavior.
 ///
 /// Covers happy path: single tool calls, sequential calls across iterations,
-/// parallel calls in a single response, usage accumulation, and same-tool batching.
+/// parallel calls in a single response, usage tracking, and same-tool batching.
 
 import Testing
 import Foundation
@@ -154,8 +154,8 @@ struct AgentToolCallTests {
         #expect(result.toolCallCount == 2)
     }
 
-    @Test("usage accumulates across tool call rounds")
-    func usageAccumulatesAcrossToolRounds() async throws {
+    @Test("usage reflects last response snapshot across tool call rounds")
+    func usageReflectsLastResponseAcrossToolRounds() async throws {
         let tool = ConfigurableTool.succeeding("ok", name: "test_tool")
 
         let counter = CallCounter()
@@ -186,9 +186,10 @@ struct AgentToolCallTests {
 
         let result = try await agent.run("Go")
 
-        #expect(result.usage.inputTokens == 300)
-        #expect(result.usage.outputTokens == 125)
-        #expect(result.usage.totalTokens == 425)
+        // Usage is a snapshot from the last response, not a sum
+        #expect(result.usage.inputTokens == 200)
+        #expect(result.usage.outputTokens == 75)
+        #expect(result.usage.totalTokens == 275)
     }
 
     @Test("same tool called multiple times in batch with different IDs")

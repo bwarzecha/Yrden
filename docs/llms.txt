@@ -1,0 +1,23 @@
+# Yrden
+
+> Type-safe AI agents for Swift. Multi-provider (Anthropic, OpenAI, Bedrock, local), structured output via @Schema macros, agentic loop with full control, MCP integration, streaming, human-in-the-loop.
+
+## Docs
+
+- [Introduction](index.md): Overview, Hello World, Why Use Yrden
+- [Installation](installation.md): SPM setup, API keys, running tests
+- [Agents](agents.md): Agent creation, run/runStream/iter, status, resume, iteration, usage limits, validators, serialization
+- [Models & Providers](models.md): Provider/Model separation, Anthropic, OpenAI, Bedrock, Local, capabilities, discovery, streaming, retry
+- [Tools](tools.md): Tool/TypedTool protocols, ToolResult, approval, retries, MCP tools, built-in tools, heterogeneous arrays
+- [Structured Output](output.md): SchemaType, @Schema/@Guide macros, model-level and agent-level structured output, validators
+- [Streaming](streaming.md): StreamEvent, AgentStreamEvent, model/agent level streaming, resume streaming, thinking
+- [Messages & Chat History](messages.md): Message enum, ContentPart, AssistantContentBlock, ThinkingBlock, chat history, serialization
+- [MCP Integration](mcp.md): Connections, coordinator, manager, OAuth, transports, events
+- [Built-in Tools](built-in-tools.md): ShellTool, ReadFileTool, WriteFileTool, PathValidator, OutputTruncation
+- [Human-in-the-Loop](human-in-the-loop.md): Tool approval, iteration limits, usage limits, combining patterns, serialization
+- [Error Handling](error-handling.md): LLMError, AgentError, ToolExecutionError, StructuredOutputError, retry
+- [Testing](testing.md): Test architecture, FakeModel, testing tools/agents/structured output, cross-provider tests
+
+## Full Documentation
+
+The complete documentation is available in a single file: [llms-full.txt](llms-full.txt)

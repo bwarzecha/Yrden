@@ -58,7 +58,8 @@ public struct ToolExecutionEngine: Sendable {
         context: ToolContext
     ) async throws -> AnyToolResult {
         guard let tool = tools.first(where: { $0.name == call.name }) else {
-            return .failure(ToolExecutionError.toolNotFound(call.name))
+            let available = tools.map { $0.name }.joined(separator: ", ")
+            return .failure(ToolExecutionError.toolNotFound(call.name, available: available))
         }
 
         // Check if tool requires human approval before execution

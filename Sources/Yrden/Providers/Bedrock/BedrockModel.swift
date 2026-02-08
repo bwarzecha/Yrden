@@ -59,12 +59,12 @@ public struct BedrockModel: Model, @unchecked Sendable {
     /// - Parameters:
     ///   - name: Model identifier or inference profile ID
     ///   - provider: Provider for AWS authentication
-    ///   - defaultMaxTokens: Default max tokens (default: 4096)
+    ///   - defaultMaxTokens: Default max tokens (default: 16384)
     ///   - foreignThinkingBehavior: How to handle thinking blocks from other providers (default: .drop)
     public init(
         name: String,
         provider: BedrockProvider,
-        defaultMaxTokens: Int = 4096,
+        defaultMaxTokens: Int = 16384,
         foreignThinkingBehavior: ForeignThinkingBehavior = .drop
     ) {
         self.name = name

@@ -96,6 +96,12 @@ class SettingsStore: ObservableObject {
     @AppStorage("awsAccessKey") var awsAccessKey: String = ""
     @AppStorage("awsSecretKey") var awsSecretKey: String = ""
 
+    // MARK: - Built-in Tools (Persisted)
+
+    @AppStorage("builtInToolsEnabled") var builtInToolsEnabled: Bool = false
+    @AppStorage("builtInToolsWorkingDirectory") var builtInToolsWorkingDirectory: String = "~/Desktop"
+    @AppStorage("builtInToolsShellApproval") var builtInToolsShellApproval: Bool = true
+
     // MARK: - MCP Servers (Persisted as JSON)
 
     @AppStorage("savedMCPServersData") private var savedMCPServersData: Data = Data()

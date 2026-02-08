@@ -28,12 +28,22 @@ struct YrdenExampleApp: App {
         // Auto-configure if we have persisted settings
         guard settingsStore.canConfigure else { return }
 
-        do {
-            let model = try settingsStore.createModel()
-            viewModel.configure(model: model)
-            settingsStore.isConfigured = true
-        } catch {
-            // Silent failure on auto-configure - user can configure manually
+        Task {
+            // Set up built-in tools if enabled
+            if settingsStore.builtInToolsEnabled {
+                await viewModel.configureBuiltInTools(
+                    workingDirectory: settingsStore.builtInToolsWorkingDirectory,
+                    shellApprovalRequired: settingsStore.builtInToolsShellApproval
+                )
+            }
+
+            do {
+                let model = try settingsStore.createModel()
+                viewModel.configure(model: model)
+                settingsStore.isConfigured = true
+            } catch {
+                // Silent failure on auto-configure - user can configure manually
+            }
         }
     }
 }

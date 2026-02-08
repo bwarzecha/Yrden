@@ -255,7 +255,7 @@ public enum ToolExecutionError: Error, Sendable, Equatable {
     case custom(String)
     case argumentParsing(String)
     case argumentValidation(String)
-    case toolNotFound(String)
+    case toolNotFound(String, available: String)
 }
 
 extension ToolExecutionError: LocalizedError {
@@ -264,7 +264,8 @@ extension ToolExecutionError: LocalizedError {
         case .custom(let message): return message
         case .argumentParsing(let details): return "Failed to parse tool arguments: \(details)"
         case .argumentValidation(let details): return "Tool argument validation failed: \(details)"
-        case .toolNotFound(let name): return "Tool not found: \(name)"
+        case .toolNotFound(let name, let available):
+            return "Tool not found: \(name). Available tools: \(available)"
         }
     }
 }

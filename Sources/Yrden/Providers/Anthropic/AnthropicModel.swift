@@ -52,12 +52,12 @@ public struct AnthropicModel: Model, Sendable {
     /// - Parameters:
     ///   - name: Model identifier (e.g., "claude-3-5-sonnet-20241022")
     ///   - provider: Provider for authentication
-    ///   - defaultMaxTokens: Default max tokens (default: 4096)
+    ///   - defaultMaxTokens: Default max tokens (default: 16384)
     ///   - foreignThinkingBehavior: How to handle thinking blocks from other providers (default: .drop)
     public init(
         name: String,
         provider: AnthropicProvider,
-        defaultMaxTokens: Int = 4096,
+        defaultMaxTokens: Int = 16384,
         foreignThinkingBehavior: ForeignThinkingBehavior = .drop
     ) {
         self.name = name

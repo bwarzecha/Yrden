@@ -6,6 +6,9 @@
 /// - `AgentStreamEvent`: Events emitted during streaming execution
 /// - `ToolCallResult`: Result of a single tool call
 /// - `OutputValidator`: Validation/transformation of agent output
+///
+/// Note: HTTP-level retry (transient 429/5xx) is handled by providers via
+/// `RetryConfig` in Retry.swift. The agent layer does not add its own retry.
 
 import Foundation
 
@@ -89,140 +92,6 @@ public struct UsageLimits: Sendable, Equatable, Hashable {
         }
         return nil
     }
-}
-
-// MARK: - RetryPolicy
-
-/// Configuration for retrying failed LLM requests.
-///
-/// Use this to handle transient network errors, rate limits, and server errors
-/// with exponential backoff.
-///
-/// ## Example
-/// ```swift
-/// let policy = RetryPolicy(
-///     maxAttempts: 3,
-///     initialDelay: .milliseconds(100),
-///     maxDelay: .seconds(5),
-///     backoffMultiplier: 2.0,
-///     jitter: 0.1
-/// )
-///
-/// let agent = Agent(
-///     model: claude,
-///     retryPolicy: policy
-/// )
-/// ```
-public struct RetryPolicy: Sendable, Equatable {
-    /// Maximum number of attempts (including initial).
-    public var maxAttempts: Int
-
-    /// Initial delay between attempts.
-    public var initialDelay: Duration
-
-    /// Maximum delay between attempts (caps exponential growth).
-    public var maxDelay: Duration
-
-    /// Multiplier for exponential backoff.
-    public var backoffMultiplier: Double
-
-    /// Random jitter as fraction of delay (0.0 to 1.0).
-    /// Helps prevent thundering herd.
-    public var jitter: Double
-
-    /// Errors that should trigger a retry.
-    /// By default, retries on rate limits and transient server errors.
-    public var retryableErrors: Set<RetryableErrorKind>
-
-    public init(
-        maxAttempts: Int = 3,
-        initialDelay: Duration = .milliseconds(100),
-        maxDelay: Duration = .seconds(30),
-        backoffMultiplier: Double = 2.0,
-        jitter: Double = 0.1,
-        retryableErrors: Set<RetryableErrorKind> = [.rateLimited, .serverError, .networkError]
-    ) {
-        self.maxAttempts = maxAttempts
-        self.initialDelay = initialDelay
-        self.maxDelay = maxDelay
-        self.backoffMultiplier = backoffMultiplier
-        self.jitter = jitter
-        self.retryableErrors = retryableErrors
-    }
-
-    /// No retries - fail immediately on any error.
-    public static let none = RetryPolicy(maxAttempts: 1, retryableErrors: [])
-
-    /// Default policy: 3 attempts with exponential backoff.
-    public static let `default` = RetryPolicy()
-
-    /// Aggressive retry for high-availability: 5 attempts with longer waits.
-    public static let aggressive = RetryPolicy(
-        maxAttempts: 5,
-        initialDelay: .milliseconds(200),
-        maxDelay: .seconds(60),
-        backoffMultiplier: 2.5,
-        jitter: 0.2
-    )
-
-    /// Calculate delay for a given attempt number (0-indexed).
-    public func delay(forAttempt attempt: Int) -> Duration {
-        guard attempt > 0 else { return .zero }
-
-        // Calculate exponential delay using Duration arithmetic
-        let multiplier = pow(backoffMultiplier, Double(attempt - 1))
-
-        // Convert initial delay to nanoseconds for calculation
-        let components = initialDelay.components
-        let baseNanos = Double(components.seconds) * 1_000_000_000.0 +
-                        Double(components.attoseconds) / 1_000_000_000.0
-        var delayNanos = baseNanos * multiplier
-
-        // Cap at maxDelay
-        let maxComponents = maxDelay.components
-        let maxNanos = Double(maxComponents.seconds) * 1_000_000_000.0 +
-                       Double(maxComponents.attoseconds) / 1_000_000_000.0
-        delayNanos = min(delayNanos, maxNanos)
-
-        // Add jitter
-        if jitter > 0 {
-            let jitterRange = delayNanos * jitter
-            let jitterValue = Double.random(in: -jitterRange...jitterRange)
-            delayNanos = max(0, delayNanos + jitterValue)
-        }
-
-        return .nanoseconds(Int64(delayNanos))
-    }
-
-    /// Check if an error should trigger a retry.
-    public func shouldRetry(_ error: Error) -> Bool {
-        guard let llmError = error as? LLMError else {
-            return false
-        }
-
-        switch llmError {
-        case .rateLimited:
-            return retryableErrors.contains(.rateLimited)
-        case .serverError:
-            return retryableErrors.contains(.serverError)
-        case .networkError:
-            return retryableErrors.contains(.networkError)
-        default:
-            return false
-        }
-    }
-}
-
-/// Types of errors that can trigger retries.
-public enum RetryableErrorKind: String, Sendable, Hashable, CaseIterable {
-    /// Rate limit exceeded (429).
-    case rateLimited
-
-    /// Server error (5xx).
-    case serverError
-
-    /// Network connectivity issue.
-    case networkError
 }
 
 // MARK: - EndStrategy

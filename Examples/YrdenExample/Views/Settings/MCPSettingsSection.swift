@@ -202,7 +202,7 @@ struct MCPSettingsSection: View {
 
             // Apply requiresApproval flag from server config to all tools
             if server.requiresApproval {
-                agentTools = agentTools.map { $0.requireApproval() }
+                agentTools = agentTools.map { ApprovalWrapper($0) }
             }
 
             // Register tools with viewModel (pass the already-discovered tools)
@@ -316,6 +316,26 @@ struct MCPServerEditor: View {
         case .oauth:
             return !serverURL.isEmpty && URL(string: serverURL) != nil
         }
+    }
+}
+
+// MARK: - ApprovalWrapper
+
+/// Type-erased wrapper that marks any tool as requiring approval.
+/// Needed because `Tool.requireApproval()` returns `ApprovalRequired<Self>`
+/// which can't be called on existential `any Tool`.
+private struct ApprovalWrapper: Tool {
+    private let wrapped: any Tool
+
+    var name: String { wrapped.name }
+    var description: String { wrapped.description }
+    var definition: ToolDefinition { wrapped.definition }
+    var requiresApproval: Bool { true }
+
+    init(_ tool: any Tool) { self.wrapped = tool }
+
+    func call(context: ToolContext, argumentsJSON: String) async throws -> AnyToolResult {
+        try await wrapped.call(context: context, argumentsJSON: argumentsJSON)
     }
 }
 

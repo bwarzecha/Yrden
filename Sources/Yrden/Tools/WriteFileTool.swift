@@ -18,7 +18,7 @@ public struct WriteFileTool: TypedTool {
     public typealias Args = WriteFileArgs
 
     public let name = "write_file"
-    public let description = "Write content to a file. Creates parent directories if they don't exist. Overwrites existing files atomically (no partial writes). Maximum size: 10 MB."
+    public let description = "Write content to a file. Supports ~ (tilde) and relative paths. Creates parent directories if needed. Overwrites existing files atomically."
 
     public let pathValidator: PathValidator
     public let createDirectories: Bool

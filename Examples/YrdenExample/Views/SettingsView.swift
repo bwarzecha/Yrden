@@ -16,6 +16,7 @@ struct SettingsView: View {
                 VStack(spacing: 20) {
                     ProviderSettingsSection(store: store)
                     ModelSettingsSection(store: store)
+                    BuiltInToolsSection(store: store, viewModel: viewModel)
                     MCPSettingsSection(store: store, viewModel: viewModel)
                     applySection
                 }
@@ -44,40 +45,71 @@ struct SettingsView: View {
         VStack(spacing: 12) {
             Button(action: configure) {
                 HStack {
-                    if store.isConfigured {
+                    if isApplying {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                    } else if store.isConfigured {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
                     }
-                    Text(store.isConfigured ? "Configured" : "Apply Configuration")
+                    Text(isApplying ? "Applying..." : store.isConfigured ? "Configured" : "Apply Configuration")
                 }
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(!store.canConfigure)
+            .disabled(!store.canConfigure || isApplying)
 
-            if !store.connectedServers.isEmpty {
-                Text("\(store.connectedServers.count) MCP server(s) connected with \(totalToolCount) tools")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+            toolsSummary
         }
     }
 
-    private var totalToolCount: Int {
-        store.connectedServers.reduce(0) { $0 + $1.tools.count }
+    @ViewBuilder
+    private var toolsSummary: some View {
+        let mcpCount = store.connectedServers.reduce(0) { $0 + $1.tools.count }
+        let builtInCount = store.builtInToolsEnabled ? 3 : 0
+        let total = mcpCount + builtInCount
+
+        if total > 0 {
+            Text(toolsSummaryText(builtIn: builtInCount, mcp: mcpCount))
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private func toolsSummaryText(builtIn: Int, mcp: Int) -> String {
+        var parts: [String] = []
+        if builtIn > 0 { parts.append("\(builtIn) built-in") }
+        if mcp > 0 { parts.append("\(mcp) MCP") }
+        return "\(builtIn + mcp) tools (\(parts.joined(separator: ", ")))"
     }
 
     // MARK: - Actions
 
+    @State private var isApplying = false
+
     private func configure() {
-        let mcpTools = viewModel.getAllMCPTools()
-        do {
-            let model = try store.createModel()
-            viewModel.configure(model: model, mcpTools: mcpTools)
-            store.isConfigured = true
-        } catch {
-            store.modelError = error.localizedDescription
+        isApplying = true
+        Task {
+            // Set up built-in tools if enabled
+            if store.builtInToolsEnabled {
+                await viewModel.configureBuiltInTools(
+                    workingDirectory: store.builtInToolsWorkingDirectory,
+                    shellApprovalRequired: store.builtInToolsShellApproval
+                )
+            } else {
+                viewModel.disableBuiltInTools()
+            }
+
+            let mcpTools = viewModel.getAllMCPTools()
+            do {
+                let model = try store.createModel()
+                viewModel.configure(model: model, mcpTools: mcpTools)
+                store.isConfigured = true
+            } catch {
+                store.modelError = error.localizedDescription
+            }
+            isApplying = false
         }
     }
 }

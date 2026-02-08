@@ -206,13 +206,10 @@ public struct AgentIterator<Output: SchemaType>: AsyncSequence, Sendable {
 
                 // Mutate state in place — messages array is close to uniquely referenced
                 state!.messages.append(.fromResponse(response))
-                state!.usage = Usage(
-                    inputTokens: state!.usage.inputTokens + response.usage.inputTokens,
-                    outputTokens: state!.usage.outputTokens + response.usage.outputTokens
-                )
+                state!.usage = response.usage
                 state!.phase = .afterModel(response: response)
 
-                // Check usage limits after accumulating
+                // Check usage limits
                 try await checkUsageLimits()
 
                 step = .yieldPhase
@@ -310,6 +307,7 @@ public struct AgentIterator<Output: SchemaType>: AsyncSequence, Sendable {
         private func callModel() async throws -> CompletionResponse {
             // Build request messages — append instead of insert to avoid COW copy
             let systemPrompt = await agent.systemPrompt
+
             var requestMessages: [Message] = []
             requestMessages.reserveCapacity(state!.messages.count + 1)
             if !systemPrompt.isEmpty {
@@ -386,7 +384,7 @@ public struct AgentIterator<Output: SchemaType>: AsyncSequence, Sendable {
                     let duration = ContinuousClock.now - startTime
                     results.append(ToolCallResult(
                         call: pending.call,
-                        result: .failed(ToolExecutionError.toolNotFound(toolName)),
+                        result: .failed(ToolExecutionError.toolNotFound(toolName, available: agentTools.map { $0.definition.name }.joined(separator: ", "))),
                         duration: duration
                     ))
                     continue
