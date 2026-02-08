@@ -1,10 +1,12 @@
 /// Provider fixtures for integration tests.
 ///
 /// All provider initialization flows through `ProviderFixture.all`, gated by env vars:
-/// - `INTEGRATION=1`      → all providers
+/// - `INTEGRATION=1`      → all providers (local only if running)
 /// - `ANTHROPIC_TESTS=1`  → Anthropic only
 /// - `OPENAI_TESTS=1`     → OpenAI only
 /// - `BEDROCK_TESTS=1`    → Bedrock only
+/// - `LOCAL_TESTS=1`      → Ollama/local only (crashes if Ollama not running)
+/// - `LM_STUDIO_TESTS=1`  → LM Studio only (crashes if not running)
 ///
 /// No env var set → `all` is empty → integration tests run 0 times.
 /// Env var set but API key missing → `requireAPIKey` crashes with clear message.
@@ -75,6 +77,16 @@ struct TestConstraints: Sendable {
             supportsStopSequences: false
         )
     }
+
+    /// Local model constraints — conservative defaults for Ollama/LM Studio.
+    static func local(for model: any Model) -> TestConstraints {
+        TestConstraints(
+            capabilities: model.capabilities,
+            minMaxTokens: 10,
+            supportsStreaming: true,
+            supportsStopSequences: true
+        )
+    }
 }
 
 // MARK: - Provider Fixture (for parameterized tests)
@@ -92,10 +104,12 @@ struct ProviderFixture: Sendable, CustomTestStringConvertible {
 
     /// All enabled provider fixtures, gated by environment variables.
     ///
-    /// - `INTEGRATION=1` enables all providers
+    /// - `INTEGRATION=1` enables all providers (local only if Ollama is running)
     /// - `ANTHROPIC_TESTS=1` enables Anthropic only
     /// - `OPENAI_TESTS=1` enables OpenAI only
     /// - `BEDROCK_TESTS=1` enables Bedrock only
+    /// - `LOCAL_TESTS=1` enables Ollama/local only (crashes if not running)
+    /// - `LM_STUDIO_TESTS=1` enables LM Studio only (crashes if not running)
     ///
     /// When a provider is enabled but its API key is missing, initialization
     /// crashes with a clear error message (via `requireAPIKey`).
@@ -118,6 +132,22 @@ struct ProviderFixture: Sendable, CustomTestStringConvertible {
             fixtures.append(ProviderFixture(subject: try! BedrockTestSubject()))
         }
 
+        if env["LOCAL_TESTS"] != nil {
+            // Explicit request: crash if Ollama is not running
+            fixtures.append(ProviderFixture(subject: OllamaTestSubject()))
+        } else if runAll && TestConfig.isOllamaRunning {
+            // INTEGRATION=1: include only if Ollama is detected running
+            fixtures.append(ProviderFixture(subject: OllamaTestSubject()))
+        }
+
+        if env["LM_STUDIO_TESTS"] != nil {
+            // Explicit request: crash if LM Studio is not running
+            fixtures.append(ProviderFixture(subject: LMStudioTestSubject()))
+        } else if runAll && TestConfig.isLMStudioRunning {
+            // INTEGRATION=1: include only if LM Studio is detected running
+            fixtures.append(ProviderFixture(subject: LMStudioTestSubject()))
+        }
+
         return fixtures
     }()
 
@@ -136,6 +166,16 @@ struct ProviderFixture: Sendable, CustomTestStringConvertible {
     /// Bedrock fixture, if enabled.
     static var bedrock: ProviderFixture? {
         all.first { $0.subject is BedrockTestSubject }
+    }
+
+    /// Ollama/local fixture, if enabled.
+    static var local: ProviderFixture? {
+        all.first { $0.subject is OllamaTestSubject }
+    }
+
+    /// LM Studio fixture, if enabled.
+    static var lmStudio: ProviderFixture? {
+        all.first { $0.subject is LMStudioTestSubject }
     }
 }
 
@@ -207,5 +247,43 @@ struct BedrockTestSubject: ModelTestSubject {
         self.model = model
         self.visionModel = model
         self.constraints = .standard(for: model)
+    }
+}
+
+/// Ollama/local test fixture
+struct OllamaTestSubject: ModelTestSubject {
+    let model: any Model
+    let visionModel: any Model
+    let constraints: TestConstraints
+    let providerName = "Ollama"
+
+    init() {
+        let modelName = TestConfig.ollamaTestModel
+        TestConfig.requireOllamaModel(modelName)
+
+        let provider = LocalProvider.ollama(port: TestConfig.ollamaPort)
+        let model = LocalModel(name: modelName, provider: provider)
+        self.model = model
+        self.visionModel = model
+        self.constraints = .local(for: model)
+    }
+}
+
+/// LM Studio test fixture
+struct LMStudioTestSubject: ModelTestSubject {
+    let model: any Model
+    let visionModel: any Model
+    let constraints: TestConstraints
+    let providerName = "LM Studio"
+
+    init() {
+        let modelName = TestConfig.lmStudioTestModel
+        TestConfig.requireLMStudioModel(modelName)
+
+        let provider = LocalProvider.lmStudio(port: TestConfig.lmStudioPort)
+        let model = LocalModel(name: modelName, provider: provider)
+        self.model = model
+        self.visionModel = model
+        self.constraints = .local(for: model)
     }
 }

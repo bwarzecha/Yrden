@@ -865,6 +865,43 @@ struct OpenAIStreamChunkTests {
         #expect(chunk.choices[0].finish_reason == "stop")
     }
 
+    @Test func decode_toolCallDelta_missingIndex() throws {
+        // Ollama omits the index field in streamed tool calls
+        let json = """
+        {
+            "id": "chatcmpl-ollama",
+            "object": "chat.completion.chunk",
+            "created": 1677652288,
+            "model": "llama3.2",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "id": "call_abc",
+                                "type": "function",
+                                "function": {"name": "search", "arguments": "{}"}
+                            }
+                        ]
+                    },
+                    "finish_reason": null
+                }
+            ]
+        }
+        """
+
+        let chunk = try JSONDecoder().decode(
+            OpenAIStreamChunk.self,
+            from: Data(json.utf8)
+        )
+
+        let toolCall = chunk.choices[0].delta.tool_calls![0]
+        #expect(toolCall.index == nil)
+        #expect(toolCall.id == "call_abc")
+        #expect(toolCall.function?.name == "search")
+    }
+
     @Test func decode_usageChunk() throws {
         let json = """
         {

@@ -399,7 +399,9 @@ struct OpenAIStreamDelta: Decodable {
 
 /// Tool call delta in streaming.
 struct OpenAIStreamToolCall: Decodable {
-    let index: Int
+    /// Index of this tool call in the array. Optional because some local
+    /// servers (e.g., Ollama) omit it. Defaults to 0 in the handler.
+    let index: Int?
     let id: String?
     let type: String?
     let function: OpenAIStreamFunction?
@@ -420,9 +422,10 @@ struct OpenAIModelsResponse: Decodable {
 }
 
 /// Model information from OpenAI.
+/// `created` is optional because some local servers (e.g., LM Studio) omit it.
 struct OpenAIModelInfo: Decodable {
     let id: String
     let object: String
-    let created: Int
+    let created: Int?
     let owned_by: String
 }

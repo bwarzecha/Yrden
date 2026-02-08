@@ -240,6 +240,19 @@ extension ModelCapabilities {
         supportsSystemMessage: false,
         maxContextTokens: 200_000
     )
+
+    // MARK: - Local Models
+
+    /// Conservative capabilities for local models (Ollama, LM Studio, vLLM).
+    /// Context window is unknown (varies by model). Vision disabled by default.
+    public static let local = ModelCapabilities(
+        supportsTemperature: true,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStructuredOutput: true,
+        supportsSystemMessage: true,
+        maxContextTokens: nil
+    )
 }
 
 // MARK: - Model Protocol

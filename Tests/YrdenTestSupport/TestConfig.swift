@@ -90,6 +90,200 @@ public enum TestConfig {
         return FileManager.default.fileExists(atPath: credentialsPath)
     }
 
+    // MARK: - Ollama / Local LLM Configuration
+
+    /// Default model for local integration tests.
+    public static let ollamaTestModel = "qwen3:4b"
+
+    /// Ollama port (default: 11434).
+    public static var ollamaPort: Int {
+        if let portStr = apiKey("OLLAMA_PORT"), let port = Int(portStr) {
+            return port
+        }
+        return 11434
+    }
+
+    /// Whether Ollama is reachable at the expected port.
+    public static var isOllamaRunning: Bool {
+        let url = URL(string: "http://localhost:\(ollamaPort)/api/tags")!
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 2
+        let semaphore = DispatchSemaphore(value: 0)
+        var reachable = false
+
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                reachable = true
+            }
+            semaphore.signal()
+        }
+        task.resume()
+        semaphore.wait()
+        return reachable
+    }
+
+    /// Whether a model is available locally in Ollama.
+    public static func ollamaHasModel(_ name: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["ollama", "list"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            // Model names in `ollama list` appear as first column, e.g. "qwen3:4b"
+            return output.contains(name)
+        } catch {
+            return false
+        }
+    }
+
+    /// Pull a model via `ollama pull`. Blocks until complete.
+    /// Returns true on success.
+    @discardableResult
+    public static func ollamaPull(_ name: String) -> Bool {
+        print("Pulling Ollama model '\(name)'... (this may take a while on first run)")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["ollama", "pull", name]
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            print("Failed to pull model '\(name)': \(error)")
+            return false
+        }
+    }
+
+    /// Ensure a model is available, pulling if needed. Crashes if Ollama is not running.
+    public static func requireOllamaModel(_ name: String) {
+        guard isOllamaRunning else {
+            fatalError("""
+
+                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                Ollama is not running.
+
+                Start it with:
+                    ollama serve
+
+                Or install from:
+                    https://ollama.com
+                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                """)
+        }
+
+        if !ollamaHasModel(name) {
+            guard ollamaPull(name) else {
+                fatalError("""
+
+                    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    Failed to pull Ollama model: \(name)
+
+                    Try pulling manually:
+                        ollama pull \(name)
+                    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                    """)
+            }
+        }
+    }
+
+    // MARK: - LM Studio Configuration
+
+    /// Default model for LM Studio tests (overridable via LM_STUDIO_MODEL env var).
+    public static var lmStudioTestModel: String {
+        apiKey("LM_STUDIO_MODEL") ?? "qwen/qwen3-4b-2507"
+    }
+
+    /// LM Studio port (default: 1234).
+    public static var lmStudioPort: Int {
+        if let portStr = apiKey("LM_STUDIO_PORT"), let port = Int(portStr) {
+            return port
+        }
+        return 1234
+    }
+
+    /// Whether LM Studio is reachable at the expected port.
+    public static var isLMStudioRunning: Bool {
+        isOpenAICompatibleServerRunning(port: lmStudioPort)
+    }
+
+    /// Whether a model is loaded in LM Studio (checks /v1/models endpoint).
+    public static func lmStudioHasModel(_ name: String) -> Bool {
+        let url = URL(string: "http://localhost:\(lmStudioPort)/v1/models")!
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 3
+        let semaphore = DispatchSemaphore(value: 0)
+        var found = false
+
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let data = data,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let models = json["data"] as? [[String: Any]] {
+                found = models.contains { ($0["id"] as? String)?.contains(name) == true }
+            }
+            semaphore.signal()
+        }
+        task.resume()
+        semaphore.wait()
+        return found
+    }
+
+    /// Verify LM Studio is running and has the expected model. Crashes with guidance if not.
+    public static func requireLMStudioModel(_ name: String) {
+        guard isLMStudioRunning else {
+            fatalError("""
+
+                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                LM Studio is not running on port \(lmStudioPort).
+
+                Start LM Studio and load a model, or set LM_STUDIO_PORT
+                if running on a non-default port.
+                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                """)
+        }
+
+        guard lmStudioHasModel(name) else {
+            fatalError("""
+
+                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                LM Studio model '\(name)' not found.
+
+                Load it in LM Studio, or set LM_STUDIO_MODEL to a loaded model.
+                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                """)
+        }
+    }
+
+    // MARK: - Shared Helpers
+
+    /// Whether an OpenAI-compatible server is reachable at the given port.
+    public static func isOpenAICompatibleServerRunning(port: Int) -> Bool {
+        let url = URL(string: "http://localhost:\(port)/v1/models")!
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 2
+        let semaphore = DispatchSemaphore(value: 0)
+        var reachable = false
+
+        let task = URLSession.shared.dataTask(with: request) { _, response, _ in
+            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
+                reachable = true
+            }
+            semaphore.signal()
+        }
+        task.resume()
+        semaphore.wait()
+        return reachable
+    }
+
     // MARK: - Check availability (for conditional test setup, not skipping)
 
     public static var hasAnthropicAPIKey: Bool { apiKey("ANTHROPIC_API_KEY") != nil }

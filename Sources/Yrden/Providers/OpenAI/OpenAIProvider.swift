@@ -109,13 +109,17 @@ public struct OpenAIProvider: Provider, OpenAICompatibleProvider, Sendable {
                     }
 
                     // Sort by creation date (newest first)
-                    let sortedModels = chatModels.sorted { $0.created > $1.created }
+                    let sortedModels = chatModels.sorted {
+                        ($0.created ?? 0) > ($1.created ?? 0)
+                    }
 
                     for model in sortedModels {
                         let info = ModelInfo(
                             id: model.id,
                             displayName: model.id,  // OpenAI doesn't provide display names
-                            createdAt: Date(timeIntervalSince1970: TimeInterval(model.created)),
+                            createdAt: model.created.map {
+                                Date(timeIntervalSince1970: TimeInterval($0))
+                            },
                             metadata: nil
                         )
                         continuation.yield(info)

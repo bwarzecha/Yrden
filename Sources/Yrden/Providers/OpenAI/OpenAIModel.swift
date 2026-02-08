@@ -1,11 +1,9 @@
-/// OpenAI model implementation for the Chat Completions API.
+/// OpenAI model implementation for both Chat Completions and Responses APIs.
 ///
-/// Implements the `Model` protocol for OpenAI models (GPT-4, GPT-4o, o1, o3).
-/// Handles:
-/// - Request encoding (converting Yrden types to OpenAI format)
-/// - Response decoding (converting OpenAI format to Yrden types)
-/// - Streaming via SSE
-/// - Error mapping
+/// Implements the `Model` protocol for OpenAI models (GPT-4, GPT-4o, GPT-5, o1, o3).
+/// Routes requests between:
+/// - **Chat Completions API** — via `ChatCompletionsHandler` (shared with `LocalModel`)
+/// - **Responses API** — OpenAI-specific, used for GPT-5 family and simple requests
 ///
 /// ## Usage
 /// ```swift
@@ -27,7 +25,7 @@ import Foundation
 
 // MARK: - OpenAIModel
 
-/// Model implementation for the OpenAI Chat Completions API.
+/// Model implementation for the OpenAI API.
 public struct OpenAIModel: Model, Sendable {
     /// Provider identifier for cross-provider thinking block handling.
     public static let providerId = "openai"
@@ -50,6 +48,9 @@ public struct OpenAIModel: Model, Sendable {
     /// Retry configuration for transient errors.
     private let retryConfig: RetryConfig
 
+    /// Chat Completions wire format handler.
+    private let handler: ChatCompletionsHandler
+
     /// Creates an OpenAI model.
     ///
     /// - Parameters:
@@ -71,6 +72,13 @@ public struct OpenAIModel: Model, Sendable {
         self.retryConfig = retryConfig
         self.foreignThinkingBehavior = foreignThinkingBehavior
         self.capabilities = Self.capabilities(for: name)
+        self.handler = ChatCompletionsHandler(
+            maxTokensParam: Self.maxTokensParam(for: name),
+            toolChoiceStrategy: .requiredFirstTurn,
+            foreignThinkingBehavior: foreignThinkingBehavior,
+            defaultMaxTokens: defaultMaxTokens,
+            providerId: Self.providerId
+        )
     }
 
     // MARK: - Model Protocol
@@ -78,17 +86,15 @@ public struct OpenAIModel: Model, Sendable {
     public func complete(_ request: CompletionRequest) async throws -> CompletionResponse {
         try validateRequest(request)
 
-        // Use Responses API for simple requests, Chat Completions for complex multi-turn with tool results
-        // The Responses API requires previous_response_id for tool result handling, which we don't track
         return try await retryConfig.execute {
             if shouldUseResponsesAPI(request) {
                 let responsesRequest = try encodeResponsesRequest(request, stream: false)
                 let data = try await sendResponsesRequest(responsesRequest)
                 return try decodeResponsesResponse(data)
             } else {
-                let openAIRequest = try encodeRequest(request, stream: false)
-                let data = try await sendRequest(openAIRequest)
-                return try decodeResponse(data, stopSequences: request.config.stopSequences)
+                let openAIRequest = try handler.encodeRequest(request, modelName: name, stream: false)
+                let data = try await handler.sendRequest(openAIRequest, provider: provider, modelName: name)
+                return try handler.decodeResponse(data, stopSequences: request.config.stopSequences)
             }
         }
     }
@@ -99,15 +105,16 @@ public struct OpenAIModel: Model, Sendable {
                 do {
                     try validateRequest(request)
 
-                    // Retry the entire stream on transient errors
                     try await retryConfig.execute {
                         if shouldUseResponsesAPI(request) {
                             let responsesRequest = try encodeResponsesRequest(request, stream: true)
                             try await streamResponsesRequest(responsesRequest, continuation: continuation)
                         } else {
-                            let openAIRequest = try encodeRequest(request, stream: true)
-                            try await streamRequest(
+                            let openAIRequest = try handler.encodeRequest(request, modelName: name, stream: true)
+                            try await handler.streamRequest(
                                 openAIRequest,
+                                provider: provider,
+                                modelName: name,
                                 continuation: continuation,
                                 stopSequences: request.config.stopSequences
                             )
@@ -119,6 +126,8 @@ public struct OpenAIModel: Model, Sendable {
             }
         }
     }
+
+    // MARK: - API Routing
 
     /// Whether this model is in the GPT-5 family (uses reasoning).
     private var isGPT5Family: Bool {
@@ -141,21 +150,9 @@ public struct OpenAIModel: Model, Sendable {
     /// parallel tool calls in a single response, even with `parallel_tool_calls: true`.
     /// This is an OpenAI API limitation, not a client issue.
     /// See: https://community.openai.com/t/chatcompletions-vs-responses-api-difference-in-parallel-tool-call-behaviour-observed/1369663
-    /// Whether the request contains tool results from previous tool calls.
-    /// Used to determine API routing and tool_choice behavior.
-    private func requestHasToolResults(_ request: CompletionRequest) -> Bool {
-        request.messages.contains { message in
-            switch message {
-            case .toolResult, .toolResults: return true
-            default: return false
-            }
-        }
-    }
-
     private func shouldUseResponsesAPI(_ request: CompletionRequest) -> Bool {
-        let hasToolResults = requestHasToolResults(request)
+        let hasToolResults = ChatCompletionsHandler.requestHasToolResults(request)
 
-        // Check if request has assistant messages with tool calls
         let hasAssistantToolCalls = request.messages.contains { message in
             if case .assistant(let blocks) = message {
                 return blocks.contains { block in
@@ -166,437 +163,19 @@ public struct OpenAIModel: Model, Sendable {
             return false
         }
 
-        // Check if request uses stop sequences - not supported by Responses API
         let hasStopSequences = !(request.config.stopSequences?.isEmpty ?? true)
 
         // Use Responses API only for simple tool-calling scenarios (first turn)
-        // Complex multi-turn with tool results should use Chat Completions
-        // Stop sequences also require Chat Completions API
         if hasToolResults || hasAssistantToolCalls || hasStopSequences {
             return false
         }
 
-        // For GPT-5 family, prefer Responses API for better tool calling
-        // For other models, also use Responses API for consistency (better caching)
         return true
     }
 
-    // MARK: - Chat Completions Request Encoding (for non-GPT-5 models)
-
-    private func encodeRequest(_ request: CompletionRequest, stream: Bool) throws -> OpenAIRequest {
-        // Convert tools
-        let openAITools: [OpenAITool]? = request.tools?.isEmpty == false
-            ? request.tools?.map { convertTool($0) }
-            : nil
-
-        // Convert messages (expanding toolResults into individual messages)
-        let openAIMessages = try request.messages.flatMap { try convertMessages($0) }
-
-        let maxTokens = request.config.maxTokens ?? defaultMaxTokens
-
-        // Newer models (gpt-5.x, o3, o1, gpt-4.1) use max_completion_tokens instead of max_tokens
-        let usesMaxCompletionTokens = name.hasPrefix("gpt-5") ||
-                                      name.hasPrefix("o3") ||
-                                      name.hasPrefix("o1") ||
-                                      name.hasPrefix("gpt-4.1")
-
-        // Convert output schema to response format
-        let responseFormat: OpenAIResponseFormat? = request.outputSchema.map { schema in
-            .jsonSchema(name: "response", schema: schema, strict: true)
-        }
-
-        // Determine tool_choice:
-        // - Use .required when tools are provided and no tool results yet (forces tool use)
-        // - Use .auto when conversation already has tool results (let model respond naturally)
-        let toolChoice: OpenAIToolChoice? = openAITools != nil
-            ? (requestHasToolResults(request) ? .auto : .required)
-            : nil
-
-        // Build request (no reasoning_effort for Chat Completions - that's for Responses API)
-        return OpenAIRequest(
-            model: name,
-            messages: openAIMessages,
-            max_tokens: usesMaxCompletionTokens ? nil : maxTokens,
-            max_completion_tokens: usesMaxCompletionTokens ? maxTokens : nil,
-            temperature: request.config.temperature,
-            stop: request.config.stopSequences,
-            tools: openAITools,
-            tool_choice: toolChoice,
-            response_format: responseFormat,
-            stream: stream ? true : nil,
-            stream_options: stream ? OpenAIStreamOptions(include_usage: true) : nil,
-            reasoning_effort: nil
-        )
-    }
-
-    private func convertMessage(_ message: Message) throws -> OpenAIMessage {
-        switch message {
-        case .system(let text):
-            return OpenAIMessage(
-                role: MessageRole.system,
-                content: .text(text)
-            )
-
-        case .user(let parts):
-            if parts.count == 1, case .text(let text) = parts[0] {
-                // Simple text - use string content
-                return OpenAIMessage(
-                    role: MessageRole.user,
-                    content: .text(text)
-                )
-            } else {
-                // Multimodal - use parts array
-                let openAIParts = try parts.map { try convertContentPart($0) }
-                return OpenAIMessage(
-                    role: MessageRole.user,
-                    content: .parts(openAIParts)
-                )
-            }
-
-        case .assistant(let blocks):
-            var textContent = ""
-            var toolCalls: [OpenAIToolCall] = []
-
-            for block in blocks {
-                switch block {
-                case .text(let text):
-                    textContent += text
-                case .thinking(let thinkingBlock):
-                    // Handle thinking blocks based on provider
-                    if thinkingBlock.provider == Self.providerId {
-                        // Native OpenAI thinking - no special handling needed
-                        if let content = thinkingBlock.content, !content.isEmpty {
-                            textContent += content
-                        }
-                    } else {
-                        // Foreign thinking block
-                        switch foreignThinkingBehavior {
-                        case .drop:
-                            // Skip entirely
-                            break
-                        case .convertToText:
-                            if let content = thinkingBlock.content, !content.isEmpty {
-                                textContent += content
-                            }
-                        }
-                    }
-                case .toolUse(let call):
-                    toolCalls.append(OpenAIToolCall(
-                        id: call.id,
-                        type: ToolType.function,
-                        function: OpenAIFunctionCall(name: call.name, arguments: call.arguments)
-                    ))
-                }
-            }
-
-            return OpenAIMessage(
-                role: MessageRole.assistant,
-                content: textContent.isEmpty ? nil : .text(textContent),
-                tool_calls: toolCalls.isEmpty ? nil : toolCalls
-            )
-
-        case .toolResult(let toolCallId, let content):
-            return OpenAIMessage(
-                role: MessageRole.tool,
-                content: .text(content),
-                tool_call_id: toolCallId
-            )
-
-        case .toolResults:
-            // Handled by convertMessages
-            throw LLMError.invalidRequest("toolResults should use convertMessages")
-        }
-    }
-
-    /// Convert a message to OpenAI format, expanding toolResults into multiple messages.
-    private func convertMessages(_ message: Message) throws -> [OpenAIMessage] {
-        switch message {
-        case .toolResults(let results):
-            // OpenAI uses separate tool messages for each result
-            return results.map { entry in
-                let content: String
-                switch entry.output {
-                case .text(let text):
-                    content = text
-                case .json:
-                    content = entry.output.jsonString ?? "{}"
-                case .error(let message):
-                    content = "Error: \(message)"
-                }
-                return OpenAIMessage(
-                    role: MessageRole.tool,
-                    content: .text(content),
-                    tool_call_id: entry.id
-                )
-            }
-        default:
-            return [try convertMessage(message)]
-        }
-    }
-
-    private func convertContentPart(_ part: ContentPart) throws -> OpenAIContentPart {
-        switch part {
-        case .text(let text):
-            return .text(text)
-
-        case .image(let data, let mimeType):
-            // OpenAI uses data URLs for inline images
-            let base64 = data.base64EncodedString()
-            let dataURL = "data:\(mimeType);base64,\(base64)"
-            return .imageURL(url: dataURL, detail: nil)
-        }
-    }
-
-    private func convertTool(_ tool: ToolDefinition) -> OpenAITool {
-        OpenAITool(
-            function: OpenAIFunction(
-                name: tool.name,
-                description: tool.description,
-                parameters: tool.inputSchema,
-                strict: nil  // Strict mode requires all properties in 'required'
-            )
-        )
-    }
-
-    // MARK: - Response Decoding
-
-    private func decodeResponse(_ data: Data, stopSequences: [String]? = nil) throws -> CompletionResponse {
-        let response = try JSONDecoder().decode(OpenAIResponse.self, from: data)
-
-        guard let choice = response.choices.first else {
-            throw LLMError.decodingError("No choices in response")
-        }
-
-        // Build content blocks preserving order
-        var contentBlocks: [AssistantContentBlock] = []
-
-        if let content = choice.message.content, !content.isEmpty {
-            contentBlocks.append(.text(content))
-        }
-
-        if let toolCalls = choice.message.tool_calls {
-            for call in toolCalls {
-                contentBlocks.append(.toolUse(ToolCall(
-                    id: call.id,
-                    name: call.function.name,
-                    arguments: call.function.arguments
-                )))
-            }
-        }
-
-        let hasStopSequences = stopSequences?.isEmpty == false
-        let stopReason = StopReason.from(openAIReason: choice.finish_reason, hasStopSequences: hasStopSequences)
-        let usage = Usage(
-            inputTokens: response.usage?.prompt_tokens ?? 0,
-            outputTokens: response.usage?.completion_tokens ?? 0
-        )
-
-        return CompletionResponse(
-            contentBlocks: contentBlocks,
-            stopReason: stopReason,
-            usage: usage
-        )
-    }
-
-    // MARK: - HTTP
-
-    private func sendRequest(_ request: OpenAIRequest) async throws -> Data {
-        let url = provider.baseURL.appendingPathComponent(OpenAIEndpoint.chatCompletions)
-        let (data, http) = try await HTTPClient.sendJSONPOST(
-            url: url,
-            body: request,
-            configure: provider.authenticate
-        )
-        try handleHTTPStatus(http.statusCode, data: data, retryAfterHeader: http.value(forHTTPHeaderField: HTTPHeaderField.retryAfter))
-        return data
-    }
-
-    private func handleHTTPStatus(_ statusCode: Int, data: Data, retryAfterHeader: String? = nil) throws {
-        switch statusCode {
-        case 200..<300:
-            return
-
-        case 401:
-            throw LLMError.invalidAPIKey
-
-        case 400:
-            let message = parseErrorMessage(data)
-            // Check for context length error
-            if message.contains("maximum context length") {
-                throw LLMError.contextLengthExceeded(maxTokens: capabilities.maxContextTokens ?? 0)
-            }
-            throw LLMError.invalidRequest(message)
-
-        case 404:
-            throw LLMError.modelNotFound(name)
-
-        default:
-            let message = parseErrorMessage(data)
-            let underlyingError = LLMError.networkError("HTTP \(statusCode): \(message)")
-
-            // Check if this is a retriable error (408, 409, 429, 500+)
-            if isRetriableStatusCode(statusCode) {
-                let retryAfter = HTTPClient.parseRetryAfter(retryAfterHeader)
-                throw RetriableError(
-                    underlyingError: underlyingError,
-                    retryAfter: retryAfter,
-                    statusCode: statusCode
-                )
-            }
-
-            throw underlyingError
-        }
-    }
-
-    private func parseErrorMessage(_ data: Data) -> String {
-        if let error = try? JSONDecoder().decode(OpenAIError.self, from: data) {
-            return error.error.message
-        }
-        return String(data: data, encoding: .utf8) ?? "Unknown error"
-    }
-
-    // MARK: - Streaming (Chat Completions)
-
-    private func streamRequest(
-        _ request: OpenAIRequest,
-        continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation,
-        stopSequences: [String]? = nil
-    ) async throws {
-        let url = provider.baseURL.appendingPathComponent(OpenAIEndpoint.chatCompletions)
-        let (bytes, http) = try await HTTPClient.streamJSONPOST(
-            url: url,
-            body: request,
-            configure: provider.authenticate
-        )
-
-        if http.statusCode != 200 {
-            let errorData = try await HTTPClient.collectErrorData(from: bytes)
-            try handleHTTPStatus(http.statusCode, data: errorData, retryAfterHeader: http.value(forHTTPHeaderField: HTTPHeaderField.retryAfter))
-            return
-        }
-
-        var accumulatedContent = ""
-        var accumulatedToolCalls: [ToolCallAccumulator] = []
-        var inputTokens = 0
-        var outputTokens = 0
-        var lastFinishReason: String?
-
-        for try await line in bytes.lines {
-            guard line.hasPrefix(SSE.dataPrefix) else { continue }
-            let data = String(line.dropFirst(SSE.dataPrefixLength))
-
-            // Check for stream end
-            if data == SSE.done {
-                break
-            }
-
-            guard let jsonData = data.data(using: .utf8) else { continue }
-
-            let chunk: OpenAIStreamChunk
-            do {
-                chunk = try JSONDecoder().decode(OpenAIStreamChunk.self, from: jsonData)
-            } catch {
-                // Skip malformed chunks
-                continue
-            }
-
-            // Process the chunk
-            if let choice = chunk.choices.first {
-                // Content delta
-                if let content = choice.delta.content {
-                    accumulatedContent += content
-                    continuation.yield(.contentDelta(content))
-                }
-
-                // Tool call deltas
-                if let toolCalls = choice.delta.tool_calls {
-                    for tc in toolCalls {
-                        processToolCallDelta(
-                            tc,
-                            continuation: continuation,
-                            accumulatedToolCalls: &accumulatedToolCalls
-                        )
-                    }
-                }
-
-                // Finish reason
-                if let reason = choice.finish_reason {
-                    lastFinishReason = reason
-                }
-            }
-
-            // Usage (only in final chunk with stream_options.include_usage)
-            if let usage = chunk.usage {
-                inputTokens = usage.prompt_tokens
-                outputTokens = usage.completion_tokens
-            }
-        }
-
-        // Emit toolCallEnd for any remaining tool calls
-        for toolCall in accumulatedToolCalls where !toolCall.ended {
-            continuation.yield(.toolCallEnd(id: toolCall.id))
-        }
-
-        // Build final response with content blocks
-        var contentBlocks: [AssistantContentBlock] = []
-        if !accumulatedContent.isEmpty {
-            contentBlocks.append(.text(accumulatedContent))
-        }
-        for acc in accumulatedToolCalls {
-            contentBlocks.append(.toolUse(ToolCall(id: acc.id, name: acc.name, arguments: acc.arguments)))
-        }
-
-        let hasStopSequences = stopSequences?.isEmpty == false
-        let completionResponse = CompletionResponse(
-            contentBlocks: contentBlocks,
-            stopReason: StopReason.from(openAIReason: lastFinishReason, hasStopSequences: hasStopSequences),
-            usage: Usage(inputTokens: inputTokens, outputTokens: outputTokens)
-        )
-
-        continuation.yield(.done(completionResponse))
-        continuation.finish()
-    }
-
-    private func processToolCallDelta(
-        _ delta: OpenAIStreamToolCall,
-        continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation,
-        accumulatedToolCalls: inout [ToolCallAccumulator]
-    ) {
-        let index = delta.index
-
-        // Ensure we have an accumulator for this index
-        while accumulatedToolCalls.count <= index {
-            accumulatedToolCalls.append(ToolCallAccumulator())
-        }
-
-        var acc = accumulatedToolCalls[index]
-
-        // First chunk has id and name
-        if let id = delta.id {
-            acc.id = id
-        }
-        if let function = delta.function {
-            if let name = function.name {
-                acc.name = name
-                // Emit toolCallStart when we have both id and name
-                if !acc.id.isEmpty && !acc.name.isEmpty && !acc.started {
-                    acc.started = true
-                    continuation.yield(.toolCallStart(id: acc.id, name: acc.name))
-                }
-            }
-            if let args = function.arguments {
-                acc.arguments += args
-                continuation.yield(.toolCallDelta(argumentsDelta: args))
-            }
-        }
-
-        accumulatedToolCalls[index] = acc
-    }
-
-    // MARK: - Responses API (GPT-5 Family)
+    // MARK: - Responses API
 
     private func encodeResponsesRequest(_ request: CompletionRequest, stream: Bool) throws -> ResponsesAPIRequest {
-        // Convert tools to Responses API format
         let responsesTools: [ResponsesAPITool]? = request.tools?.isEmpty == false
             ? request.tools?.map { tool in
                 ResponsesAPITool(
@@ -608,11 +187,9 @@ public struct OpenAIModel: Model, Sendable {
             }
             : nil
 
-        // Convert messages to Responses API input format
         let inputItems = try request.messages.compactMap { message -> ResponsesInputItem? in
             switch message {
             case .system:
-                // System message becomes instructions, not input
                 return nil
 
             case .user(let parts):
@@ -629,15 +206,12 @@ public struct OpenAIModel: Model, Sendable {
                 return .message(role: MessageRole.user, content: contentParts)
 
             case .assistant(let blocks):
-                // For assistant messages, use output_text content type
-                // Tool calls are implicit in the conversation flow
                 var textContent = ""
                 for block in blocks {
                     switch block {
                     case .text(let text):
                         textContent += text
                     case .thinking(let thinkingBlock):
-                        // Handle foreign thinking for Responses API
                         if thinkingBlock.provider != Self.providerId {
                             switch foreignThinkingBehavior {
                             case .drop:
@@ -651,7 +225,6 @@ public struct OpenAIModel: Model, Sendable {
                             textContent += content
                         }
                     case .toolUse:
-                        // Tool calls are implicit in the conversation flow
                         break
                     }
                 }
@@ -664,12 +237,10 @@ public struct OpenAIModel: Model, Sendable {
                 return .functionCallOutput(callId: toolCallId, output: content)
 
             case .toolResults:
-                // This shouldn't happen for Responses API - it should use Chat Completions
                 return nil
             }
         }
 
-        // Extract system message as instructions
         let instructions: String? = request.messages.compactMap { message in
             if case .system(let text) = message {
                 return text
@@ -677,17 +248,13 @@ public struct OpenAIModel: Model, Sendable {
             return nil
         }.first
 
-        // Determine tool_choice
         let toolChoice: ResponsesToolChoice? = responsesTools != nil
-            ? (requestHasToolResults(request) ? .auto : .required)
+            ? (ChatCompletionsHandler.requestHasToolResults(request) ? .auto : .required)
             : nil
 
-        // Configure output format for structured output
         let textFormat: ResponsesTextFormat? = request.outputSchema.map { schema in
             ResponsesTextFormat(format: .jsonSchema(name: "response", schema: schema, strict: true))
         }
-
-        // Don't set reasoning effort - let the API use its default
 
         let maxTokens = request.config.maxTokens ?? defaultMaxTokens
 
@@ -717,19 +284,23 @@ public struct OpenAIModel: Model, Sendable {
             body: request,
             configure: provider.authenticate
         )
-        try handleHTTPStatus(http.statusCode, data: data, retryAfterHeader: http.value(forHTTPHeaderField: HTTPHeaderField.retryAfter))
+        try handler.handleHTTPStatus(
+            http.statusCode,
+            data: data,
+            modelName: name,
+            maxContextTokens: capabilities.maxContextTokens,
+            retryAfterHeader: http.value(forHTTPHeaderField: HTTPHeaderField.retryAfter)
+        )
         return data
     }
 
     private func decodeResponsesResponse(_ data: Data) throws -> CompletionResponse {
         let response = try JSONDecoder().decode(ResponsesAPIResponse.self, from: data)
 
-        // Check for errors
         if let error = response.error {
             throw LLMError.invalidRequest(error.message)
         }
 
-        // Build content blocks preserving order
         var contentBlocks: [AssistantContentBlock] = []
         var refusal: String?
 
@@ -753,7 +324,6 @@ public struct OpenAIModel: Model, Sendable {
                 contentBlocks.append(.toolUse(ToolCall(id: callId, name: name, arguments: arguments)))
 
             case .reasoning(_, _, let summary):
-                // Extract reasoning summary as thinking block
                 if let summaryTexts = summary {
                     let combinedSummary = summaryTexts.joined(separator: "\n")
                     if !combinedSummary.isEmpty {
@@ -770,7 +340,6 @@ public struct OpenAIModel: Model, Sendable {
             }
         }
 
-        // Determine stop reason from response status and incomplete_details
         let stopReason: StopReason
         if contentBlocks.contains(where: { if case .toolUse = $0 { return true } else { return false } }) {
             stopReason = .toolUse
@@ -786,7 +355,6 @@ public struct OpenAIModel: Model, Sendable {
             stopReason = .endTurn
         }
 
-        // Extract detailed usage including cached and reasoning tokens
         let usage = Usage(
             inputTokens: response.usage?.input_tokens ?? 0,
             outputTokens: response.usage?.output_tokens ?? 0,
@@ -815,15 +383,19 @@ public struct OpenAIModel: Model, Sendable {
 
         if http.statusCode != 200 {
             let errorData = try await HTTPClient.collectErrorData(from: bytes)
-            try handleHTTPStatus(http.statusCode, data: errorData, retryAfterHeader: http.value(forHTTPHeaderField: HTTPHeaderField.retryAfter))
+            try handler.handleHTTPStatus(
+                http.statusCode,
+                data: errorData,
+                modelName: name,
+                maxContextTokens: capabilities.maxContextTokens,
+                retryAfterHeader: http.value(forHTTPHeaderField: HTTPHeaderField.retryAfter)
+            )
             return
         }
 
         var accumulatedContent = ""
         var accumulatedRefusal = ""
-        // Map from call_id -> (name, arguments) for final response
         var accumulatedToolCalls: [String: (name: String, arguments: String)] = [:]
-        // Map from item_id -> call_id (to resolve delta events)
         var itemIdToCallId: [String: String] = [:]
         var inputTokens = 0
         var outputTokens = 0
@@ -836,36 +408,30 @@ public struct OpenAIModel: Model, Sendable {
             guard line.hasPrefix(SSE.dataPrefix) else { continue }
             let data = String(line.dropFirst(SSE.dataPrefixLength))
 
-            // Check for stream end
             if data == SSE.done {
                 break
             }
 
             guard let jsonData = data.data(using: .utf8) else { continue }
 
-            // Parse streaming event
             guard let event = try? JSONDecoder().decode(ResponsesStreamEvent.self, from: jsonData) else {
                 continue
             }
 
             switch event.type {
-            // Text content events
             case "response.text.delta", "response.output_text.delta":
                 if let delta = event.delta {
                     accumulatedContent += delta
                     continuation.yield(.contentDelta(delta))
                 }
 
-            // Refusal events
             case "response.refusal.delta":
                 if let delta = event.delta {
                     accumulatedRefusal += delta
                 }
 
-            // Function call argument events - uses item_id to reference the tool call
             case "response.function_call_arguments.delta":
                 if let delta = event.delta {
-                    // Look up call_id from item_id
                     let itemId = event.item_id ?? event.item?.id
                     if let itemId = itemId, let callId = itemIdToCallId[itemId] {
                         var existing = accumulatedToolCalls[callId] ?? (name: "", arguments: "")
@@ -875,7 +441,6 @@ public struct OpenAIModel: Model, Sendable {
                     }
                 }
 
-            // Output item added - capture the item_id -> call_id mapping
             case "response.output_item.added":
                 if let item = event.item, item.type == ResponsesOutputType.functionCall {
                     if let itemId = item.id, let callId = item.call_id, let name = item.name {
@@ -910,7 +475,6 @@ public struct OpenAIModel: Model, Sendable {
             }
         }
 
-        // Build final response with content blocks
         var contentBlocks: [AssistantContentBlock] = []
         if !accumulatedContent.isEmpty {
             contentBlocks.append(.text(accumulatedContent))
@@ -919,7 +483,6 @@ public struct OpenAIModel: Model, Sendable {
             contentBlocks.append(.toolUse(ToolCall(id: callId, name: data.name, arguments: data.arguments)))
         }
 
-        // Determine stop reason from response status and incomplete_details
         let stopReason: StopReason
         if !accumulatedToolCalls.isEmpty {
             stopReason = .toolUse
@@ -953,49 +516,42 @@ public struct OpenAIModel: Model, Sendable {
 
     // MARK: - Capabilities
 
+    /// Determine max tokens parameter style for a given model name.
+    private static func maxTokensParam(for modelName: String) -> MaxTokensParam {
+        if modelName.hasPrefix("gpt-5") ||
+           modelName.hasPrefix("o3") ||
+           modelName.hasPrefix("o1") ||
+           modelName.hasPrefix("gpt-4.1") {
+            return .completionTokens
+        }
+        return .legacy
+    }
+
     private static func capabilities(for modelName: String) -> ModelCapabilities {
-        // GPT-5.x family - flagship models with full capabilities
-        // 400K context, 128K max output
         if modelName.hasPrefix("gpt-5") {
             return .gpt5
         }
-
-        // GPT-4.1 family - 1M context, 32K max output
         if modelName.hasPrefix("gpt-4.1") {
             return .gpt41
         }
-
-        // GPT-4o and GPT-4o-mini - 128K context, 16K max output
         if modelName.hasPrefix("gpt-4o") {
             return .gpt4o
         }
-
-        // GPT-4 Turbo - 128K context
         if modelName.hasPrefix("gpt-4-turbo") || modelName == "gpt-4-1106-preview" || modelName == "gpt-4-0125-preview" {
             return .gpt4Turbo
         }
-
-        // o4 family - 200K context, 100K max output
         if modelName.hasPrefix("o4") {
             return .o4
         }
-
-        // o3 family - 200K context, 100K max output (has tools and vision)
         if modelName.hasPrefix("o3") {
             return .o3
         }
-
-        // o1 family - 200K context, 100K max output (significant limitations)
         if modelName.hasPrefix("o1") {
             return .o1
         }
-
-        // GPT-4 base (older, less capable than turbo/o)
         if modelName.hasPrefix("gpt-4") {
             return .gpt4Turbo
         }
-
-        // GPT-3.5 Turbo - 16K context
         if modelName.hasPrefix("gpt-3.5") {
             return ModelCapabilities(
                 supportsTemperature: true,
@@ -1006,19 +562,7 @@ public struct OpenAIModel: Model, Sendable {
                 maxContextTokens: 16_385
             )
         }
-
         // Default to GPT-5 capabilities for unknown models
         return .gpt5
     }
-}
-
-// MARK: - Tool Call Accumulator
-
-/// Helper for accumulating streaming tool call data.
-private struct ToolCallAccumulator {
-    var id: String = ""
-    var name: String = ""
-    var arguments: String = ""
-    var started: Bool = false
-    var ended: Bool = false
 }
