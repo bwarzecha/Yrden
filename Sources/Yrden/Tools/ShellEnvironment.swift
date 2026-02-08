@@ -4,7 +4,7 @@
 /// the PATH is minimal (`/usr/bin:/bin:/usr/sbin:/sbin`). Tools installed
 /// via Homebrew, nvm, pyenv, cargo, etc. are unavailable.
 ///
-/// `captureUserEnvironment()` spawns the user's login shell once,
+/// `captureUserEnvironment()` spawns a non-interactive login shell once,
 /// captures its environment variables, and caches the result.
 
 import Foundation
@@ -13,8 +13,8 @@ public struct ShellEnvironment: Sendable {
     public let variables: [String: String]
     public let shellPath: String
 
-    /// Capture the user's interactive login shell environment.
-    /// Spawns `$SHELL -l -i -c "env"` once and parses the output.
+    /// Capture the user's login shell environment.
+    /// Spawns `$SHELL -l -c "env"` once and parses the output.
     public static func captureUserEnvironment() async throws -> ShellEnvironment {
         let shell = detectShellPath()
         let env = try await captureEnvironment(shellPath: shell)
@@ -64,25 +64,50 @@ public struct ShellEnvironment: Sendable {
 
     // MARK: - Environment Capture
 
-    private static func captureEnvironment(shellPath: String) async throws -> [String: String] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: shellPath)
-        process.arguments = ["-l", "-i", "-c", "env"]
+    static let captureTimeoutSeconds: TimeInterval = 5
 
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
+    static func captureEnvironment(shellPath: String) async throws -> [String: String] {
+        // All Process/Pipe calls are synchronous and blocking.
+        // Run them on a GCD thread to avoid blocking the Swift concurrency
+        // cooperative thread pool (which would starve other async work).
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: shellPath)
+                    process.arguments = ["-l", "-c", "env"]
+                    process.standardInput = FileHandle.nullDevice
+                    let stdout = Pipe()
+                    let stderr = Pipe()
+                    process.standardOutput = stdout
+                    process.standardError = stderr
 
-        try process.run()
-        process.waitUntilExit()
+                    try process.run()
 
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8) else {
-            throw ShellEnvironmentError.invalidOutput
+                    // Poll with timeout to avoid hanging on broken shell configs.
+                    let deadline = Date().addingTimeInterval(captureTimeoutSeconds)
+                    while process.isRunning && Date() < deadline {
+                        Thread.sleep(forTimeInterval: 0.05)
+                    }
+
+                    if process.isRunning {
+                        process.terminate()
+                        continuation.resume(throwing: ShellEnvironmentError.timeout)
+                        return
+                    }
+
+                    let data = stdout.fileHandleForReading.readDataToEndOfFile()
+                    guard let output = String(data: data, encoding: .utf8) else {
+                        continuation.resume(throwing: ShellEnvironmentError.invalidOutput)
+                        return
+                    }
+
+                    continuation.resume(returning: parseEnvironment(output))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
-
-        return parseEnvironment(output)
     }
 
     /// Parse `KEY=VALUE\n` output from `env`.
@@ -131,4 +156,5 @@ public struct ShellEnvironment: Sendable {
 
 public enum ShellEnvironmentError: Error, Sendable {
     case invalidOutput
+    case timeout
 }

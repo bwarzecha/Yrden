@@ -34,7 +34,7 @@ struct ShellEnvironmentTests {
         #expect(env.shellPath == "/bin/zsh")
     }
 
-    @Test("capture returns PATH with expected entries")
+    @Test("capture returns PATH with expected entries", .timeLimit(.minutes(1)))
     func captureReturnsPath() async throws {
         let env = try await ShellEnvironment.captureUserEnvironment()
         #expect(env.variables["PATH"] != nil)
@@ -73,5 +73,18 @@ struct ShellEnvironmentTests {
         #expect(result["A"] == "1")
         #expect(result["B"] == "2")
         #expect(result["C"] == "3")
+    }
+
+    @Test("capture times out on hanging shell", .timeLimit(.minutes(1)))
+    func captureTimesOut() async throws {
+        // Create a script that hangs forever (simulates broken shell config)
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("yrden-hang-\(UUID().uuidString).sh")
+        try "#!/bin/sh\nsleep 60\n".write(to: tmp, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmp.path)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        await #expect(throws: ShellEnvironmentError.timeout) {
+            try await ShellEnvironment.captureEnvironment(shellPath: tmp.path)
+        }
     }
 }
