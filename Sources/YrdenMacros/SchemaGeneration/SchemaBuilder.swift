@@ -12,7 +12,8 @@ struct SchemaBuilder {
     static func buildStructSchema(
         typeName: String,
         properties: [ParsedProperty],
-        description: String? = nil
+        description: String? = nil,
+        accessModifier: String? = nil
     ) -> String {
         let propertiesCode = buildPropertiesDict(properties)
         let requiredCode = buildRequiredArray(properties)
@@ -30,9 +31,10 @@ struct SchemaBuilder {
         schemaEntries.append("\"additionalProperties\": false")
 
         let schemaContent = schemaEntries.joined(separator: ",\n            ")
+        let prefix = accessModifier.map { $0 + " " } ?? ""
 
         return """
-        static var jsonSchema: JSONValue {
+        \(prefix)static var jsonSchema: JSONValue {
             [
                 \(schemaContent)
             ]
@@ -51,7 +53,8 @@ struct SchemaBuilder {
         typeName: String,
         rawType: String,
         cases: [(name: String, rawValue: String?)],
-        description: String? = nil
+        description: String? = nil,
+        accessModifier: String? = nil
     ) -> String {
         let jsonType = rawType == "Int" ? "integer" : "string"
 
@@ -98,9 +101,10 @@ struct SchemaBuilder {
         schemaEntries.append("\"enum\": \(enumValues)")
 
         let schemaContent = schemaEntries.joined(separator: ",\n            ")
+        let prefix = accessModifier.map { $0 + " " } ?? ""
 
         return """
-        static var jsonSchema: JSONValue {
+        \(prefix)static var jsonSchema: JSONValue {
             [
                 \(schemaContent)
             ]

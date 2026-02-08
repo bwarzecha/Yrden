@@ -1,10 +1,10 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 import PackageDescription
 import CompilerPluginSupport
 
 let package = Package(
     name: "Yrden",
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v15), .iOS(.v17)],
     products: [
         .library(name: "Yrden", targets: ["Yrden"]),
     ],
@@ -15,6 +15,8 @@ let package = Package(
         .package(url: "https://github.com/ml-explore/mlx-swift-lm/", from: "2.30.0"),
         .package(url: "https://github.com/huggingface/swift-jinja.git", from: "2.0.0"),
         .package(url: "https://github.com/huggingface/swift-transformers.git", from: "1.1.6"),
+        .package(url: "https://github.com/mattt/llama.swift", .upToNextMajor(from: "2.7964.0")),
+        .package(url: "https://github.com/swiftlang/swift-subprocess.git", from: "0.3.0"),
     ],
     targets: [
         .target(
@@ -24,6 +26,7 @@ let package = Package(
                 .product(name: "AWSBedrockRuntime", package: "aws-sdk-swift"),
                 .product(name: "AWSBedrock", package: "aws-sdk-swift"),
                 .product(name: "MCP", package: "swift-sdk"),
+                .product(name: "Subprocess", package: "swift-subprocess"),
             ]
         ),
         .macro(
@@ -92,6 +95,15 @@ let package = Package(
                 .product(name: "Tokenizers", package: "swift-transformers"),
             ],
             path: "Examples/MLXExploration"
+        ),
+        .executableTarget(
+            name: "GGMLExploration",
+            dependencies: [
+                .product(name: "LlamaSwift", package: "llama.swift"),
+                .product(name: "Jinja", package: "swift-jinja"),
+                .product(name: "Hub", package: "swift-transformers"),
+            ],
+            path: "Examples/GGMLExploration"
         ),
     ]
 )

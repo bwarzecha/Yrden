@@ -14,6 +14,9 @@ public struct SchemaMacro: MemberMacro, ExtensionMacro {
         // Parse description from @Schema(description: "...")
         let schemaDescription = extractDescription(from: node)
 
+        // Detect access modifier
+        let accessModifier = Self.extractAccessModifier(from: declaration)
+
         // Handle struct declarations
         if let structDecl = declaration.as(StructDeclSyntax.self) {
             let typeName = structDecl.name.text
@@ -21,7 +24,8 @@ public struct SchemaMacro: MemberMacro, ExtensionMacro {
             let schemaCode = SchemaBuilder.buildStructSchema(
                 typeName: typeName,
                 properties: properties,
-                description: schemaDescription
+                description: schemaDescription,
+                accessModifier: accessModifier
             )
 
             return [DeclSyntax(stringLiteral: schemaCode)]
@@ -47,7 +51,8 @@ public struct SchemaMacro: MemberMacro, ExtensionMacro {
                 typeName: typeName,
                 rawType: rawType,
                 cases: cases,
-                description: schemaDescription
+                description: schemaDescription,
+                accessModifier: accessModifier
             )
 
             return [DeclSyntax(stringLiteral: schemaCode)]
@@ -86,6 +91,19 @@ public struct SchemaMacro: MemberMacro, ExtensionMacro {
             }
         }
 
+        return nil
+    }
+
+    // MARK: - Access Modifier
+
+    /// Returns "public" if the declaration is public, nil otherwise.
+    /// Only `public` needs propagation to satisfy protocol requirements.
+    private static func extractAccessModifier(from declaration: some DeclGroupSyntax) -> String? {
+        for modifier in declaration.modifiers {
+            if modifier.name.tokenKind == .keyword(.public) {
+                return "public"
+            }
+        }
         return nil
     }
 
