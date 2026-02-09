@@ -32,8 +32,10 @@ DerivedData/
 # Build artifacts
 build/
 
-# Claude Code local settings
-.claude/
+# Claude Code local settings (sessions, plans, etc.)
+.claude/*
+# Track skills — shared project automation
+!.claude/skills/
 
 # Environment secrets
 .env

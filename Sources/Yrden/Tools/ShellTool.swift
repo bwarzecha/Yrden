@@ -39,7 +39,11 @@ public struct ShellTool: TypedTool {
     public let name = "shell"
 
     public var description: String {
-        "Execute a shell command and return its output. The user's full shell environment is available (Homebrew, nvm, pyenv, etc.). Working directory starts at \(initialWorkingDirectory) and persists between calls — if you cd, subsequent calls start from the new directory. Prefer absolute paths over cd. Output is truncated to \(maxOutputLength) characters; when truncated, full output is saved to a file whose path is shown."
+        var desc = "Execute a shell command and return its output. The user's full shell environment is available (Homebrew, nvm, pyenv, etc.). Working directory starts at \(initialWorkingDirectory) and persists between calls — if you cd, subsequent calls start from the new directory. Prefer absolute paths over cd. Output is truncated to \(maxOutputLength) characters; when truncated, full output is saved to a file whose path is shown."
+        if let info = environmentInfo {
+            desc += info.descriptionSuffix
+        }
+        return desc
     }
 
     public let initialWorkingDirectory: String
@@ -51,6 +55,7 @@ public struct ShellTool: TypedTool {
     public let pathValidator: PathValidator
     public var requiresApproval: Bool
     public let backgroundTaskRegistry: BackgroundTaskRegistry?
+    public let environmentInfo: EnvironmentInfo?
 
     private let state: ShellToolState
 
@@ -63,7 +68,8 @@ public struct ShellTool: TypedTool {
         defaultTimeout: Duration = .seconds(120),
         maxTimeout: Duration = .seconds(600),
         backgroundTaskRegistry: BackgroundTaskRegistry? = nil,
-        requiresApproval: Bool = true
+        requiresApproval: Bool = true,
+        environmentInfo: EnvironmentInfo? = nil
     ) {
         self.environment = environment
         self.pathValidator = pathValidator
@@ -75,6 +81,7 @@ public struct ShellTool: TypedTool {
         self.maxTimeout = maxTimeout
         self.backgroundTaskRegistry = backgroundTaskRegistry
         self.requiresApproval = requiresApproval
+        self.environmentInfo = environmentInfo
         self.state = ShellToolState(workingDirectory: workingDirectory)
     }
 

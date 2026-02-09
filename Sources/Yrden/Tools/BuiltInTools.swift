@@ -41,13 +41,25 @@ public struct BuiltInTools: Sendable {
         allowedWriteDirectories: [String]? = nil,
         deniedReadDirectories: [String]? = nil,
         environment: ShellEnvironment? = nil,
-        shellApprovalRequired: Bool = true
+        shellApprovalRequired: Bool = true,
+        discoverEnvironment: Bool = false
     ) async throws {
         let env: ShellEnvironment
         if let environment {
             env = environment
         } else {
             env = try await ShellEnvironment.captureUserEnvironment()
+        }
+
+        // Discover environment tools if requested (best-effort, never blocks)
+        let envInfo: EnvironmentInfo?
+        if discoverEnvironment {
+            envInfo = try? await EnvironmentInfo.discover(
+                shellPath: env.shellPath,
+                environment: env.variables
+            )
+        } else {
+            envInfo = nil
         }
 
         let writeDirs = allowedWriteDirectories ?? [workingDirectory]
@@ -67,7 +79,8 @@ public struct BuiltInTools: Sendable {
             pathValidator: validator,
             workingDirectory: workingDirectory,
             backgroundTaskRegistry: registry,
-            requiresApproval: shellApprovalRequired
+            requiresApproval: shellApprovalRequired,
+            environmentInfo: envInfo
         )
 
         self.readFile = ReadFileTool(pathValidator: validator)
