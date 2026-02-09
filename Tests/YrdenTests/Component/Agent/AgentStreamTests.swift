@@ -106,7 +106,7 @@ struct AgentStreamTests {
                 toolEnds.append(id)
             case .toolResult(let id, let result):
                 toolResults.append((id: id, result: result))
-            case .backgroundTaskCompleted:
+            case .modelRequest, .backgroundTaskCompleted:
                 break
             case .finished(let run):
                 finishedRun = run

@@ -89,7 +89,7 @@ public final class BeforeModelContext<Output: SchemaType>: @unchecked Sendable {
             let task = Task {
                 do {
                     // Build request from current state
-                    let request = await buildCompletionRequest()
+                    let request = await completionRequest()
 
                     // Stream from model
                     let model = await agent.model
@@ -135,8 +135,13 @@ public final class BeforeModelContext<Output: SchemaType>: @unchecked Sendable {
         }
     }
 
-    /// Build the completion request from current state.
-    private func buildCompletionRequest() async -> CompletionRequest {
+    /// Build the completion request that would be sent to the model right now.
+    ///
+    /// Returns a snapshot of the request based on the current `state`. This does
+    /// **not** send anything — it assembles and returns the `CompletionRequest`
+    /// for inspection. If you modify `state.messages` after calling this, the
+    /// actual model call will use the updated messages (this does not freeze them).
+    public func completionRequest() async -> CompletionRequest {
         // Build new array with append instead of copy + insert to avoid COW copy
         var requestMessages: [Message] = []
         requestMessages.reserveCapacity(state.messages.count + 1)

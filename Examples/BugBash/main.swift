@@ -430,10 +430,16 @@ func checkPostconditions(
 
 // MARK: - Trace Saving
 
-func saveTrace(_ run: AgentRun<String>, to path: String) throws {
+struct BugBashTrace: Codable {
+    let requests: [CompletionRequest]
+    let run: AgentRun<String>
+}
+
+func saveTrace(_ run: AgentRun<String>, requests: [CompletionRequest], to path: String) throws {
+    let trace = BugBashTrace(requests: requests, run: run)
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    let data = try encoder.encode(run)
+    let data = try encoder.encode(trace)
     try data.write(to: URL(fileURLWithPath: path))
 }
 
@@ -525,7 +531,8 @@ do {
                 workingDirectory: dir,
                 allowedWriteDirectories: [dir],
                 environment: .inherited(),
-                shellApprovalRequired: false
+                shellApprovalRequired: false,
+                discoverEnvironment: true
             )
 
             // Apply denied_commands filter to shell tool if configured
@@ -557,6 +564,7 @@ do {
             defer { progress.close() }
 
             var run: AgentRun<String>!
+            var modelRequests: [CompletionRequest] = []
             var toolsInProgress = 0
             var currentIteration = 0
             var iterationToolCalls: [String] = []
@@ -575,6 +583,9 @@ do {
 
             for try await event in agent.runStream(scenario.task) {
                 switch event {
+                case .modelRequest(let request):
+                    modelRequests.append(request)
+
                 case .contentDelta(let text, let kind):
                     if waitingForModel {
                         let waitDur = Date().timeIntervalSince(modelWaitStart)
@@ -704,7 +715,7 @@ do {
             let duration = Date().timeIntervalSince(start)
 
             // Save full trace
-            try saveTrace(run, to: tracePath)
+            try saveTrace(run, requests: modelRequests, to: tracePath)
 
             // Check postconditions
             let failures = checkPostconditions(scenario.postconditions, status: run.status, workingDir: dir)

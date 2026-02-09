@@ -161,18 +161,83 @@ struct AgentToolArgumentTests {
         #expect(calls.count == 0)
     }
 
-    @Test("wrong type for field sends error to model, tool never called")
-    func wrongTypeFieldNotDeliveredToTool() async throws {
-        let tool = ConfigurableTool.succeeding("should not appear", name: "test_tool")
+    @Test("number coerced to string when schema expects string")
+    func numberCoercedToStringField() async throws {
+        let tool = ConfigurableTool.succeeding("tool succeeded", name: "test_tool")
 
         let counter = CallCounter()
         let model = FakeModel(onComplete: { request in
             switch await counter.increment() {
             case 1:
-                // input expects String, sending Int
+                // input expects String, sending Int — should be coerced to "123"
                 return MockResponse.toolCall(
                     name: "test_tool",
                     arguments: #"{"input":123}"#,
+                    id: "tc-1"
+                )
+            case 2:
+                #expect(try request.isToolResultSuccess(for: "tc-1"))
+                return MockResponse.text("Done")
+            default:
+                throw LLMError.serverError("Unexpected call")
+            }
+        })
+
+        let agent = try Agent<String>(
+            model: model,
+            systemPrompt: "You are helpful.",
+            tools: [tool]
+        )
+
+        let result = try await agent.run("Go")
+        #expect(result.output == "Done")
+    }
+
+    @Test("boolean coerced to string when schema expects string")
+    func booleanCoercedToStringField() async throws {
+        let tool = ConfigurableTool.succeeding("tool succeeded", name: "test_tool")
+
+        let counter = CallCounter()
+        let model = FakeModel(onComplete: { request in
+            switch await counter.increment() {
+            case 1:
+                return MockResponse.toolCall(
+                    name: "test_tool",
+                    arguments: #"{"input":true}"#,
+                    id: "tc-1"
+                )
+            case 2:
+                #expect(try request.isToolResultSuccess(for: "tc-1"))
+                return MockResponse.text("Done")
+            default:
+                throw LLMError.serverError("Unexpected call")
+            }
+        })
+
+        let agent = try Agent<String>(
+            model: model,
+            systemPrompt: "You are helpful.",
+            tools: [tool]
+        )
+
+        let result = try await agent.run("Go")
+        #expect(result.output == "Done")
+    }
+
+    @Test("wrong type that cannot be coerced sends error to model")
+    func nonCoercibleTypeSendsError() async throws {
+        let tool = FakeTool<MultiFieldArgs, String>(name: "multi_tool") { _ in
+            .success("should not run")
+        }
+
+        let counter = CallCounter()
+        let model = FakeModel(onComplete: { request in
+            switch await counter.increment() {
+            case 1:
+                // count expects Int, sending a non-numeric string — cannot coerce
+                return MockResponse.toolCall(
+                    name: "multi_tool",
+                    arguments: #"{"name":"test","count":"not_a_number","tags":[]}"#,
                     id: "tc-1"
                 )
             case 2:

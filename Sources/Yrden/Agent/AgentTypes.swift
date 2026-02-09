@@ -138,6 +138,11 @@ public enum EndStrategy: String, Sendable, Codable, Equatable, Hashable {
 /// }
 /// ```
 public enum AgentStreamEvent<Output: SchemaType>: Sendable {
+    /// The completion request about to be sent to the model.
+    /// Emitted before each model call. The request is read-only — it's a snapshot
+    /// of what will be sent, including messages, tool definitions, and config.
+    case modelRequest(CompletionRequest)
+
     /// Text content delta from the model.
     /// - Parameters:
     ///   - content: The text delta

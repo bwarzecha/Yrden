@@ -102,8 +102,15 @@ extension TypedTool {
         let args: Args
         do {
             args = try JSONDecoder().decode(Args.self, from: data)
-        } catch {
-            throw ToolExecutionError.argumentParsing(error.localizedDescription)
+        } catch let originalError {
+            // Try coercing argument types to match schema (e.g. number → string).
+            // Local models often send unquoted numbers for string fields.
+            if let coercedData = coerceArgumentTypes(data, schema: Args.jsonSchema),
+               let coercedArgs = try? JSONDecoder().decode(Args.self, from: coercedData) {
+                args = coercedArgs
+            } else {
+                throw ToolExecutionError.argumentParsing(originalError.localizedDescription)
+            }
         }
         let result = try await execute(context: context, arguments: args)
         return result.erased()
@@ -379,4 +386,50 @@ extension AnyToolResult: Codable {
             try container.encode(call, forKey: .deferred)
         }
     }
+}
+
+// MARK: - Argument Type Coercion
+
+/// Coerce JSON argument values to match schema-declared types.
+///
+/// Local models often send numbers or booleans for fields declared as `"type": "string"`.
+/// This walks the schema properties and converts mismatched primitives to strings.
+func coerceArgumentTypes(_ data: Data, schema: JSONValue) -> Data? {
+    guard let argsValue = try? JSONDecoder().decode(JSONValue.self, from: data),
+          case .object(var argsDict) = argsValue,
+          case .object(let schemaDict) = schema,
+          let propertiesValue = schemaDict["properties"],
+          case .object(let properties) = propertiesValue else {
+        return nil
+    }
+
+    var didCoerce = false
+
+    for (key, propSchema) in properties {
+        guard let value = argsDict[key],
+              case .object(let propDict) = propSchema,
+              let typeValue = propDict["type"],
+              case .string(let expectedType) = typeValue else {
+            continue
+        }
+
+        if expectedType == "string" {
+            switch value {
+            case .int(let n):
+                argsDict[key] = .string(String(n))
+                didCoerce = true
+            case .double(let d):
+                argsDict[key] = .string(String(d))
+                didCoerce = true
+            case .bool(let b):
+                argsDict[key] = .string(String(b))
+                didCoerce = true
+            default:
+                break
+            }
+        }
+    }
+
+    guard didCoerce else { return nil }
+    return try? JSONEncoder().encode(JSONValue.object(argsDict))
 }

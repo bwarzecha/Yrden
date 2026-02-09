@@ -555,6 +555,10 @@ public actor Agent<Output: SchemaType> {
                         }
                     }
 
+                    // Emit the request snapshot before streaming
+                    let request = await ctx.completionRequest()
+                    continuation.yield(.modelRequest(request))
+
                     // Stream model response
                     for try await event in ctx.stream() {
                         switch event {
