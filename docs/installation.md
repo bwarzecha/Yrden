@@ -13,7 +13,7 @@ Add Yrden as a dependency in your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/AmpersandHQ/Yrden.git", from: "0.1.0"),
+    .package(url: "https://github.com/bwarzecha/Yrden.git", from: "0.1.0"),
 ]
 ```
 

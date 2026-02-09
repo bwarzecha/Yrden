@@ -2,18 +2,17 @@
 
 A Swift library for building AI agents with type-safe structured outputs.
 
-> **Yrden** - A Witcher sign that creates a magical trap, binding entities within its bounds. Like the sign, this library *constrains* LLM outputs to Swift types.
+> **Yrden** -- A Witcher sign that creates a magical trap, binding entities within its bounds. Like the sign, this library *constrains* LLM outputs to Swift types.
 
 ## Features
 
-- **Type-safe structured outputs** - `@Schema` macro generates JSON Schema from Swift types
-- **Multi-provider support** - Anthropic, OpenAI, and AWS Bedrock with unified API
-- **Typed extraction API** - `generate()` and `generateWithTool()` return decoded Swift types directly
-- **Agent system** - Full agentic loop with `run()`, `runStream()`, and `iter()` execution modes
-- **MCP integration** - Model Context Protocol for dynamic tool discovery from external servers
-- **Streaming** - Full streaming support for both text and structured output
-- **Tool calling** - Define tools with typed arguments, retry logic, and timeouts
-- **Human-in-the-loop** - Deferred tool resolution with approval workflows
+- **Multi-provider support** -- Anthropic, OpenAI, AWS Bedrock, and local models (Ollama, LM Studio) with a unified API
+- **Type-safe structured outputs** -- `@Schema` macro generates JSON Schema from Swift types at compile time
+- **Agent system** -- Full agentic loop with `run()`, `runStream()`, and `iter()` execution modes
+- **Tool calling** -- Define tools with typed arguments, retry logic, timeouts, and human approval
+- **MCP integration** -- Model Context Protocol for dynamic tool discovery from external servers
+- **Streaming** -- Stream text deltas, tool call arguments, tool results, and usage updates as they happen
+- **Swift 6 concurrency** -- Actor-based agent, `Sendable` tools, structured concurrency throughout
 
 ## Quick Start
 
@@ -29,219 +28,156 @@ dependencies: [
 
 Then add `"Yrden"` to your target's dependencies.
 
-### Define Your Schema
+### Hello World
 
 ```swift
 import Yrden
 
-@Schema(description: "Extracted person information")
-struct PersonInfo {
-    @Guide(description: "The person's full name")
-    let name: String
-
-    @Guide(description: "Age in years", .range(0...150))
-    let age: Int
-
-    let occupation: String
-}
-```
-
-### Extract Structured Data
-
-```swift
-// OpenAI (native structured output)
-let openai = OpenAIModel(
-    name: "gpt-4o-mini",
-    provider: OpenAIProvider(apiKey: "sk-...")
-)
-
-let result = try await openai.generate(
-    "Dr. Sarah Chen is a 42-year-old neuroscientist.",
-    as: PersonInfo.self
-)
-
-print(result.data.name)       // "Dr. Sarah Chen"
-print(result.data.age)        // 42
-print(result.data.occupation) // "neuroscientist"
-print(result.usage.totalTokens)
-
-// Anthropic (tool-based extraction)
-let anthropic = AnthropicModel(
-    name: "claude-haiku-4-5",
-    provider: AnthropicProvider(apiKey: "sk-ant-...")
-)
-
-let result = try await anthropic.generateWithTool(
-    "Marcus is a 35-year-old architect.",
-    as: PersonInfo.self,
-    toolName: "extract_person"
-)
-```
-
-### Error Handling
-
-```swift
-do {
-    let result = try await model.generate(prompt, as: PersonInfo.self)
-} catch let error as StructuredOutputError {
-    switch error {
-    case .modelRefused(let reason):
-        print("Model refused: \(reason)")
-    case .decodingFailed(let json, let underlyingError):
-        print("Invalid JSON: \(json)")
-    case .incompleteResponse(let partial):
-        print("Response truncated: \(partial)")
-    case .emptyResponse:
-        print("No response from model")
-    default:
-        print("Error: \(error)")
-    }
-}
-```
-
-## @Schema Macro
-
-The `@Schema` macro generates JSON Schema from Swift types at compile time.
-
-### Supported Types
-
-| Swift Type | JSON Schema |
-|------------|-------------|
-| `String` | `{"type": "string"}` |
-| `Int` | `{"type": "integer"}` |
-| `Double` | `{"type": "number"}` |
-| `Bool` | `{"type": "boolean"}` |
-| `[T]` | `{"type": "array", "items": ...}` |
-| `T?` | Same type, omitted from `required` |
-| `@Schema struct` | Nested object |
-| `enum: String` | `{"type": "string", "enum": [...]}` |
-| `enum: Int` | `{"type": "integer", "enum": [...]}` |
-
-### @Guide Constraints
-
-```swift
-@Schema
-struct SearchQuery {
-    @Guide(description: "Search terms")
-    let query: String
-
-    @Guide(description: "Max results", .range(1...100))
-    let limit: Int
-
-    @Guide(description: "Confidence threshold", .rangeDouble(0.0...1.0))
-    let threshold: Double
-
-    @Guide(description: "Sort order", .options(["relevance", "date"]))
-    let sortBy: String
-
-    @Guide(description: "Tags to filter", .count(1...10))
-    let tags: [String]?
-}
-```
-
-Constraints are included in the schema description (e.g., "Must be between 1 and 100") since most LLM providers don't support JSON Schema validation keywords.
-
-## Providers
-
-### Anthropic
-
-```swift
 let provider = AnthropicProvider(apiKey: "sk-ant-...")
-let model = AnthropicModel(name: "claude-haiku-4-5", provider: provider)
+let model = AnthropicModel(name: "claude-sonnet-4-5-20250514", provider: provider)
 
-// Use generateWithTool() for structured output
-let result = try await model.generateWithTool(
-    prompt,
-    as: MySchema.self,
-    toolName: "extract"
-)
+let response = try await model.complete("Where does 'hello world' come from?")
+print(response.content ?? "")
 ```
 
-### OpenAI
+For OpenAI:
 
 ```swift
 let provider = OpenAIProvider(apiKey: "sk-...")
-let model = OpenAIModel(name: "gpt-4o-mini", provider: provider)
+let model = OpenAIModel(name: "gpt-4o", provider: provider)
 
-// Use generate() for native structured output
-let result = try await model.generate(prompt, as: MySchema.self)
+let response = try await model.complete("Where does 'hello world' come from?")
+print(response.content ?? "")
 ```
 
-## Examples
-
-Run the included examples:
-
-```bash
-# Schema generation (no API keys needed)
-swift run BasicSchema
-
-# Structured output with LLMs (requires API keys)
-export OPENAI_API_KEY=sk-...
-export ANTHROPIC_API_KEY=sk-ant-...
-swift run StructuredOutput
-```
-
-## Running Tests
-
-```bash
-# Unit tests (no API keys needed)
-swift test
-
-# Integration tests (requires API keys)
-export $(cat .env | grep -v '^#' | xargs) && swift test
-```
-
-## Agent System
-
-The Agent orchestrates tool use and produces typed output:
+For local models via Ollama or LM Studio:
 
 ```swift
-@Schema struct MathResult {
-    let expression: String
-    let result: Int
+let provider = LocalProvider(baseURL: URL(string: "http://localhost:11434/v1")!)
+let model = LocalModel(name: "llama3.2", provider: provider)
+
+let response = try await model.complete("Where does 'hello world' come from?")
+print(response.content ?? "")
+```
+
+## Structured Output
+
+The `@Schema` macro generates JSON Schema from Swift types at compile time. The `@Guide` macro adds descriptions and constraints.
+
+```swift
+import Yrden
+
+@Schema(description: "Support response to the customer")
+struct SupportResult {
+    @Guide(description: "Advice given to the customer")
+    let supportAdvice: String
+
+    @Guide(description: "Whether to block their card")
+    let blockCard: Bool
+
+    @Guide(description: "Risk level from 0 to 10", .range(0...10))
+    let risk: Int
+}
+```
+
+Supported types: `String`, `Int`, `Double`, `Bool`, `[T]`, `T?`, nested `@Schema` structs, and `enum: String` / `enum: Int`.
+
+Constraints (`.range()`, `.count()`, `.options()`, `.pattern()`) are embedded in schema descriptions since most providers don't support JSON Schema validation keywords directly.
+
+## Agent with Tools
+
+```swift
+@Schema
+struct BalanceArgs {
+    @Guide(description: "Whether to include pending transactions")
+    let includePending: Bool
 }
 
-struct CalculatorTool: AgentTool {
-    @Schema struct Args { let expression: String }
+struct CustomerBalance: TypedTool {
+    typealias Args = BalanceArgs
 
-    var name: String { "calculator" }
-    var description: String { "Evaluate a mathematical expression" }
+    var name: String { "customer_balance" }
+    var description: String { "Returns the customer's current account balance." }
 
-    func call(context: AgentContext<Void>, arguments: Args) async throws -> ToolResult<String> {
-        // ... evaluate expression ...
-        return .success(result)
+    func execute(
+        context: ToolContext,
+        arguments: BalanceArgs
+    ) async throws -> ToolResult<String> {
+        if arguments.includePending {
+            return .success("$123.45 (including $15.00 pending)")
+        }
+        return .success("$108.45")
     }
 }
 
-let agent = Agent<Void, MathResult>(
+let agent = try Agent<SupportResult>(
     model: model,
-    systemPrompt: "You are a math assistant.",
-    tools: [AnyAgentTool(CalculatorTool())],
-    maxIterations: 5
+    systemPrompt: """
+        You are a bank support agent. Be concise and helpful.
+        Assess risk level for each customer interaction.
+        """,
+    tools: [CustomerBalance()]
 )
 
-// Simple execution
-let result = try await agent.run("What is 5 + 3?", deps: ())
+let run = try await agent.run("What is my account balance?")
 
-// Streaming execution
-for try await event in agent.runStream("Analyze data", deps: ()) {
+switch run.status {
+case .completed(let result):
+    print(result.supportAdvice)  // "Your current balance is $108.45..."
+    print(result.blockCard)      // false
+    print(result.risk)           // 0
+case .needsApproval(let pending):
+    print("Tools need approval: \(pending.map(\.call.name))")
+case .iterationLimitReached(let limit):
+    print("Hit iteration limit: \(limit)")
+case .usageLimitReached(let limit):
+    print("Hit usage limit: \(limit)")
+}
+```
+
+## Streaming
+
+For real-time output, use `runStream()`:
+
+```swift
+for try await event in agent.runStream("What is my balance?") {
     switch event {
-    case .contentDelta(let text): print(text, terminator: "")
-    case .toolCallStart(let name, _): print("\n[Calling \(name)...]")
-    case .result(let result): print("\nFinal: \(result.output)")
-    default: break
+    case .contentDelta(let text, _):
+        print(text, terminator: "")
+    case .toolCallStart(_, let name):
+        print("\n[Calling \(name)...]")
+    case .toolResult(let id, let result):
+        print("[Result: \(result.prefix(50))...]")
+    case .finished(let run):
+        if case .completed(let output) = run.status {
+            print("\nRisk level: \(output.risk)")
+        }
+    default:
+        break
     }
 }
+```
 
-// Iterable execution for fine-grained control
-for try await node in agent.iter("Process request", deps: ()) {
+## Step-by-Step Control
+
+For full control over every phase, use `iter()`:
+
+```swift
+for try await node in agent.iter("Delete old backups") {
     switch node {
-    case .toolExecution(let calls):
-        // Inspect/approve tool calls before execution
-        for call in calls { print("About to execute: \(call.name)") }
-    case .end(let result):
-        print("Done: \(result.output)")
-    default: break
+    case .beforeModel(let ctx):
+        print("About to call model (step \(ctx.state.iteration))")
+    case .afterModel(let ctx):
+        print("Model responded")
+    case .beforeTools(let ctx):
+        for pending in ctx.pendingCalls {
+            print("Tool: \(pending.call.name)")
+            ctx.approve(pending.call)
+        }
+    case .afterTools(let ctx):
+        print("Tools executed, \(ctx.state.toolCallCount) total calls")
+    case .finished(let ctx):
+        print("Done: \(ctx.output)")
     }
 }
 ```
@@ -256,44 +192,54 @@ let server = try await MCPServerConnection.stdio(
     arguments: ["mcp-server-git", "--repository", "/path/to/repo"]
 )
 
-let mcpTools: [AnyAgentTool<Void>] = try await server.discoverTools()
+let mcpTools = try await server.tools()
 
-let agent = Agent<Void, String>(
+let agent = try Agent<String>(
     model: model,
-    tools: mcpTools,  // MCP tools work like any other tool
+    tools: mcpTools,
     systemPrompt: "You can use git commands."
 )
 ```
 
-## Status
+## Providers
 
-🔧 Active development - Core functionality complete, API stabilizing.
+| Provider | Setup | Structured Output |
+|----------|-------|-------------------|
+| **Anthropic** | `AnthropicProvider(apiKey:)` | Tool-based extraction |
+| **OpenAI** | `OpenAIProvider(apiKey:)` | Native `response_format` |
+| **AWS Bedrock** | `BedrockProvider(region:, profile:)` | Converse API |
+| **Local** (Ollama, LM Studio) | `LocalProvider(baseURL:)` | OpenAI-compatible |
 
-**Implemented:**
-- ✅ `@Schema` macro for structs and enums
-- ✅ `@Guide` macro for descriptions and constraints
-- ✅ Anthropic provider (tool-based structured output)
-- ✅ OpenAI provider (native structured output)
-- ✅ AWS Bedrock provider (Converse API)
-- ✅ Typed API (`generate()`, `generateWithTool()`)
-- ✅ Streaming support throughout
-- ✅ Comprehensive error handling
-- ✅ Agent system with `run()`, `runStream()`, `iter()` execution modes
-- ✅ Tool execution with retry policies and timeouts
-- ✅ Output validators with automatic retry
-- ✅ Human-in-the-loop (deferred tool resolution)
-- ✅ MCP integration for dynamic tool discovery
-- ✅ 580+ tests across all components
+## Documentation
 
-**In Progress:**
-- API polish and documentation
-- Additional MCP server support
-- Example application
+Full documentation is available in the [docs/](docs/) directory:
 
-**Planned:**
-- Skills system (Anthropic-style reusable capabilities)
-- Multi-agent handoffs
-- Additional providers (OpenRouter, local models)
+- [Getting Started](docs/index.md) -- Overview, Hello World, bank support example
+- [Agents](docs/agents.md) -- Execution modes, lifecycle, usage limits, validators
+- [Models & Providers](docs/models.md) -- Provider setup, capabilities, streaming
+- [Tools](docs/tools.md) -- TypedTool protocol, approval, retries, built-in tools
+- [Structured Output](docs/output.md) -- `@Schema`, `@Guide`, validation
+- [Streaming](docs/streaming.md) -- StreamEvent types, agent streaming
+- [MCP](docs/mcp.md) -- Connections, OAuth, dynamic tool discovery
+- [Human-in-the-Loop](docs/human-in-the-loop.md) -- Approval workflows, pause/resume
+- [Testing](docs/testing.md) -- FakeModel, testing agents and tools
+
+An LLM-friendly version is available at [docs/llms.txt](docs/llms.txt).
+
+## Examples
+
+```bash
+# Schema generation (no API keys needed)
+swift run BasicSchema
+
+# Structured output with LLMs (requires API keys)
+export OPENAI_API_KEY=sk-...
+export ANTHROPIC_API_KEY=sk-ant-...
+swift run StructuredOutput
+
+# Full agent CLI
+swift run AgentCLI
+```
 
 ## License
 

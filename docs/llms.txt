@@ -13,7 +13,8 @@
 - [Streaming](streaming.md): StreamEvent, AgentStreamEvent, model/agent level streaming, resume streaming, thinking
 - [Messages & Chat History](messages.md): Message enum, ContentPart, AssistantContentBlock, ThinkingBlock, chat history, serialization
 - [MCP Integration](mcp.md): Connections, coordinator, manager, OAuth, transports, events
-- [Built-in Tools](built-in-tools.md): ShellTool, ReadFileTool, WriteFileTool, PathValidator, OutputTruncation
+- [Context Management](context-management.md): Long-running tasks, context limits, message history management
+- [Built-in Tools](built-in-tools.md): ShellTool, ReadFileTool, WriteFileTool, EditFileTool, GlobTool, GrepTool, PathValidator, OutputTruncation
 - [Human-in-the-Loop](human-in-the-loop.md): Tool approval, iteration limits, usage limits, combining patterns, serialization
 - [Error Handling](error-handling.md): LLMError, AgentError, ToolExecutionError, StructuredOutputError, retry
 - [Testing](testing.md): Test architecture, FakeModel, testing tools/agents/structured output, cross-provider tests

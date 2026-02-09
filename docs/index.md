@@ -210,10 +210,11 @@ The Yrden documentation is available in an LLM-friendly format following the [`l
 - [Agents](agents.md) -- Full agent configuration, execution modes, and lifecycle
 - [Models](models.md) -- Provider setup for Anthropic, OpenAI, Bedrock, and local models
 - [Tools](tools.md) -- Defining tools, typed arguments, approval, retries
-- [Structured Output](structured-output.md) -- `@Schema`, `@Guide`, and output validation
+- [Structured Output](output.md) -- `@Schema`, `@Guide`, and output validation
 - [Streaming](streaming.md) -- Streaming events, stream + structured output
 - [Context Management](context-management.md) -- Handling long-running tasks that approach context limits
 - [MCP](mcp.md) -- Connecting to MCP servers for dynamic tools
 - [Built-in Tools](built-in-tools.md) -- ShellTool, ReadFileTool, WriteFileTool
 - [Human-in-the-Loop](human-in-the-loop.md) -- Approval workflows, pause/resume
-- [Usage Limits](usage-limits.md) -- Token, request, and tool call limits
+- [Error Handling](error-handling.md) -- LLMError, AgentError, StructuredOutputError, retry
+- [Testing](testing.md) -- Test architecture, FakeModel, cross-provider tests

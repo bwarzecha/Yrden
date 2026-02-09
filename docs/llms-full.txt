@@ -210,12 +210,14 @@ The Yrden documentation is available in an LLM-friendly format following the [`l
 - [Agents](agents.md) -- Full agent configuration, execution modes, and lifecycle
 - [Models](models.md) -- Provider setup for Anthropic, OpenAI, Bedrock, and local models
 - [Tools](tools.md) -- Defining tools, typed arguments, approval, retries
-- [Structured Output](structured-output.md) -- `@Schema`, `@Guide`, and output validation
+- [Structured Output](output.md) -- `@Schema`, `@Guide`, and output validation
 - [Streaming](streaming.md) -- Streaming events, stream + structured output
+- [Context Management](context-management.md) -- Handling long-running tasks that approach context limits
 - [MCP](mcp.md) -- Connecting to MCP servers for dynamic tools
 - [Built-in Tools](built-in-tools.md) -- ShellTool, ReadFileTool, WriteFileTool
 - [Human-in-the-Loop](human-in-the-loop.md) -- Approval workflows, pause/resume
-- [Usage Limits](usage-limits.md) -- Token, request, and tool call limits
+- [Error Handling](error-handling.md) -- LLMError, AgentError, StructuredOutputError, retry
+- [Testing](testing.md) -- Test architecture, FakeModel, cross-provider tests
 # Installation
 
 Yrden is distributed as a Swift package via Swift Package Manager.
@@ -231,7 +233,7 @@ Add Yrden as a dependency in your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/AmpersandHQ/Yrden.git", from: "0.1.0"),
+    .package(url: "https://github.com/bwarzecha/Yrden.git", from: "0.1.0"),
 ]
 ```
 
@@ -3650,6 +3652,855 @@ let continued = try await agent.run("New question", messageHistory: messages)
 ```
 
 `AgentRun` and `IterationState` are also `Codable` when `Output` is `Codable`, so you can persist the entire run state including output, usage, and iteration count.
+# Context Management
+
+Long-running agent tasks can exceed the model's context window. Yrden does not build context management into the library -- instead, the `iter()` API gives you mutable access to `state.messages` at the `beforeModel` phase, letting you implement context management at the application level.
+
+This document describes a proven three-layer approach used in the [AgentCLI example](../Examples/AgentCLI/).
+
+## The Problem
+
+When an agent loop runs for many iterations (reading files, calling tools, accumulating results), the conversation history grows until it exceeds the model's context window. Without management, the API returns `maxTokensReached` and the run fails.
+
+For example, a task like "explore ~/dev and describe every project" might accumulate hundreds of tool results across 20+ iterations, easily reaching 200K+ tokens.
+
+## Architecture
+
+Three layers run inside the `.beforeModel` handler, applied in order:
+
+```
+.beforeModel handler
+  |
+  +-- [Layer 1] Truncate old tool results     // if context > 50%
+  |     Keep last 3 tool results full, truncate older ones
+  |
+  +-- [Layer 3] LLM compaction                // if context > 80%
+  |     Side API call to summarize old conversation turns
+  |
+  +-- [Layer 2] Context pressure hints        // always checked
+  |     Insert system message telling the LLM to be efficient/wrap up
+  |
+  +-- ctx.stream()                            // proceed with model call
+```
+
+All three layers modify `ctx.state.messages` directly. No library hooks or configuration needed.
+
+## Using iter() for Context Management
+
+The key insight: `BeforeModelContext` gives you mutable access to `state.messages` before each model call. This is the only hook you need.
+
+```swift
+let model = AnthropicModel(name: "claude-sonnet-4-5-20250929", provider: provider)
+let maxContext = model.capabilities.maxContextTokens  // e.g., 200_000
+
+let agent = try Agent<String>(
+    model: model,
+    systemPrompt: "You are a coding agent.",
+    tools: tools.all,
+    maxIterations: 50
+)
+
+for try await node in agent.iter("Explore ~/dev and describe each project") {
+    switch node {
+    case .beforeModel(let ctx):
+        // Apply context management before each model call
+        if let max = maxContext {
+            await ContextManagement.apply(
+                to: &ctx.state.messages,
+                maxContextTokens: max,
+                model: model
+            )
+        }
+
+        // Stream the response
+        for try await event in ctx.stream() {
+            if case .contentDelta(let text, _) = event {
+                print(text, terminator: "")
+            }
+        }
+
+    case .beforeTools(let ctx):
+        for try await event in ctx.stream() {
+            // observe tool execution
+        }
+
+    case .afterTools(let ctx):
+        // Monitor context usage per iteration
+        let estimated = TokenEstimator.estimate(ctx.state.messages)
+        if let max = maxContext {
+            let pct = Double(estimated) / Double(max) * 100
+            print("[context: ~\(String(format: "%.0f", pct))%]")
+        }
+
+    case .finished(let ctx):
+        print("Done! Tokens: \(ctx.usage.totalTokens)")
+
+    case .afterModel:
+        break
+    }
+}
+```
+
+## Layer 1: Tool Result Truncation
+
+The biggest source of context growth is tool results -- file contents, shell output, search results. Most of these are only relevant for the iteration they were produced in. Older results can be truncated without losing important information.
+
+**Strategy:** Walk messages from the end. Keep the 3 most recent tool results intact. Truncate older ones to ~200 characters using a head+tail strategy (keep the beginning and end, cut the middle).
+
+```swift
+static func truncateOldToolResults(
+    messages: inout [Message],
+    preserveRecentCount: Int = 3
+) {
+    var toolResultCount = 0
+    let maxLength = 200
+
+    for i in stride(from: messages.count - 1, through: 0, by: -1) {
+        switch messages[i] {
+        case .toolResult(let id, let content):
+            toolResultCount += 1
+            if toolResultCount > preserveRecentCount && content.count > maxLength {
+                messages[i] = .toolResult(
+                    toolCallId: id,
+                    content: OutputTruncation.truncate(content, maxLength: maxLength)
+                )
+            }
+
+        case .toolResults(let entries):
+            toolResultCount += 1
+            if toolResultCount > preserveRecentCount {
+                let truncated = entries.map { entry in
+                    // Truncate each entry's text output
+                    truncateEntry(entry, maxLength: maxLength)
+                }
+                messages[i] = .toolResults(truncated)
+            }
+
+        default:
+            break
+        }
+    }
+}
+```
+
+**When to trigger:** Context usage > 50%. At this point, older tool results are unlikely to be referenced again.
+
+Yrden provides `OutputTruncation.truncate(_:maxLength:)` which uses a 60% head / 40% tail strategy -- the same utility used by built-in tools.
+
+## Layer 2: Context Pressure Hints
+
+As context fills up, inject system messages telling the LLM to change its behavior:
+
+| Context Usage | Hint |
+|--------------|------|
+| < 50% | None |
+| 50-74% | "Be efficient -- avoid reading files you've already seen." |
+| 75-89% | "Start producing your final output now. Do not start new explorations." |
+| 90%+ | "URGENT: You MUST finish immediately. Write your final answer now." |
+
+```swift
+static func contextPressureHint(
+    estimatedTokens: Int,
+    maxContextTokens: Int
+) -> String? {
+    let ratio = Double(estimatedTokens) / Double(maxContextTokens)
+
+    if ratio >= 0.90 {
+        return "URGENT: Context is nearly full. You MUST finish immediately."
+    } else if ratio >= 0.75 {
+        return "Important: Context is 75%+ full. Start producing your final output now."
+    } else if ratio >= 0.50 {
+        return "Note: You have used over half your context window. Be efficient."
+    }
+
+    return nil
+}
+```
+
+Insert the hint as a system message directly into `state.messages`:
+
+```swift
+if let hint = contextPressureHint(estimatedTokens: estimate, maxContextTokens: max) {
+    messages.append(.system(hint))
+}
+```
+
+## Layer 3: LLM Compaction
+
+When truncation is not enough (context still > 80%), summarize old conversation turns via a side LLM call.
+
+**Strategy:**
+1. Split messages into three segments: first user message, middle (to summarize), recent (last 4 messages)
+2. Build a transcript of the middle section
+3. Call `model.complete()` with a summarization prompt
+4. Replace everything with: enriched first message + summary + recent messages
+
+```swift
+static func compactMessages(
+    messages: inout [Message],
+    model: any Model,
+    preserveRecentTurns: Int = 4
+) async throws {
+    guard messages.count > preserveRecentTurns + 2 else { return }
+
+    let splitPoint = max(1, messages.count - preserveRecentTurns)
+    let middleMessages = Array(messages[1..<splitPoint])
+
+    // Build transcript and summarize via side LLM call
+    let transcript = buildTranscript(from: middleMessages)
+    let summaryRequest = CompletionRequest(
+        messages: [
+            .system("Summarize the following conversation. Preserve key facts and decisions."),
+            .user(transcript),
+        ]
+    )
+    let response = try await model.complete(summaryRequest)
+    let summary = response.content ?? "[Summary unavailable]"
+
+    // Reconstruct: original task + summary + recent messages
+    let originalPrompt = extractUserText(from: messages[0])
+    var newMessages: [Message] = []
+    newMessages.append(.user(
+        "[Original task]\n\(originalPrompt)\n\n[Summary of earlier conversation]\n\(summary)"
+    ))
+    newMessages.append(contentsOf: messages[splitPoint...])
+    messages = newMessages
+}
+```
+
+**Trade-offs:**
+- Extra API call costs time and tokens
+- Summary may lose details the LLM needs later
+- Uses the same model (could use a cheaper one in production)
+
+## Token Estimation
+
+For threshold decisions (50%, 75%, 90%), exact token counts are unnecessary. A simple character-based heuristic works:
+
+```swift
+enum TokenEstimator {
+    static func estimate(_ messages: [Message]) -> Int {
+        messages.reduce(0) { $0 + estimate($1) }
+    }
+
+    static func estimate(_ message: Message) -> Int {
+        let overhead = 4  // per-message role/formatting overhead
+        switch message {
+        case .system(let text):
+            return overhead + text.count / 4
+        case .user(let parts):
+            let chars = parts.reduce(0) { sum, part in
+                switch part {
+                case .text(let t): return sum + t.count
+                case .image: return sum + 4000
+                }
+            }
+            return overhead + chars / 4
+        // ... similar for .assistant, .toolResult, .toolResults
+        }
+    }
+}
+```
+
+The ~4 chars/token ratio is roughly correct for English text. It's ~20% inaccurate but sufficient for threshold-based decisions.
+
+## Real-World Results
+
+Tested with AgentCLI on progressively harder tasks:
+
+| Task | Iterations | Tool Calls | Peak Context | Outcome |
+|------|-----------|------------|-------------|---------|
+| Read all Agent/ source files | 6 | 17 | 26% | Completed |
+| Full code review of Sources/Yrden/ | 18 | 40 | 53% | Truncation triggered |
+| Explore ~/dev (97 projects) | 24 | 24 | 29% | Completed |
+
+All tasks completed successfully without hitting context limits. The truncation layer activated at 50% and kept context manageable. Compaction (Layer 3) was not needed for these tasks.
+
+## Why Application-Level, Not Library-Level
+
+Context management is **application-specific**:
+- What to truncate depends on your tools and their output
+- Pressure hint wording depends on your use case
+- Compaction strategy depends on what information matters
+- Some applications may want different thresholds or no compaction at all
+
+The `iter()` API provides everything you need via `ctx.state.messages`. No library hooks, configuration structs, or special APIs required. Your application owns the policy; the library provides the mechanism.
+
+## See Also
+
+- [Agents -- Iteration](agents.md#iteration) -- How `iter()` and `BeforeModelContext` work
+- [Agents -- Context Engineering](agents.md#context-engineering-beforemodel) -- Modifying messages before model calls
+- [Examples/AgentCLI/](../Examples/AgentCLI/) -- Complete working implementation
+# Built-in Tools
+
+Yrden ships with eight built-in tools for file system, search, and shell operations. These tools share a `PathValidator` for consistent security boundaries and integrate directly with the agent system via the `Tool` protocol.
+
+## Quick Start
+
+```swift
+let tools = try await BuiltInTools(workingDirectory: "/Users/alice/project")
+let agent = try Agent<String>(
+    model: model,
+    tools: tools.all,
+    backgroundTaskRegistry: tools.registry  // Enables background task notifications
+)
+let result = try await agent.run("Find and fix the bug in main.swift")
+```
+
+For read-only access (safe for untrusted prompts):
+
+```swift
+let safeAgent = try Agent<String>(model: model, tools: tools.readOnly)
+```
+
+---
+
+## BuiltInTools Factory
+
+The `BuiltInTools` struct creates all eight tools with shared configuration, a shared `PathValidator`, and a shared `BackgroundTaskRegistry`.
+
+```swift
+public struct BuiltInTools: Sendable {
+    public let shell: ShellTool
+    public let readFile: ReadFileTool
+    public let writeFile: WriteFileTool
+    public let editFile: EditFileTool
+    public let glob: GlobTool
+    public let grep: GrepTool
+    public let taskOutput: TaskOutputTool
+    public let taskStop: TaskStopTool
+    public let registry: BackgroundTaskRegistry
+
+    public var all: [any Tool]      // All 8 tools
+    public var core: [any Tool]     // 6 tools (no background task management)
+    public var readOnly: [any Tool] // 3 tools (read_file, glob, grep)
+}
+```
+
+### Tool Collections
+
+| Collection | Tools | Use Case |
+|------------|-------|----------|
+| `all` (8) | shell, read_file, write_file, edit_file, glob, grep, task_output, task_stop | Full agent capabilities |
+| `core` (6) | shell, read_file, write_file, edit_file, glob, grep | No background task management |
+| `readOnly` (3) | read_file, glob, grep | Safe for untrusted contexts |
+
+### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `workingDirectory` | `String` | (required) | Initial CWD for shell commands, default search directory for glob/grep |
+| `allowedWriteDirectories` | `[String]?` | `[workingDirectory]` | Directories where write_file and edit_file can operate |
+| `deniedReadDirectories` | `[String]?` | `["~/.ssh", "~/.aws", "~/.gnupg"]` | Directories blocked from reading |
+| `environment` | `ShellEnvironment?` | Auto-captured | Shell environment for command execution |
+| `shellApprovalRequired` | `Bool` | `true` | Whether shell requires human approval |
+
+### Shell Environment
+
+By default, `BuiltInTools` captures the user's interactive login shell environment using `ShellEnvironment.captureUserEnvironment()`. This spawns `$SHELL -l -i -c "env"` once and parses the output, ensuring tools like Homebrew, nvm, pyenv, and cargo are available even when launched from Xcode or Finder.
+
+```swift
+// Use the current process environment as-is (works from terminal)
+let env = ShellEnvironment.inherited()
+
+// Provide explicit environment
+let env = ShellEnvironment.explicit(
+    ["PATH": "/usr/bin:/bin", "HOME": "/Users/alice"],
+    shellPath: "/bin/zsh"
+)
+
+let tools = try await BuiltInTools(workingDirectory: "/tmp", environment: env)
+```
+
+---
+
+## ShellTool
+
+Executes shell commands with working directory tracking, output truncation, timeout enforcement, and background execution support.
+
+### Tool Definition
+
+- **Name:** `shell`
+- **Requires approval:** `true` (by default)
+
+```swift
+@Schema(description: "Execute a shell command")
+public struct ShellToolArgs {
+    @Guide(description: "Shell command to execute")
+    public let command: String
+
+    @Guide(description: "Working directory for the command")
+    public let workingDirectory: String?
+
+    @Guide(description: "Timeout in seconds (default: 120, max: 600)")
+    public let timeout: Int?
+
+    @Guide(description: "Run the command in the background and return immediately with a task ID")
+    public let runInBackground: Bool?
+
+    @Guide(description: "Description of what this background task does")
+    public let description: String?
+}
+```
+
+### Features
+
+**Working directory persistence:** The tool tracks the current working directory across calls. If a command changes directory (e.g., `cd /tmp`), subsequent commands will execute from `/tmp`. Background commands do not affect CWD tracking.
+
+**Output truncation:** Output exceeding `maxOutputLength` (default: 30,000 characters) is truncated using head+tail preservation (60% head, 40% tail). Full output is saved to a spillover file.
+
+**Timeout enforcement:** Commands are terminated after the timeout period (default: 120 seconds, max: 600 seconds). SIGTERM is sent first, followed by SIGKILL if the process does not exit.
+
+**Background execution:** When `run_in_background` is `true`, the command starts immediately and returns a task ID. Use `task_output` and `task_stop` to interact with the running task.
+
+**Process group kills:** All process termination uses `kill(-pgid, signal)` to kill the entire process group, preventing orphan child processes.
+
+### Example Output
+
+```
+[first 18,000 characters of output...]
+
+[...truncated 45000 of 93000 total characters...]
+
+[last 12,000 characters of output...]
+
+[Full output saved to: /tmp/yrden-shell-ABC123/shell-output-DEF456.txt]
+```
+
+---
+
+## ReadFileTool
+
+Reads file contents with line numbers, pagination, and three layers of protection against token waste.
+
+### Tool Definition
+
+- **Name:** `read_file`
+- **Requires approval:** `false`
+
+```swift
+@Schema(description: "Read a file's contents with optional line range")
+public struct ReadFileArgs {
+    @Guide(description: "Absolute path to the file")
+    public let path: String
+
+    @Guide(description: "Starting line number (1-based)")
+    public let offset: Int?
+
+    @Guide(description: "Maximum number of lines to read")
+    public let limit: Int?
+}
+```
+
+### Three-Layer Defense
+
+1. **Line count limit** (default: 500 lines) -- stops reading after the limit
+2. **Per-line character truncation** (default: 4,000 characters) -- truncates long lines with `[...+N chars]`
+3. **Total character cap** (default: 100,000 characters) -- head+tail truncation via `OutputTruncation`
+
+### Features
+
+**Binary detection:** Reads the first 8KB and checks for null bytes. Binary files are rejected.
+
+**Streaming line reads:** Uses Swift's `URL.lines` async sequence for memory-efficient reading.
+
+**Path validation:** Denied directories (e.g., `~/.ssh`) are blocked.
+
+---
+
+## WriteFileTool
+
+Writes content to files with atomic writes and size limits.
+
+### Tool Definition
+
+- **Name:** `write_file`
+- **Requires approval:** `false`
+
+```swift
+@Schema(description: "Write content to a file, creating it if it doesn't exist")
+public struct WriteFileArgs {
+    @Guide(description: "Absolute path to the file")
+    public let path: String
+
+    @Guide(description: "Content to write to the file")
+    public let content: String
+}
+```
+
+### Features
+
+**Atomic writes:** Files are written atomically to prevent partial writes.
+
+**Directory creation:** Parent directories are created automatically.
+
+**Size limit:** Maximum write size is 10 MB by default.
+
+**Path validation:** Only allowed write directories are permitted.
+
+---
+
+## EditFileTool
+
+Edits files by replacing exact string matches. Designed for LLM self-correction -- error messages tell the model exactly what went wrong.
+
+### Tool Definition
+
+- **Name:** `edit_file`
+- **Requires approval:** `false`
+
+```swift
+@Schema(description: "Edit a file by replacing exact string matches")
+public struct EditFileArgs {
+    @Guide(description: "Absolute path to the file to edit")
+    public let path: String
+
+    @Guide(description: "The exact text to find in the file")
+    public let oldString: String
+
+    @Guide(description: "The text to replace it with")
+    public let newString: String
+
+    @Guide(description: "Replace all occurrences (default: false, requires unique match)")
+    public let replaceAll: Bool
+}
+```
+
+### Features
+
+**Uniqueness enforcement:** When `replace_all` is `false`, the `old_string` must match exactly once. If it matches zero times, the error message says "not found". If it matches multiple times, the error reports the count, prompting the model to provide more context or use `replace_all`.
+
+**Atomic writes:** Edits are written atomically.
+
+**No line numbers needed:** Content-based matching means line number drift from prior edits doesn't cause failures.
+
+### Example Error Messages
+
+```
+No match found for old_string in /path/to/file.txt. Make sure the text matches exactly.
+
+Found 3 matches for old_string in /path/to/file.txt. Provide more context to make the match unique, or set replace_all to true.
+```
+
+---
+
+## GlobTool
+
+Finds files matching a glob pattern, sorted by modification time (newest first).
+
+### Tool Definition
+
+- **Name:** `glob`
+- **Requires approval:** `false`
+
+```swift
+@Schema(description: "Find files matching a glob pattern")
+public struct GlobToolArgs {
+    @Guide(description: "Glob pattern to match (e.g. '**/*.swift')")
+    public let pattern: String
+
+    @Guide(description: "Directory to search in (defaults to working directory)")
+    public let path: String?
+}
+```
+
+### Features
+
+**Glob patterns:** Supports `*`, `**`, `?`, `[abc]`, and `{a,b}` patterns.
+
+**Gitignore support:** Respects `.gitignore` files by default. Always excludes `.git/` and `.DS_Store`.
+
+**Modification time sorting:** Results are sorted newest-first, helping the model focus on recently changed files.
+
+**Result limit:** Caps output at `maxResults` (default: 1000) with a truncation message.
+
+---
+
+## GrepTool
+
+Searches file contents using [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`). Requires `rg` to be installed (`brew install ripgrep`).
+
+### Tool Definition
+
+- **Name:** `grep`
+- **Requires approval:** `false`
+
+```swift
+@Schema(description: "Search file contents using ripgrep")
+public struct GrepToolArgs {
+    @Guide(description: "The regex pattern to search for")
+    public let pattern: String
+
+    @Guide(description: "Directory to search in (defaults to working directory)")
+    public let path: String?
+
+    @Guide(description: "Glob pattern to filter files (e.g. '*.swift')")
+    public let glob: String?
+
+    @Guide(description: "Output mode: 'files', 'content', or 'count'")
+    public let outputMode: String?
+
+    @Guide(description: "Whether to search case-insensitively")
+    public let caseInsensitive: Bool?
+
+    @Guide(description: "Number of context lines around matches")
+    public let contextLines: Int?
+
+    @Guide(description: "Maximum number of results to return")
+    public let maxResults: Int?
+}
+```
+
+### Output Modes
+
+| Mode | Description | Example |
+|------|-------------|---------|
+| `files` (default) | File paths containing matches | `src/main.swift` |
+| `content` | Matching lines with file path and line number | `src/main.swift:10: func calculate()` |
+| `count` | Match count per file | `src/main.swift: 3` |
+
+### Features
+
+**Ripgrep-backed:** Uses `rg --json` for fast, reliable searching. Natively handles gitignore, binary file skipping, and glob filtering.
+
+**Path validation:** Search directory is validated against the `PathValidator`.
+
+**Output truncation:** Large results are truncated via `OutputTruncation`.
+
+---
+
+## Background Execution
+
+The shell tool supports running commands in the background. Background tasks are managed by a shared `BackgroundTaskRegistry` and can be monitored via `task_output` and stopped via `task_stop`.
+
+### TaskOutputTool
+
+- **Name:** `task_output`
+- **Requires approval:** `false`
+
+```swift
+@Schema(description: "Get output from a background task")
+public struct TaskOutputArgs {
+    @Guide(description: "The task ID returned by the shell tool")
+    public let taskId: String
+
+    @Guide(description: "Whether to wait for the task to complete")
+    public let block: Bool?
+
+    @Guide(description: "Maximum seconds to wait when blocking")
+    public let timeout: Int?
+}
+```
+
+### TaskStopTool
+
+- **Name:** `task_stop`
+- **Requires approval:** `false`
+
+```swift
+@Schema(description: "Stop a running background task")
+public struct TaskStopArgs {
+    @Guide(description: "The task ID to stop")
+    public let taskId: String
+}
+```
+
+### Background Task Workflow
+
+```
+1. Agent calls shell with run_in_background: true
+   → Returns task ID (e.g., "bg_1_a3f2c1d0")
+
+2. Agent calls task_output with block: false
+   → Returns current output + "running" status
+
+3. Agent calls task_output with block: true
+   → Waits for completion, returns full output + exit code
+
+4. (Optional) Agent calls task_stop to terminate early
+   → SIGTERM → wait → SIGKILL if needed
+```
+
+### Lifecycle and Cleanup
+
+Background tasks are owned by the `BackgroundTaskRegistry`, not by individual `run()` calls. This means:
+
+- **Tasks outlive `run()`:** A background task started during `agent.run()` continues running after the run completes. You can start another `run()` and the task will still be there.
+- **Registry deinit kills all:** When the registry (or `BuiltInTools`) goes out of scope, all running processes are killed immediately via `kill(-pgid, SIGKILL)`.
+- **Explicit cleanup:** Call `registry.cancelAll()` for graceful shutdown (SIGTERM, then SIGKILL).
+
+```swift
+let tools = try await BuiltInTools(workingDirectory: "/project")
+let agent = try Agent<String>(
+    model: model,
+    tools: tools.all,
+    backgroundTaskRegistry: tools.registry
+)
+
+let result = try await agent.run("Start the dev server")
+// Background tasks may still be running after run() returns
+
+// Option 1: Wait for all background tasks
+try await tools.registry.waitForAll(timeout: .seconds(30))
+
+// Option 2: Kill all background tasks
+await tools.registry.cancelAll()
+
+// Option 3: Let tools go out of scope (deinit kills everything)
+```
+
+### BackgroundTaskRegistry Public API
+
+```swift
+public final class BackgroundTaskRegistry: @unchecked Sendable {
+    /// Gracefully stop all running tasks (SIGTERM → wait → SIGKILL).
+    public func cancelAll() async
+
+    /// Stop a specific task.
+    public func stop(taskId: String) async throws
+
+    /// Wait for all tasks to complete, with optional timeout.
+    public func waitForAll(timeout: Duration? = nil) async throws
+
+    /// Poll for tasks completed since a given date.
+    public func completedSince(_ date: Date) async -> [TaskCompletion]
+
+    /// List currently running tasks.
+    public func activeTasks() async -> [TaskInfo]
+
+    /// Quick check if any tasks are still running.
+    public func hasRunningTasks() async -> Bool
+}
+```
+
+---
+
+## Agent Integration
+
+Pass `backgroundTaskRegistry` to `Agent.init()` to enable automatic background task completion notifications.
+
+### Notification Models
+
+| Mode | Notifications | Who Controls |
+|------|--------------|-------------|
+| `agent.run()` | Auto-injected as system messages between iterations | Library |
+| `agent.runStream()` | Emitted as `.backgroundTaskCompleted` stream events | Library |
+| `agent.iter()` | Customer calls `registry.completedSince()` manually | Customer |
+
+For `run()` and `runStream()`, the agent loop checks `registry.completedSince()` between iterations and automatically injects notifications. For `iter()`, the customer has full control and can poll the registry between iterations.
+
+```swift
+// run() mode: library handles everything
+let tools = try await BuiltInTools(workingDirectory: "/project")
+let agent = try Agent<String>(
+    model: model,
+    tools: tools.all,
+    backgroundTaskRegistry: tools.registry
+)
+let result = try await agent.run("Start a server and test it")
+
+// iter() mode: customer controls notifications
+let iterator = agent.iter("Start a server")
+var lastCheck = Date()
+for try await step in iterator {
+    // Check for background completions between iterations
+    let completions = await tools.registry.completedSince(lastCheck)
+    lastCheck = Date()
+    for completion in completions {
+        print("Task \(completion.taskId) finished (exit \(completion.exitCode))")
+    }
+}
+```
+
+---
+
+## PathValidator
+
+Shared security boundary for all tools. Resolves paths to absolute, resolves symlinks via `realpath(3)`, normalizes macOS aliases (`/var` to `/private/var`), then checks against allowed and denied directory lists.
+
+**Denied directories take priority over allowed directories.**
+
+```swift
+let validator = PathValidator(
+    allowedReadDirectories: ["/"],                            // Default: read anywhere
+    allowedWriteDirectories: ["/Users/alice/project"],        // Only write here
+    deniedReadDirectories: ["~/.ssh", "~/.aws", "~/.gnupg"]  // Block sensitive dirs
+)
+```
+
+### Path Resolution
+
+1. Tilde expansion (`~/.ssh` to `/Users/alice/.ssh`)
+2. URL normalization (resolves `.` and `..`)
+3. Symlink resolution via `realpath(3)` (if path exists)
+4. Ancestor resolution for non-existent paths (walks up to nearest existing ancestor, resolves it, appends remaining components)
+
+This prevents symlink-based escapes.
+
+---
+
+## OutputTruncation
+
+Utility for truncating large text outputs using a head+tail preservation strategy.
+
+When text exceeds the character budget:
+- 60% is kept from the head
+- 40% is kept from the tail
+- A marker shows how much was omitted
+- Splits at line boundaries when possible
+
+```swift
+let truncated = OutputTruncation.truncate(largeText, maxLength: 30_000)
+```
+
+---
+
+## Approval System
+
+The `ShellTool` requires human approval by default. This integrates with the agent's tool approval mechanism.
+
+```swift
+// Disable approval for automated pipelines
+let tools = try await BuiltInTools(
+    workingDirectory: "/project",
+    shellApprovalRequired: false
+)
+
+// Or wrap any tool to require approval
+let approvedReadTool = readFileTool.requireApproval()
+```
+
+---
+
+## Using Individual Tools
+
+While `BuiltInTools` is the recommended factory, you can create tools individually:
+
+```swift
+let validator = PathValidator(
+    allowedWriteDirectories: ["/Users/alice/project"],
+    deniedReadDirectories: ["~/.ssh", "~/.aws"]
+)
+let env = try await ShellEnvironment.captureUserEnvironment()
+let registry = BackgroundTaskRegistry()
+
+let shell = ShellTool(
+    environment: env,
+    pathValidator: validator,
+    workingDirectory: "/Users/alice/project",
+    backgroundTaskRegistry: registry,
+    requiresApproval: false
+)
+let reader = ReadFileTool(pathValidator: validator)
+let glob = GlobTool(pathValidator: validator, workingDirectory: "/Users/alice/project")
+
+// Mix built-in and custom tools
+let agent = try Agent<String>(
+    model: model,
+    tools: [shell, reader, glob, myCustomTool],
+    backgroundTaskRegistry: registry
+)
+```
 # MCP (Model Context Protocol) Integration
 
 Yrden provides full MCP integration, enabling agents to discover and use tools from external MCP servers. This includes local subprocess-based servers (stdio), remote HTTP/SSE servers, and servers requiring OAuth 2.0 authentication.
@@ -4371,376 +5222,6 @@ await manager.startAll()
 let agent = try Agent<String>(
     model: model,
     tools: manager.allTools()
-)
-```
-# Built-in Tools
-
-Yrden ships with three built-in tools for file system and shell operations: `ShellTool`, `ReadFileTool`, and `WriteFileTool`. These tools share a `PathValidator` for consistent security boundaries and integrate directly with the agent system via the `Tool` protocol.
-
-## Quick Start
-
-```swift
-let tools = try await BuiltInTools(
-    workingDirectory: "/Users/alice/project",
-    allowedWriteDirectories: ["/Users/alice/project"],
-    deniedReadDirectories: ["~/.ssh", "~/.aws", "~/.gnupg"],
-    shellApprovalRequired: true
-)
-
-let agent = try Agent<String>(model: model, tools: tools.all)
-let result = try await agent.run("List the Swift files in the project")
-```
-
----
-
-## BuiltInTools Factory
-
-The `BuiltInTools` struct creates all three tools with shared configuration and a shared `PathValidator`.
-
-```swift
-public struct BuiltInTools: Sendable {
-    public let shell: ShellTool
-    public let readFile: ReadFileTool
-    public let writeFile: WriteFileTool
-
-    public var all: [any Tool] { [shell, readFile, writeFile] }
-}
-```
-
-### Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `workingDirectory` | `String` | (required) | Initial CWD for shell commands and default write directory |
-| `allowedWriteDirectories` | `[String]?` | `[workingDirectory]` | Directories where `WriteFileTool` can write |
-| `deniedReadDirectories` | `[String]?` | `["~/.ssh", "~/.aws", "~/.gnupg"]` | Directories blocked from reading |
-| `environment` | `ShellEnvironment?` | Auto-captured | Shell environment for command execution |
-| `shellApprovalRequired` | `Bool` | `true` | Whether `ShellTool` requires human approval |
-
-### Shell Environment
-
-By default, `BuiltInTools` captures the user's interactive login shell environment using `ShellEnvironment.captureUserEnvironment()`. This spawns `$SHELL -l -i -c "env"` once and parses the output, ensuring tools like Homebrew, nvm, pyenv, and cargo are available even when launched from Xcode or Finder.
-
-You can override this behavior:
-
-```swift
-// Use the current process environment as-is (works from terminal)
-let env = ShellEnvironment.inherited()
-
-// Provide explicit environment
-let env = ShellEnvironment.explicit(
-    ["PATH": "/usr/bin:/bin", "HOME": "/Users/alice"],
-    shellPath: "/bin/zsh"
-)
-
-let tools = try await BuiltInTools(
-    workingDirectory: "/tmp",
-    environment: env
-)
-```
-
----
-
-## ShellTool
-
-Executes shell commands with working directory tracking, output truncation, and timeout enforcement.
-
-### Tool Definition
-
-- **Name:** `shell`
-- **Requires approval:** `true` (by default)
-- **Arguments:** `command` (required), `workingDirectory` (optional), `timeout` (optional)
-
-```swift
-@Schema(description: "Execute a shell command")
-public struct ShellToolArgs {
-    @Guide(description: "Shell command to execute")
-    public let command: String
-
-    @Guide(description: "Working directory for the command")
-    public let workingDirectory: String?
-
-    @Guide(description: "Timeout in seconds (default: 120, max: 600)")
-    public let timeout: Int?
-}
-```
-
-### Features
-
-**Working directory persistence:** The tool tracks the current working directory across calls using a sentinel marker (`__YRDEN_CWD__`) appended to each command. If a command changes directory (e.g., `cd /tmp`), subsequent commands will execute from `/tmp`.
-
-**Output truncation:** Output exceeding `maxOutputLength` (default: 30,000 characters) is truncated using head+tail preservation (60% head, 40% tail). Full output is saved to a spillover file whose path is included in the response.
-
-**Timeout enforcement:** Commands are terminated after the timeout period (default: 120 seconds, max: 600 seconds). SIGTERM is sent first, followed by SIGKILL if the process does not exit within 1 second.
-
-**Memory safety:** Pipe reads are capped at `2 * maxOutputLength` to prevent unbounded memory usage from runaway processes. Remaining data is drained without storing.
-
-**Path validation:** Requested working directories are validated against the `PathValidator` before execution.
-
-### Configuration
-
-```swift
-let shell = ShellTool(
-    environment: env,
-    pathValidator: validator,
-    workingDirectory: "/Users/alice/project",
-    maxOutputLength: 30_000,         // Character limit before truncation
-    spilloverDirectory: "/tmp/yrden", // Where full output is saved
-    defaultTimeout: .seconds(120),
-    maxTimeout: .seconds(600),
-    requiresApproval: true
-)
-```
-
-### Example Output
-
-For a command that produces large output:
-
-```
-[first 18,000 characters of output...]
-
-[...truncated 45000 of 93000 total characters...]
-
-[last 12,000 characters of output...]
-
-[Full output saved to: /tmp/yrden-shell-ABC123/shell-output-DEF456.txt]
-```
-
----
-
-## ReadFileTool
-
-Reads file contents with line numbers, pagination, and three layers of protection against token waste.
-
-### Tool Definition
-
-- **Name:** `read_file`
-- **Requires approval:** `false`
-- **Arguments:** `path` (required), `offset` (optional), `limit` (optional)
-
-```swift
-@Schema(description: "Read a file's contents with optional line range")
-public struct ReadFileArgs {
-    @Guide(description: "Absolute path to the file")
-    public let path: String
-
-    @Guide(description: "Starting line number (1-based)")
-    public let offset: Int?
-
-    @Guide(description: "Maximum number of lines to read")
-    public let limit: Int?
-}
-```
-
-### Three-Layer Defense
-
-1. **Line count limit** (default: 500 lines) -- stops reading after the limit, does not iterate the entire file
-2. **Per-line character truncation** (default: 4,000 characters) -- truncates individual long lines with a `[...+N chars]` suffix
-3. **Total character cap** (default: 100,000 characters) -- applies head+tail truncation via `OutputTruncation`
-
-### Features
-
-**Binary detection:** Reads the first 8KB and checks for null bytes. Binary files are rejected with an error message.
-
-**Streaming line reads:** Uses Swift's `URL.lines` async sequence for memory-efficient reading. Stops early after the line limit without reading the rest of the file.
-
-**Path validation:** Paths are validated against the `PathValidator` -- denied directories (e.g., `~/.ssh`) are blocked.
-
-### Configuration
-
-```swift
-let readFile = ReadFileTool(
-    pathValidator: validator,
-    totalCharacterLimit: 100_000,
-    perLineCharacterLimit: 4_000,
-    defaultLineLimit: 500
-)
-```
-
-### Example Output
-
-```
-[File: /Users/alice/project/main.swift | Lines 1-50 of 200 | 4.2 KB]
-1: import Foundation
-2: import Yrden
-3:
-4: @main
-5: struct App {
-...
-50:     }
-```
-
-For large files that exceed the line limit, the header indicates there are more lines:
-
-```
-[File: /Users/alice/project/data.json | Lines 1-500 of 500+ | 1.2 MB]
-```
-
----
-
-## WriteFileTool
-
-Writes content to files with atomic writes and size limits.
-
-### Tool Definition
-
-- **Name:** `write_file`
-- **Requires approval:** `false`
-- **Arguments:** `path` (required), `content` (required)
-
-```swift
-@Schema(description: "Write content to a file, creating it if it doesn't exist")
-public struct WriteFileArgs {
-    @Guide(description: "Absolute path to the file")
-    public let path: String
-
-    @Guide(description: "Content to write to the file")
-    public let content: String
-}
-```
-
-### Features
-
-**Atomic writes:** Files are written atomically to prevent partial writes on crash or interruption.
-
-**Directory creation:** Parent directories are created automatically if they do not exist.
-
-**Size limit:** Maximum write size is 10 MB by default, preventing accidental multi-GB writes from LLM output.
-
-**Path validation:** Paths are validated against the `PathValidator` -- only allowed write directories are permitted.
-
-### Configuration
-
-```swift
-let writeFile = WriteFileTool(
-    pathValidator: validator,
-    createDirectories: true,    // Auto-create parent directories
-    maxWriteSize: 10_000_000    // 10 MB limit
-)
-```
-
-### Example Output
-
-```
-Wrote 1234 bytes to /Users/alice/project/output.txt
-```
-
----
-
-## PathValidator
-
-Shared security boundary for all file tools. Resolves paths to absolute, resolves symlinks via `realpath(3)`, normalizes macOS aliases (`/var` to `/private/var`), then checks against allowed and denied directory lists.
-
-**Denied directories take priority over allowed directories.**
-
-```swift
-let validator = PathValidator(
-    allowedReadDirectories: ["/"],                            // Default: read anywhere
-    allowedWriteDirectories: ["/Users/alice/project"],        // Only write here
-    deniedReadDirectories: ["~/.ssh", "~/.aws", "~/.gnupg"]  // Block sensitive dirs
-)
-```
-
-### Path Resolution
-
-1. Tilde expansion (`~/.ssh` to `/Users/alice/.ssh`)
-2. URL normalization (resolves `.` and `..`)
-3. Symlink resolution via `realpath(3)` (if path exists)
-4. Ancestor resolution for non-existent paths (walks up to nearest existing ancestor, resolves it, appends remaining components)
-
-This prevents symlink-based escapes. For example, `/tmp/link-to-ssh` pointing to `~/.ssh` will be resolved to the real path and blocked.
-
-### Validation Methods
-
-```swift
-// For reading -- checks denied list, then allowed list
-let resolved = try validator.validateRead("/Users/alice/project/file.txt")
-
-// For writing -- checks allowed write directories only
-let resolved = try validator.validateWrite("/Users/alice/project/output.txt")
-```
-
-### Errors
-
-```swift
-public enum PathValidationError: Error, Sendable {
-    case pathDenied(path: String, reason: String)
-    case pathOutsideAllowed(path: String, allowedDirectories: [String])
-}
-```
-
----
-
-## OutputTruncation
-
-Utility for truncating large text outputs using a head+tail preservation strategy.
-
-When text exceeds the character budget:
-- 60% is kept from the head
-- 40% is kept from the tail
-- A marker shows how much was omitted
-- Splits at line boundaries when possible (within a 200-character window)
-
-```swift
-let truncated = OutputTruncation.truncate(largeText, maxLength: 30_000)
-// Returns: [first ~18,000 chars]\n\n[...truncated N of M total characters...]\n\n[last ~12,000 chars]
-
-// With metadata
-let (text, wasTruncated, totalLength) = OutputTruncation.truncateWithInfo(
-    largeText,
-    maxLength: 30_000
-)
-```
-
----
-
-## Approval System
-
-The `ShellTool` requires human approval by default (`requiresApproval: true`). This integrates with the agent's tool approval mechanism.
-
-You can also mark any tool as requiring approval:
-
-```swift
-// Using the wrapper
-let approvedReadTool = readFileTool.requireApproval()
-
-// Or configure at construction
-let shell = ShellTool(
-    environment: env,
-    pathValidator: validator,
-    workingDirectory: "/tmp",
-    requiresApproval: false  // Disable for automated pipelines
-)
-```
-
----
-
-## Using Individual Tools
-
-While `BuiltInTools` is the recommended factory, you can create tools individually for more control:
-
-```swift
-let validator = PathValidator(
-    allowedWriteDirectories: ["/Users/alice/project"],
-    deniedReadDirectories: ["~/.ssh", "~/.aws"]
-)
-
-let env = try await ShellEnvironment.captureUserEnvironment()
-
-// Create individually
-let shell = ShellTool(
-    environment: env,
-    pathValidator: validator,
-    workingDirectory: "/Users/alice/project"
-)
-
-let reader = ReadFileTool(pathValidator: validator)
-let writer = WriteFileTool(pathValidator: validator)
-
-// Mix with other tools
-let agent = try Agent<String>(
-    model: model,
-    tools: [shell, reader, mcpSearchTool]  // Combine built-in and MCP tools
 )
 ```
 # Human-in-the-Loop
