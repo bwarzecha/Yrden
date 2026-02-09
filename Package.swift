@@ -89,6 +89,12 @@ let package = Package(
             path: "Examples/AgentCLI"
         ),
         .executableTarget(
+            name: "BugBash",
+            dependencies: ["Yrden"],
+            path: "Examples/BugBash",
+            exclude: ["scenarios", "scripts", "results", "findings"]
+        ),
+        .executableTarget(
             name: "MLXExploration",
             dependencies: [
                 .product(name: "MLXLLM", package: "mlx-swift-lm"),

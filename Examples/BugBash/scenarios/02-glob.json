@@ -7,5 +7,6 @@
   "postconditions": {
     "completed": true
   },
-  "extra_files": {}
+  "extra_files": {},
+  "denied_commands": ["swift (build|test)", "xcodebuild"]
 }

@@ -14,5 +14,6 @@
       "Sources/Yrden/Tools/PathValidatedTool.swift": ["class PathValidatedTool"]
     }
   },
-  "extra_files": {}
+  "extra_files": {},
+  "denied_commands": ["swift (build|test)", "xcodebuild"]
 }

@@ -13,5 +13,6 @@
       "Sources/Yrden/Tools/ShellTool.swift": ["maxOutputLength: Int = 30_000"]
     }
   },
-  "extra_files": {}
+  "extra_files": {},
+  "denied_commands": ["swift (build|test)", "xcodebuild"]
 }

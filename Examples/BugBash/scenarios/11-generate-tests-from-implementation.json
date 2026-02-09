@@ -2,7 +2,7 @@
   "name": "generate-tests-from-implementation",
   "description": "Study an implementation and generate edge case tests for its error paths. Test generation task.",
   "setup": "./scripts/setup.sh",
-  "task": "The EditFileTool at Sources/Yrden/Tools/EditFileTool.swift has several error paths that aren't well tested. Read the implementation, figure out what can go wrong, and write edge case tests at Tests/YrdenTests/Unit/Tools/EditFileEdgeCaseTests.swift. Cover at least: invalid inputs, file not found, and the ambiguous-match case. Use XCTest and reference the actual error messages from the implementation.",
+  "task": "The EditFileTool at Sources/Yrden/Tools/EditFileTool.swift has several error paths that aren't well tested. Read the implementation, figure out what can go wrong, and write edge case tests at Tests/YrdenTests/Unit/Tools/EditFileEdgeCaseTests.swift. Cover at least: invalid inputs, file not found, and the ambiguous-match case. Use XCTest and reference the actual error messages from the implementation. Do NOT attempt to compile or run the tests - just write the test file.",
   "maxIterations": 15,
   "postconditions": {
     "completed": true,
@@ -16,5 +16,6 @@
       ]
     }
   },
-  "extra_files": {}
+  "extra_files": {},
+  "denied_commands": ["swift (build|test)", "xcodebuild"]
 }

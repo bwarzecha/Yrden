@@ -11,5 +11,6 @@
       "audit.md": ["pathValidator", "ReadFileTool", "WriteFileTool", "EditFileTool", "GlobTool", "GrepTool", "ShellTool"]
     }
   },
-  "extra_files": {}
+  "extra_files": {},
+  "denied_commands": ["swift (build|test)", "xcodebuild"]
 }

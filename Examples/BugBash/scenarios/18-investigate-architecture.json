@@ -11,5 +11,6 @@
       "architecture.md": ["Agent", "AgentIterator", "AgentRun", "IterationState", "TypedTool", "ToolExecutionEngine", "iter"]
     }
   },
-  "extra_files": {}
+  "extra_files": {},
+  "denied_commands": ["swift (build|test)", "xcodebuild"]
 }

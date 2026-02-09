@@ -12,5 +12,6 @@
       "Sources/Yrden/Tools/BuiltInTools.swift": ["wordCount", "WordCountTool"]
     }
   },
-  "extra_files": {}
+  "extra_files": {},
+  "denied_commands": ["swift (build|test)", "xcodebuild"]
 }

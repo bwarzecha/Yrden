@@ -38,3 +38,8 @@ build/
 # Environment secrets
 .env
 .env.local
+
+# Bug bash results and findings (traces can be large, findings are ephemeral)
+Examples/BugBash/results/
+Examples/BugBash/findings/*
+!Examples/BugBash/findings/.gitkeep

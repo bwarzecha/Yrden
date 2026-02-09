@@ -13,5 +13,6 @@
   },
   "extra_files": {
     "compute.py": "import time, sys\nprint('Starting...', flush=True)\ntotal = 0\nfor i in range(5):\n    time.sleep(1)\n    total += i * i\n    print(f'Step {i+1}/5: total={total}', flush=True)\nprint(f'RESULT: {total}', flush=True)\n"
-  }
+  },
+  "denied_commands": ["swift (build|test)", "xcodebuild"]
 }

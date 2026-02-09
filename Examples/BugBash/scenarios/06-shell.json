@@ -8,5 +8,6 @@
     "completed": true,
     "file_exists": ["line_count.txt"]
   },
-  "extra_files": {}
+  "extra_files": {},
+  "denied_commands": ["swift (build|test)", "xcodebuild"]
 }
