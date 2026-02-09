@@ -1,0 +1,17 @@
+{
+  "name": "edit-file",
+  "description": "Tests the edit_file tool by asking the agent to change a specific default parameter value in ShellTool.swift. The maxOutputLength default is 30_000 in the init parameter list at line 46 (at commit b9baf80). The agent must find and replace this value.",
+  "setup": "./scripts/setup.sh",
+  "task": "In Sources/Yrden/Tools/ShellTool.swift, change the default value of maxOutputLength from 30_000 to 50_000. This is in the init method's parameter list where it says 'maxOutputLength: Int = 30_000'.",
+  "maxIterations": 15,
+  "postconditions": {
+    "completed": true,
+    "file_contains": {
+      "Sources/Yrden/Tools/ShellTool.swift": ["maxOutputLength: Int = 50_000"]
+    },
+    "file_not_contains": {
+      "Sources/Yrden/Tools/ShellTool.swift": ["maxOutputLength: Int = 30_000"]
+    }
+  },
+  "extra_files": {}
+}

@@ -1,0 +1,11 @@
+{
+  "name": "glob",
+  "description": "Tests the glob tool by asking the agent to find all Swift files in a specific directory. At commit b9baf80, Sources/Yrden/Tools/ contains exactly 7 Swift files: BuiltInTools.swift, OutputTruncation.swift, PathValidator.swift, ReadFileTool.swift, ShellEnvironment.swift, ShellTool.swift, WriteFileTool.swift.",
+  "setup": "./scripts/setup.sh",
+  "task": "How many Swift files are in the Sources/Yrden/Tools/ directory? List all of them by name.",
+  "maxIterations": 15,
+  "postconditions": {
+    "completed": true
+  },
+  "extra_files": {}
+}

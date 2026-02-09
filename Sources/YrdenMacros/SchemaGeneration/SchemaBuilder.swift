@@ -133,7 +133,7 @@ struct SchemaBuilder {
                 description: property.description,
                 constraints: property.constraints
             )
-            return "\"\(property.name)\": \(schemaCode)"
+            return "\"\(property.jsonName)\": \(schemaCode)"
         }
 
         return "[\n                \(entries.joined(separator: ",\n                "))\n            ]"
@@ -161,7 +161,7 @@ struct SchemaBuilder {
     private static func buildRequiredArray(_ properties: [ParsedProperty]) -> String {
         let required = properties
             .filter { !$0.isOptional }
-            .map { "\"\($0.name)\"" }
+            .map { "\"\($0.jsonName)\"" }
 
         if required.isEmpty {
             return "[]"

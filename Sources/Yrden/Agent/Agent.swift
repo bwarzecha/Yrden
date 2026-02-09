@@ -76,6 +76,10 @@ public actor Agent<Output: SchemaType> {
     /// Maximum number of validation retries before failing.
     public let maxValidationRetries: Int
 
+    /// Optional background task registry for auto-injecting completion notifications
+    /// in `run()` and `runStream()` modes.
+    public let backgroundTaskRegistry: BackgroundTaskRegistry?
+
     public init(
         model: any Model,
         systemPrompt: String = "",
@@ -85,7 +89,8 @@ public actor Agent<Output: SchemaType> {
         outputValidators: [OutputValidator<Output>] = [],
         usageLimits: UsageLimits = .none,
         endStrategy: EndStrategy = .early,
-        toolTimeout: Duration? = nil
+        toolTimeout: Duration? = nil,
+        backgroundTaskRegistry: BackgroundTaskRegistry? = nil
     ) throws {
         var seenToolNames: Set<String> = []
         for tool in tools {
@@ -110,6 +115,7 @@ public actor Agent<Output: SchemaType> {
         )
         self.outputToolDescription = "Provide the final result"
         self.toolTimeout = toolTimeout
+        self.backgroundTaskRegistry = backgroundTaskRegistry
     }
 
     private static func resolveOutputToolName(base: String, toolNames: Set<String>) -> String {
@@ -453,10 +459,24 @@ public actor Agent<Output: SchemaType> {
         iterator: AgentIterator<Output>,
         maxIterations: Int
     ) async throws -> AgentRun<Output> {
+        var lastNotificationCheck = Date()
         do {
             for try await node in iterator {
                 switch node {
-                case .beforeModel, .afterModel:
+                case .beforeModel(let ctx):
+                    // Auto-inject background task completion notifications
+                    if let registry = backgroundTaskRegistry {
+                        let completions = await registry.completedSince(lastNotificationCheck)
+                        if !completions.isEmpty {
+                            lastNotificationCheck = Date()
+                            let notification = completions.map {
+                                "Background task \($0.taskId) completed (exit code: \($0.exitCode))"
+                            }.joined(separator: "\n")
+                            ctx.state.messages.append(.system(notification))
+                        }
+                    }
+
+                case .afterModel:
                     break
 
                 case .beforeTools(let ctx):
@@ -510,10 +530,31 @@ public actor Agent<Output: SchemaType> {
         maxIterations: Int,
         continuation: AsyncThrowingStream<AgentStreamEvent<Output>, Error>.Continuation
     ) async throws -> AgentRun<Output> {
+        var lastNotificationCheck = Date()
         do {
             for try await node in iterator {
                 switch node {
                 case .beforeModel(let ctx):
+                    // Auto-inject background task completion notifications + emit events
+                    if let registry = backgroundTaskRegistry {
+                        let completions = await registry.completedSince(lastNotificationCheck)
+                        if !completions.isEmpty {
+                            lastNotificationCheck = Date()
+                            let notification = completions.map {
+                                "Background task \($0.taskId) completed (exit code: \($0.exitCode))"
+                            }.joined(separator: "\n")
+                            ctx.state.messages.append(.system(notification))
+
+                            for completion in completions {
+                                continuation.yield(.backgroundTaskCompleted(
+                                    id: completion.taskId,
+                                    exitCode: completion.exitCode,
+                                    summary: "Background task \(completion.taskId) completed (exit code: \(completion.exitCode))"
+                                ))
+                            }
+                        }
+                    }
+
                     // Stream model response
                     for try await event in ctx.stream() {
                         switch event {

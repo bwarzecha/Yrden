@@ -159,6 +159,9 @@ public enum AgentStreamEvent<Output: SchemaType>: Sendable {
     /// Usage update (tokens consumed so far).
     case usage(Usage)
 
+    /// A background task completed.
+    case backgroundTaskCompleted(id: String, exitCode: Int32, summary: String)
+
     /// Agent run finished (always last event).
     /// Contains the full `AgentRun` with status indicating how it ended.
     case finished(AgentRun<Output>)

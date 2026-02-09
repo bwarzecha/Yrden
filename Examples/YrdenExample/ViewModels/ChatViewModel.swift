@@ -244,6 +244,8 @@ class ChatViewModel: ObservableObject {
                     case .usage(let usage):
                         currentTurnUsage = usage
                         log(.debug, "Usage (streaming)", details: "Input: \(usage.inputTokens), Output: \(usage.outputTokens), Cached: \(usage.cachedTokens ?? 0)")
+                    case .backgroundTaskCompleted(let id, let exitCode, let summary):
+                        log(.info, "Background task completed", details: "[\(id)] exit=\(exitCode) \(summary)")
                     case .finished(let run):
                         finishedRun = run
                     }
@@ -484,6 +486,8 @@ class ChatViewModel: ObservableObject {
                         info.result = result
                         info.status = .completed
                     }
+                case .backgroundTaskCompleted(let id, let exitCode, let summary):
+                    log(.info, "Background task completed", details: "[\(id)] exit=\(exitCode) \(summary)")
                 case .usage(let usage):
                     currentTurnUsage = usage
                     log(.debug, "Usage (streaming)", details: "Input: \(usage.inputTokens), Output: \(usage.outputTokens)")

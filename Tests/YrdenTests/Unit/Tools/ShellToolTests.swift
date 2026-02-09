@@ -40,7 +40,10 @@ struct ShellToolTests {
         let tool = makeTool()
         let result = try await tool.execute(
             context: makeContext(),
-            arguments: ShellToolArgs(command: "echo hello", workingDirectory: nil, timeout: nil)
+            arguments: ShellToolArgs(command: "echo hello", workingDirectory: nil, timeout: nil,
+                runInBackground: nil,
+                description: nil
+            )
         )
 
         guard case .success(let output) = result else {
@@ -55,7 +58,10 @@ struct ShellToolTests {
         let tool = makeTool()
         let result = try await tool.execute(
             context: makeContext(),
-            arguments: ShellToolArgs(command: "exit 42", workingDirectory: nil, timeout: nil)
+            arguments: ShellToolArgs(command: "exit 42", workingDirectory: nil, timeout: nil,
+                runInBackground: nil,
+                description: nil
+            )
         )
 
         guard case .success(let output) = result else {
@@ -70,7 +76,10 @@ struct ShellToolTests {
         let tool = makeTool()
         let result = try await tool.execute(
             context: makeContext(),
-            arguments: ShellToolArgs(command: "pwd", workingDirectory: "/tmp", timeout: nil)
+            arguments: ShellToolArgs(command: "pwd", workingDirectory: "/tmp", timeout: nil,
+                runInBackground: nil,
+                description: nil
+            )
         )
 
         guard case .success(let output) = result else {
@@ -88,13 +97,19 @@ struct ShellToolTests {
         // First call: cd to a specific directory
         _ = try await tool.execute(
             context: makeContext(),
-            arguments: ShellToolArgs(command: "cd /usr && pwd", workingDirectory: nil, timeout: nil)
+            arguments: ShellToolArgs(command: "cd /usr && pwd", workingDirectory: nil, timeout: nil,
+                runInBackground: nil,
+                description: nil
+            )
         )
 
         // Second call: should be in /usr now
         let result = try await tool.execute(
             context: makeContext(),
-            arguments: ShellToolArgs(command: "pwd", workingDirectory: nil, timeout: nil)
+            arguments: ShellToolArgs(command: "pwd", workingDirectory: nil, timeout: nil,
+                runInBackground: nil,
+                description: nil
+            )
         )
 
         guard case .success(let output) = result else {
@@ -109,7 +124,10 @@ struct ShellToolTests {
         let tool = makeTool()
         let result = try await tool.execute(
             context: makeContext(),
-            arguments: ShellToolArgs(command: "echo test", workingDirectory: nil, timeout: nil)
+            arguments: ShellToolArgs(command: "echo test", workingDirectory: nil, timeout: nil,
+                runInBackground: nil,
+                description: nil
+            )
         )
 
         guard case .success(let output) = result else {
@@ -124,7 +142,10 @@ struct ShellToolTests {
         let tool = makeTool()
         let result = try await tool.execute(
             context: makeContext(),
-            arguments: ShellToolArgs(command: "ls /nonexistent_path_xyz", workingDirectory: nil, timeout: nil)
+            arguments: ShellToolArgs(command: "ls /nonexistent_path_xyz", workingDirectory: nil, timeout: nil,
+                runInBackground: nil,
+                description: nil
+            )
         )
 
         guard case .success(let output) = result else {
@@ -140,7 +161,7 @@ struct ShellToolTests {
         let tool = makeTool()
         let result = try await tool.execute(
             context: makeContext(),
-            arguments: ShellToolArgs(command: "sleep 999", workingDirectory: nil, timeout: 1)
+            arguments: ShellToolArgs(command: "sleep 999", workingDirectory: nil, timeout: 1, runInBackground: nil, description: nil)
         )
 
         guard case .success(let output) = result else {
@@ -161,7 +182,9 @@ struct ShellToolTests {
             arguments: ShellToolArgs(
                 command: "seq 1 1000",
                 workingDirectory: nil,
-                timeout: nil
+                timeout: nil,
+                runInBackground: nil,
+                description: nil
             )
         )
 
@@ -199,7 +222,9 @@ struct ShellToolTests {
             arguments: ShellToolArgs(
                 command: "echo stdout_part && echo error_msg >&2",
                 workingDirectory: nil,
-                timeout: nil
+                timeout: nil,
+                runInBackground: nil,
+                description: nil
             )
         )
 
@@ -226,7 +251,10 @@ struct ShellToolTests {
 
         let result = try await tool.execute(
             context: makeContext(),
-            arguments: ShellToolArgs(command: "pwd", workingDirectory: "/etc", timeout: nil)
+            arguments: ShellToolArgs(command: "pwd", workingDirectory: "/etc", timeout: nil,
+                runInBackground: nil,
+                description: nil
+            )
         )
 
         // .error() returns .failure with ToolExecutionError
@@ -249,7 +277,9 @@ struct ShellToolTests {
             arguments: ShellToolArgs(
                 command: "seq 1 10000",
                 workingDirectory: nil,
-                timeout: nil
+                timeout: nil,
+                runInBackground: nil,
+                description: nil
             )
         )
 
@@ -280,7 +310,10 @@ struct ShellToolTests {
 
         let result = try await tool.execute(
             context: makeContext(),
-            arguments: ShellToolArgs(command: "seq 1 1000", workingDirectory: nil, timeout: nil)
+            arguments: ShellToolArgs(command: "seq 1 1000", workingDirectory: nil, timeout: nil,
+                runInBackground: nil,
+                description: nil
+            )
         )
 
         // Should still succeed with truncated output (no crash)

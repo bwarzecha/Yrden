@@ -2,7 +2,10 @@ import SwiftSyntax
 
 /// Represents a parsed property from a struct declaration.
 struct ParsedProperty {
+    /// Swift property name (e.g., `oldString`).
     let name: String
+    /// JSON key name from CodingKeys if present, otherwise same as `name`.
+    let jsonName: String
     let type: ParsedType
     let isOptional: Bool
     let description: String?
@@ -83,7 +86,9 @@ struct TypeParser {
     /// - Parameter declaration: The struct declaration syntax
     /// - Returns: Array of parsed properties
     static func parseStructMembers(from declaration: StructDeclSyntax) -> [ParsedProperty] {
-        declaration.memberBlock.members.compactMap { member -> ParsedProperty? in
+        let codingKeyMap = parseCodingKeys(from: declaration)
+
+        return declaration.memberBlock.members.compactMap { member -> ParsedProperty? in
             guard let varDecl = member.decl.as(VariableDeclSyntax.self),
                   varDecl.bindingSpecifier.tokenKind == .keyword(.let) ||
                   varDecl.bindingSpecifier.tokenKind == .keyword(.var),
@@ -100,6 +105,7 @@ struct TypeParser {
             }
 
             let name = identifier.identifier.text
+            let jsonName = codingKeyMap[name] ?? name
             let parsedType = parseType(typeAnnotation.type)
 
             // Extract @Guide description and constraints if present
@@ -107,12 +113,44 @@ struct TypeParser {
 
             return ParsedProperty(
                 name: name,
+                jsonName: jsonName,
                 type: parsedType,
                 isOptional: parsedType.isOptional,
                 description: description,
                 constraints: constraints
             )
         }
+    }
+
+    /// Parses CodingKeys enum to build a mapping from Swift property name → JSON key.
+    /// Returns empty dictionary if no CodingKeys enum is found.
+    private static func parseCodingKeys(from declaration: StructDeclSyntax) -> [String: String] {
+        for member in declaration.memberBlock.members {
+            guard let enumDecl = member.decl.as(EnumDeclSyntax.self),
+                  enumDecl.name.text == "CodingKeys"
+            else {
+                continue
+            }
+
+            var mapping: [String: String] = [:]
+            for enumMember in enumDecl.memberBlock.members {
+                guard let caseDecl = enumMember.decl.as(EnumCaseDeclSyntax.self) else {
+                    continue
+                }
+                for element in caseDecl.elements {
+                    let caseName = element.name.text
+                    if let rawValue = element.rawValue,
+                       let stringLiteral = rawValue.value.as(StringLiteralExprSyntax.self),
+                       let segment = stringLiteral.segments.first,
+                       case let .stringSegment(stringSegment) = segment {
+                        mapping[caseName] = stringSegment.content.text
+                    }
+                    // If no raw value, CodingKey matches the case name (no mapping needed)
+                }
+            }
+            return mapping
+        }
+        return [:]
     }
 
     /// Extracts description and constraints from a @Guide attribute if present.

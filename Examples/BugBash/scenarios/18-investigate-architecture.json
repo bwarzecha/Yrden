@@ -1,0 +1,15 @@
+{
+  "name": "investigate-architecture",
+  "description": "Read the Agent implementation files in Sources/Yrden/Agent/ and write an architecture document explaining the key types, protocols, and execution flow. Tests glob for discovery, read_file for multiple files, and write_file for the doc.",
+  "setup": "./scripts/setup.sh",
+  "task": "Investigate the agent architecture in Sources/Yrden/Agent/. Use glob to discover all .swift files in that directory, then read Agent.swift, AgentTypes.swift, AgentRun.swift, AgentError.swift, AgentTool.swift, ToolExecutionEngine.swift, and AgentContext.swift. Write an architecture document to architecture.md in the working directory that explains: (1) how Agent<Output> is structured as an actor with model, tools, and systemPrompt, (2) the iter() pattern that returns AgentIterator<Output> for step-by-step execution, (3) the AgentRun<Output> type and its Status enum (completed, needsApproval, iterationLimitReached, usageLimitReached), (4) the Tool protocol hierarchy (Tool -> TypedTool), (5) the IterationState and how the agent loop works through beforeModel/afterModel/beforeTools/afterTools/finished phases, and (6) the role of ToolExecutionEngine. Include the key type names in your document.",
+  "maxIterations": 15,
+  "postconditions": {
+    "completed": true,
+    "file_exists": ["architecture.md"],
+    "file_contains": {
+      "architecture.md": ["Agent", "AgentIterator", "AgentRun", "IterationState", "TypedTool", "ToolExecutionEngine", "iter"]
+    }
+  },
+  "extra_files": {}
+}

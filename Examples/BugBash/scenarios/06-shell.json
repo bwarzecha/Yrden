@@ -1,0 +1,12 @@
+{
+  "name": "shell",
+  "description": "Tests the shell tool by asking the agent to run a command that counts lines of Swift code and write the result to a file. This exercises both shell execution and file output.",
+  "setup": "./scripts/setup.sh",
+  "task": "Count the total number of non-blank lines of Swift code in the Sources/ directory (recursively). Write just the final count number to a file called line_count.txt in the repository root.",
+  "maxIterations": 15,
+  "postconditions": {
+    "completed": true,
+    "file_exists": ["line_count.txt"]
+  },
+  "extra_files": {}
+}

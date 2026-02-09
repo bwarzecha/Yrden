@@ -203,8 +203,8 @@ struct AgentBuiltInToolTests {
             tools: builtIn.all
         )
 
-        // Verify agent has all 3 tools
+        // Verify agent has all 8 tools
         let toolCount = await agent.tools.count
-        #expect(toolCount == 3)
+        #expect(toolCount == 8)
     }
 }

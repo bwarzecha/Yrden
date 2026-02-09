@@ -1,0 +1,21 @@
+{
+  "name": "write-file",
+  "description": "Tests the write_file tool by asking the agent to create a new Swift file with a stub tool implementation following the existing TypedTool pattern found in the codebase.",
+  "setup": "./scripts/setup.sh",
+  "task": "Create a new file at Sources/Yrden/Tools/ListToolsTool.swift with a stub TypedTool implementation. First read Sources/Yrden/Tools/ReadFileTool.swift to understand the pattern, then create a new tool called 'list_tools' that would list available tools. The struct should be called ListToolsTool conforming to TypedTool, with a ListToolsArgs struct conforming to the @Schema pattern. The args should have a single optional 'filter' property of type String. The execute method can just return a .success(\"Not implemented yet\") placeholder.",
+  "maxIterations": 15,
+  "postconditions": {
+    "completed": true,
+    "file_exists": ["Sources/Yrden/Tools/ListToolsTool.swift"],
+    "file_contains": {
+      "Sources/Yrden/Tools/ListToolsTool.swift": [
+        "ListToolsTool",
+        "TypedTool",
+        "ListToolsArgs",
+        "list_tools",
+        "filter"
+      ]
+    }
+  },
+  "extra_files": {}
+}

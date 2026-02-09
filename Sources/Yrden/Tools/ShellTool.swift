@@ -17,6 +17,20 @@ public struct ShellToolArgs {
 
     @Guide(description: "Timeout in seconds (default: 120, max: 600)")
     public let timeout: Int?
+
+    @Guide(description: "Run the command in the background and return immediately with a task ID")
+    public let runInBackground: Bool?
+
+    @Guide(description: "Description of what this background task does")
+    public let description: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case command
+        case workingDirectory = "working_directory"
+        case timeout
+        case runInBackground = "run_in_background"
+        case description
+    }
 }
 
 public struct ShellTool: TypedTool {
@@ -32,6 +46,7 @@ public struct ShellTool: TypedTool {
     public let environment: ShellEnvironment
     public let pathValidator: PathValidator
     public var requiresApproval: Bool
+    public let backgroundTaskRegistry: BackgroundTaskRegistry?
 
     private let state: ShellToolState
 
@@ -43,6 +58,7 @@ public struct ShellTool: TypedTool {
         spilloverDirectory: String? = nil,
         defaultTimeout: Duration = .seconds(120),
         maxTimeout: Duration = .seconds(600),
+        backgroundTaskRegistry: BackgroundTaskRegistry? = nil,
         requiresApproval: Bool = true
     ) {
         self.environment = environment
@@ -52,6 +68,7 @@ public struct ShellTool: TypedTool {
             ?? NSTemporaryDirectory() + "yrden-shell-\(UUID().uuidString)"
         self.defaultTimeout = defaultTimeout
         self.maxTimeout = maxTimeout
+        self.backgroundTaskRegistry = backgroundTaskRegistry
         self.requiresApproval = requiresApproval
         self.state = ShellToolState(workingDirectory: workingDirectory)
     }
@@ -70,6 +87,23 @@ public struct ShellTool: TypedTool {
             }
         } else {
             cwd = await state.getCWD()
+        }
+
+        // Background mode — delegate to registry and return immediately
+        if arguments.runInBackground == true {
+            guard let registry = backgroundTaskRegistry else {
+                return .error("Background execution not available: no task registry configured")
+            }
+            let timeoutSeconds = arguments.timeout.map { max(1, min($0, Int(maxTimeout.components.seconds))) }
+                ?? Int(defaultTimeout.components.seconds)
+            let taskId = await registry.launch(
+                command: arguments.command,
+                workingDirectory: cwd,
+                environment: environment.variables,
+                timeout: .seconds(timeoutSeconds)
+            )
+            let desc = arguments.description.map { " (\($0))" } ?? ""
+            return .success("Background task started\(desc). Task ID: \(taskId)")
         }
 
         // Clamp timeout
@@ -115,7 +149,7 @@ public struct ShellTool: TypedTool {
             if process.isRunning {
                 process.terminate()
                 try await Task.sleep(for: .seconds(1))
-                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                if process.isRunning { kill(-process.processIdentifier, SIGKILL) }
                 process.waitUntilExit()
                 stdoutTask.cancel()
                 stderrTask.cancel()

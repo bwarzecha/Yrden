@@ -1,0 +1,11 @@
+{
+  "name": "read-file",
+  "description": "Tests the read_file tool by asking the agent to read a real source file and explain its contents. The agent must use read_file on ShellTool.swift and correctly identify the ShellToolArgs parameters (command, workingDirectory, timeout) and their types.",
+  "setup": "./scripts/setup.sh",
+  "task": "Read the file at Sources/Yrden/Tools/ShellTool.swift and explain what parameters the ShellToolArgs struct accepts. For each parameter, tell me the property name, its Swift type, whether it's optional, and the description string from the @Guide annotation.",
+  "maxIterations": 15,
+  "postconditions": {
+    "completed": true
+  },
+  "extra_files": {}
+}

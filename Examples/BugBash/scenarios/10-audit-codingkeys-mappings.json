@@ -1,0 +1,29 @@
+{
+  "name": "audit-codingkeys-mappings",
+  "description": "Multi-tool workflow: grep to find CodingKeys enums in tool files, read_file to inspect each, write_file to produce documentation. Tests grep + read_file + write_file pipeline.",
+  "setup": "./scripts/setup.sh",
+  "task": "Find all structs in Sources/Yrden/Tools/ that contain a CodingKeys enum. For each one, read the file and document every Swift property name to JSON key mapping (e.g., 'oldString' maps to 'old_string'). Write the results to docs/codingkeys-audit.md with a table for each struct showing the Swift property name and the corresponding JSON key. Also note which tool arg structs do NOT have CodingKeys (meaning their Swift names match the JSON keys directly).",
+  "maxIterations": 15,
+  "postconditions": {
+    "completed": true,
+    "file_exists": ["docs/codingkeys-audit.md"],
+    "file_contains": {
+      "docs/codingkeys-audit.md": [
+        "GrepToolArgs",
+        "ShellToolArgs",
+        "EditFileArgs",
+        "TaskOutputArgs",
+        "TaskStopArgs",
+        "old_string",
+        "new_string",
+        "replace_all",
+        "output_mode",
+        "case_insensitive",
+        "working_directory",
+        "run_in_background",
+        "task_id"
+      ]
+    }
+  },
+  "extra_files": {}
+}

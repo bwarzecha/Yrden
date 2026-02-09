@@ -1,0 +1,16 @@
+{
+  "name": "add-new-tool",
+  "description": "Create a new WordCountTool and register it in BuiltInTools.swift. Tests read_file to understand existing patterns, write_file to create the new tool, and edit_file to modify the registry.",
+  "setup": "./scripts/setup.sh",
+  "task": "Create a new tool called WordCountTool that counts words in a file. First, read Sources/Yrden/Tools/ReadFileTool.swift to understand the TypedTool pattern (it uses @Schema for args, has a pathValidator property, and implements execute()). Also read Sources/Yrden/Tools/BuiltInTools.swift to understand how tools are registered (each tool is a public let property, initialized in init(), and added to the 'all' computed property array). Then create the new tool file at Sources/Yrden/Tools/WordCountTool.swift following the same pattern as ReadFileTool: it should have a WordCountArgs struct with a 'path' field, a WordCountTool struct conforming to TypedTool with name 'word_count', a pathValidator property, and an execute method that reads the file and counts words. Finally, edit Sources/Yrden/Tools/BuiltInTools.swift to add the wordCount tool as a new property, initialize it in init(), and include it in the 'all' array.",
+  "maxIterations": 20,
+  "postconditions": {
+    "completed": true,
+    "file_exists": ["Sources/Yrden/Tools/WordCountTool.swift"],
+    "file_contains": {
+      "Sources/Yrden/Tools/WordCountTool.swift": ["WordCountTool", "TypedTool", "word_count", "pathValidator", "execute"],
+      "Sources/Yrden/Tools/BuiltInTools.swift": ["wordCount", "WordCountTool"]
+    }
+  },
+  "extra_files": {}
+}

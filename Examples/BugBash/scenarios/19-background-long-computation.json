@@ -1,0 +1,17 @@
+{
+  "name": "background-long-computation",
+  "description": "Run a provided Python script in the background, poll its progress using task_output, and write the final result to a file. Tests shell background mode, task_output polling, and write_file.",
+  "setup": "./scripts/setup.sh",
+  "task": "A Python script compute.py has been provided in the working directory. Run it in the background using the shell tool with run_in_background. The script takes about 5 seconds to complete and prints progress lines like 'Step N/5: total=X'. Use task_output (with block=false) to poll the task at least once to check its progress. Then use task_output with block=true to wait for the final result. The script prints a final line like 'RESULT: 30'. Extract the numeric result and write it to result.txt in the working directory. The file should contain the number 30.",
+  "maxIterations": 20,
+  "postconditions": {
+    "completed": true,
+    "file_exists": ["result.txt"],
+    "file_contains": {
+      "result.txt": ["30"]
+    }
+  },
+  "extra_files": {
+    "compute.py": "import time, sys\nprint('Starting...', flush=True)\ntotal = 0\nfor i in range(5):\n    time.sleep(1)\n    total += i * i\n    print(f'Step {i+1}/5: total={total}', flush=True)\nprint(f'RESULT: {total}', flush=True)\n"
+  }
+}

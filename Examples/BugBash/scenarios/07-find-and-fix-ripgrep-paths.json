@@ -1,0 +1,19 @@
+{
+  "name": "find-and-fix-ripgrep-paths",
+  "description": "Multi-tool workflow: grep to find the findRipgrep() function, read_file to understand it, edit_file to add a fallback path. Tests grep + read_file + edit_file pipeline.",
+  "setup": "./scripts/setup.sh",
+  "task": "In the Yrden codebase, there is a GrepTool implementation at Sources/Yrden/Tools/GrepTool.swift. It has a findRipgrep() function with a hardcoded list of candidate paths for the ripgrep binary. Find that function, read the current list of candidates, and add '/usr/bin/env' as a fourth fallback entry at the end of the candidates array (after the existing three paths). Do not change any other code.",
+  "maxIterations": 15,
+  "postconditions": {
+    "completed": true,
+    "file_contains": {
+      "Sources/Yrden/Tools/GrepTool.swift": [
+        "/opt/homebrew/bin/rg",
+        "/usr/local/bin/rg",
+        "/usr/bin/rg",
+        "/usr/bin/env"
+      ]
+    }
+  },
+  "extra_files": {}
+}
