@@ -22,7 +22,7 @@ public struct GrepToolArgs {
     @Guide(description: "Whether to search case-insensitively")
     public let caseInsensitive: Bool?
 
-    @Guide(description: "Number of context lines around matches")
+    @Guide(description: "Number of context lines around matches (implies output_mode: 'content')")
     public let contextLines: Int?
 
     @Guide(description: "Maximum number of results to return")
@@ -79,8 +79,11 @@ public struct GrepTool: TypedTool {
             searchDir = workingDirectory
         }
 
-        // Validate output mode
-        let mode = arguments.outputMode ?? "files"
+        // Validate output mode — auto-switch to "content" when context_lines is set
+        var mode = arguments.outputMode ?? "files"
+        if arguments.contextLines != nil && arguments.outputMode == nil {
+            mode = "content"
+        }
         guard ["files", "content", "count"].contains(mode) else {
             return .error("Invalid output_mode '\(arguments.outputMode ?? "")'. Must be 'files', 'content', or 'count'.")
         }
@@ -130,11 +133,16 @@ public struct GrepTool: TypedTool {
         args.append(arguments.pattern)
         args.append(searchDir)
 
-        // Run rg
+        // Run rg — use parent directory as CWD when searching a specific file
         let process = Process()
         process.executableURL = URL(fileURLWithPath: rgPath)
         process.arguments = args
-        process.currentDirectoryURL = URL(fileURLWithPath: searchDir)
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: searchDir, isDirectory: &isDir), !isDir.boolValue {
+            process.currentDirectoryURL = URL(fileURLWithPath: searchDir).deletingLastPathComponent()
+        } else {
+            process.currentDirectoryURL = URL(fileURLWithPath: searchDir)
+        }
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()

@@ -47,22 +47,28 @@ public struct AnthropicModel: Model, Sendable {
     /// Default max tokens if not specified in request.
     private let defaultMaxTokens: Int
 
+    /// Retry configuration for transient errors.
+    private let retryConfig: RetryConfig
+
     /// Creates an Anthropic model.
     ///
     /// - Parameters:
     ///   - name: Model identifier (e.g., "claude-3-5-sonnet-20241022")
     ///   - provider: Provider for authentication
     ///   - defaultMaxTokens: Default max tokens (default: 16384)
+    ///   - retryConfig: Retry configuration for transient errors (default: 2 retries)
     ///   - foreignThinkingBehavior: How to handle thinking blocks from other providers (default: .drop)
     public init(
         name: String,
         provider: AnthropicProvider,
         defaultMaxTokens: Int = 16384,
+        retryConfig: RetryConfig = .default,
         foreignThinkingBehavior: ForeignThinkingBehavior = .drop
     ) {
         self.name = name
         self.provider = provider
         self.defaultMaxTokens = defaultMaxTokens
+        self.retryConfig = retryConfig
         self.foreignThinkingBehavior = foreignThinkingBehavior
         self.capabilities = Self.capabilities(for: name)
     }
@@ -71,9 +77,11 @@ public struct AnthropicModel: Model, Sendable {
 
     public func complete(_ request: CompletionRequest) async throws -> CompletionResponse {
         try validateRequest(request)
-        let anthropicRequest = try encodeRequest(request, stream: false)
-        let data = try await sendRequest(anthropicRequest)
-        return try decodeResponse(data)
+        return try await retryConfig.execute {
+            let anthropicRequest = try encodeRequest(request, stream: false)
+            let data = try await sendRequest(anthropicRequest)
+            return try decodeResponse(data)
+        }
     }
 
     public func stream(_ request: CompletionRequest) -> AsyncThrowingStream<StreamEvent, Error> {
@@ -81,8 +89,10 @@ public struct AnthropicModel: Model, Sendable {
             Task {
                 do {
                     try validateRequest(request)
-                    let anthropicRequest = try encodeRequest(request, stream: true)
-                    try await streamRequest(anthropicRequest, continuation: continuation)
+                    try await retryConfig.execute {
+                        let anthropicRequest = try encodeRequest(request, stream: true)
+                        try await streamRequest(anthropicRequest, continuation: continuation)
+                    }
                 } catch {
                     continuation.finish(throwing: error)
                 }
@@ -285,25 +295,33 @@ public struct AnthropicModel: Model, Sendable {
 
     private func sendRequest(_ request: AnthropicRequest) async throws -> Data {
         let url = provider.baseURL.appendingPathComponent(AnthropicEndpoint.messages)
-        let (data, http) = try await HTTPClient.sendJSONPOST(
-            url: url,
-            body: request,
-            configure: provider.authenticate
-        )
-        try handleHTTPStatus(http.statusCode, data: data)
-        return data
+        do {
+            let (data, http) = try await HTTPClient.sendJSONPOST(
+                url: url,
+                body: request,
+                configure: provider.authenticate
+            )
+            try handleHTTPStatus(
+                http.statusCode, data: data,
+                retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
+            )
+            return data
+        } catch let urlError as URLError where urlError.code == .timedOut {
+            throw RetriableError(
+                underlyingError: LLMError.networkError("Request timed out"),
+                retryAfter: nil,
+                statusCode: 0
+            )
+        }
     }
 
-    private func handleHTTPStatus(_ statusCode: Int, data: Data) throws {
+    private func handleHTTPStatus(_ statusCode: Int, data: Data, retryAfterHeader: String? = nil) throws {
         switch statusCode {
         case 200..<300:
             return
 
         case 401:
             throw LLMError.invalidAPIKey
-
-        case 429:
-            throw LLMError.rateLimited(retryAfter: nil)
 
         case 400:
             let message = parseErrorMessage(data)
@@ -314,7 +332,18 @@ public struct AnthropicModel: Model, Sendable {
 
         default:
             let message = parseErrorMessage(data)
-            throw LLMError.networkError("HTTP \(statusCode): \(message)")
+            let underlyingError = LLMError.networkError("HTTP \(statusCode): \(message)")
+
+            if isRetriableStatusCode(statusCode) {
+                let retryAfter = HTTPClient.parseRetryAfter(retryAfterHeader)
+                throw RetriableError(
+                    underlyingError: underlyingError,
+                    retryAfter: retryAfter,
+                    statusCode: statusCode
+                )
+            }
+
+            throw underlyingError
         }
     }
 
@@ -332,15 +361,28 @@ public struct AnthropicModel: Model, Sendable {
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
     ) async throws {
         let url = provider.baseURL.appendingPathComponent(AnthropicEndpoint.messages)
-        let (bytes, http) = try await HTTPClient.streamJSONPOST(
-            url: url,
-            body: request,
-            configure: provider.authenticate
-        )
+        let bytes: URLSession.AsyncBytes
+        let http: HTTPURLResponse
+        do {
+            (bytes, http) = try await HTTPClient.streamJSONPOST(
+                url: url,
+                body: request,
+                configure: provider.authenticate
+            )
+        } catch let urlError as URLError where urlError.code == .timedOut {
+            throw RetriableError(
+                underlyingError: LLMError.networkError("Request timed out"),
+                retryAfter: nil,
+                statusCode: 0
+            )
+        }
 
         if http.statusCode != 200 {
             let errorData = try await HTTPClient.collectErrorData(from: bytes)
-            try handleHTTPStatus(http.statusCode, data: errorData)
+            try handleHTTPStatus(
+                http.statusCode, data: errorData,
+                retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
+            )
             return
         }
 

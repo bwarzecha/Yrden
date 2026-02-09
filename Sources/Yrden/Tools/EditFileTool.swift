@@ -18,7 +18,7 @@ public struct EditFileArgs {
     public let newString: String
 
     @Guide(description: "Replace all occurrences (default: false, requires unique match)")
-    public let replaceAll: Bool
+    public let replaceAll: Bool?
 
     private enum CodingKeys: String, CodingKey {
         case path
@@ -97,13 +97,13 @@ public struct EditFileTool: TypedTool {
             return .error("old_string not found in \(arguments.path). Make sure the string matches exactly, including whitespace and line endings.")
         }
 
-        if !arguments.replaceAll && occurrences > 1 {
+        if arguments.replaceAll != true && occurrences > 1 {
             return .error("Found \(occurrences) matches of old_string. Use replace_all: true to replace all, or provide more context to make the match unique.")
         }
 
         // Perform replacement
         let newContent: String
-        if arguments.replaceAll {
+        if arguments.replaceAll == true {
             newContent = content.replacingOccurrences(of: arguments.oldString, with: arguments.newString)
         } else {
             // Replace only the first (and only) occurrence
@@ -120,7 +120,7 @@ public struct EditFileTool: TypedTool {
             return .error("Failed to write file: \(error.localizedDescription)")
         }
 
-        if arguments.replaceAll && occurrences > 1 {
+        if arguments.replaceAll == true && occurrences > 1 {
             return .success("Successfully replaced \(occurrences) occurrences in \(arguments.path)")
         }
         return .success("Successfully replaced 1 occurrence in \(arguments.path)")

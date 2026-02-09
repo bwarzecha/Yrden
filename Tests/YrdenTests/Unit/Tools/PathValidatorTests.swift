@@ -146,4 +146,38 @@ struct PathValidatorTests {
         let result = try validator.validateRead("/tmp")
         #expect(result.contains("tmp"))
     }
+
+    // MARK: - Relative Path Resolution
+
+    @Test("relative path resolves against workingDirectory")
+    func relativePathResolvesAgainstWorkDir() throws {
+        let validator = PathValidator(
+            allowedWriteDirectories: ["/tmp"],
+            workingDirectory: "/tmp"
+        )
+        let result = try validator.validateWrite("subdir/file.txt")
+        // Should resolve to /tmp/subdir/file.txt (or /private/tmp/... on macOS)
+        #expect(result.contains("tmp/subdir/file.txt"))
+    }
+
+    @Test("relative path with dot resolves against workingDirectory")
+    func relativePathWithDotResolvesAgainstWorkDir() throws {
+        let validator = PathValidator(
+            allowedWriteDirectories: ["/tmp"],
+            workingDirectory: "/tmp"
+        )
+        let result = try validator.validateWrite("./subdir/file.txt")
+        #expect(result.contains("tmp/subdir/file.txt"))
+    }
+
+    @Test("relative path without workingDirectory resolves against process CWD")
+    func relativePathWithoutWorkDirUsesProcessCwd() throws {
+        let validator = PathValidator(
+            allowedReadDirectories: ["/"],
+            allowedWriteDirectories: ["/"]
+        )
+        // No workingDirectory set — should resolve against process CWD
+        let result = try validator.validateRead("Package.swift")
+        #expect(result.hasPrefix("/"))
+    }
 }

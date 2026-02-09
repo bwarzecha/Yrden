@@ -739,6 +739,95 @@ struct GrepToolTests {
         #expect(output.contains("café.txt"))
     }
 
+    // MARK: - File Path Search
+
+    @Test("searching a specific file path works", .timeLimit(.minutes(1)))
+    func searchingFilePathWorks() async throws {
+        _ = try createSearchableTree()
+        defer { try? FileManager.default.removeItem(atPath: tempDir) }
+
+        let tool = makeTool()
+        let result = try await tool.execute(
+            context: makeContext(),
+            arguments: GrepToolArgs(
+                pattern: "func main",
+                path: tempDir + "/src/main.swift",
+                glob: nil,
+                outputMode: "content",
+                caseInsensitive: nil,
+                contextLines: nil,
+                maxResults: nil
+            )
+        )
+
+        guard case .success(let output) = result else {
+            Issue.record("Expected success when searching a file path, got \(result)"); return
+        }
+        #expect(output.contains("func main"))
+    }
+
+    // MARK: - Context Lines Auto-Switch
+
+    @Test("context_lines without output_mode auto-switches to content", .timeLimit(.minutes(1)))
+    func contextLinesAutoSwitchesToContent() async throws {
+        _ = try createSearchableTree()
+        defer { try? FileManager.default.removeItem(atPath: tempDir) }
+
+        let tool = makeTool()
+        let result = try await tool.execute(
+            context: makeContext(),
+            arguments: GrepToolArgs(
+                pattern: "count = 42",
+                path: nil,
+                glob: nil,
+                outputMode: nil,       // not set — should auto-switch to "content"
+                caseInsensitive: nil,
+                contextLines: 2,
+                maxResults: nil
+            )
+        )
+
+        guard case .success(let output) = result else {
+            Issue.record("Expected success, got \(result)"); return
+        }
+
+        // Should return matching content (not just file paths)
+        #expect(output.contains("count = 42"), "Expected matching line content")
+        // Context should include nearby lines
+        #expect(output.contains("print") || output.contains("func"),
+                "Expected context lines around match")
+    }
+
+    @Test("explicit files mode with context_lines stays in files mode", .timeLimit(.minutes(1)))
+    func explicitFilesModeIgnoresContextLines() async throws {
+        _ = try createSearchableTree()
+        defer { try? FileManager.default.removeItem(atPath: tempDir) }
+
+        let tool = makeTool()
+        let result = try await tool.execute(
+            context: makeContext(),
+            arguments: GrepToolArgs(
+                pattern: "print",
+                path: nil,
+                glob: nil,
+                outputMode: "files",   // explicitly set — should NOT auto-switch
+                caseInsensitive: nil,
+                contextLines: 2,
+                maxResults: nil
+            )
+        )
+
+        guard case .success(let output) = result else {
+            Issue.record("Expected success, got \(result)"); return
+        }
+
+        // Files mode: should contain file paths
+        #expect(output.contains("main.swift"))
+        // Files mode should NOT contain line numbers (e.g., ":2:")
+        let hasLineNumbers = output.contains(":2:") || output.contains(":3:")
+        #expect(!hasLineNumbers, "Files mode should return paths only, not line content")
+    }
+
     @Test("tool definition schema is valid")
     func toolDefinitionSchema() {
         let tool = makeTool()

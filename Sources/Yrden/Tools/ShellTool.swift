@@ -37,8 +37,12 @@ public struct ShellTool: TypedTool {
     public typealias Args = ShellToolArgs
 
     public let name = "shell"
-    public let description = "Execute a shell command and return its output. The user's full shell environment is available (Homebrew, nvm, pyenv, etc.). Working directory persists between calls. Output is truncated to 30,000 characters; when truncated, full output is saved to a file whose path is shown."
 
+    public var description: String {
+        "Execute a shell command and return its output. The user's full shell environment is available (Homebrew, nvm, pyenv, etc.). Working directory starts at \(initialWorkingDirectory) and persists between calls — if you cd, subsequent calls start from the new directory. Prefer absolute paths over cd. Output is truncated to \(maxOutputLength) characters; when truncated, full output is saved to a file whose path is shown."
+    }
+
+    public let initialWorkingDirectory: String
     public let maxOutputLength: Int
     public let spilloverDirectory: String
     public let defaultTimeout: Duration
@@ -63,6 +67,7 @@ public struct ShellTool: TypedTool {
     ) {
         self.environment = environment
         self.pathValidator = pathValidator
+        self.initialWorkingDirectory = workingDirectory
         self.maxOutputLength = maxOutputLength
         self.spilloverDirectory = spilloverDirectory
             ?? NSTemporaryDirectory() + "yrden-shell-\(UUID().uuidString)"

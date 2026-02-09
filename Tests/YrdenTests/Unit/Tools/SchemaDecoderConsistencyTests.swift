@@ -140,7 +140,7 @@ struct SchemaDecoderConsistencyTests {
     @Test("EditFileArgs schema decodes correctly")
     func editFileArgs() throws {
         try verifyConsistency(EditFileArgs.self)
-        verifySchemaStructure(EditFileArgs.self, expectedPropertyCount: 4, expectedRequiredCount: 4)
+        verifySchemaStructure(EditFileArgs.self, expectedPropertyCount: 4, expectedRequiredCount: 3)
     }
 
     @Test("ShellToolArgs schema decodes correctly")

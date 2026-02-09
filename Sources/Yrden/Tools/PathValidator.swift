@@ -14,14 +14,20 @@ public struct PathValidator: Sendable {
     public let allowedWriteDirectories: [String]
     public let deniedReadDirectories: [String]
 
+    /// Working directory for resolving relative paths.
+    /// When nil, falls back to process CWD (via URL(fileURLWithPath:)).
+    public let workingDirectory: String?
+
     public init(
         allowedReadDirectories: [String] = ["/"],
         allowedWriteDirectories: [String],
-        deniedReadDirectories: [String] = []
+        deniedReadDirectories: [String] = [],
+        workingDirectory: String? = nil
     ) {
         self.allowedReadDirectories = allowedReadDirectories.map(Self.normalizeDirectory)
         self.allowedWriteDirectories = allowedWriteDirectories.map(Self.normalizeDirectory)
         self.deniedReadDirectories = deniedReadDirectories.map(Self.normalizeDirectory)
+        self.workingDirectory = workingDirectory
     }
 
     /// Resolve and validate a path for reading.
@@ -64,9 +70,16 @@ public struct PathValidator: Sendable {
     private func resolvePath(_ path: String) throws -> String {
         let expanded = (path as NSString).expandingTildeInPath
 
-        // Make absolute via URL normalization
-        let url = URL(fileURLWithPath: expanded).standardized
-        let absolutePath = url.path
+        // Make absolute: relative paths resolve against workingDirectory (not process CWD)
+        let absolutePath: String
+        if expanded.hasPrefix("/") {
+            absolutePath = URL(fileURLWithPath: expanded).standardized.path
+        } else if let wd = workingDirectory {
+            absolutePath = URL(fileURLWithPath: wd)
+                .appendingPathComponent(expanded).standardized.path
+        } else {
+            absolutePath = URL(fileURLWithPath: expanded).standardized.path
+        }
 
         // Resolve symlinks via realpath(3) if the path exists
         if let resolved = realpath(absolutePath, nil) {

@@ -138,12 +138,10 @@ public final class BeforeModelContext<Output: SchemaType>: @unchecked Sendable {
     /// Build the completion request from current state.
     private func buildCompletionRequest() async -> CompletionRequest {
         // Build new array with append instead of copy + insert to avoid COW copy
-        let systemPrompt = await agent.systemPrompt
-
         var requestMessages: [Message] = []
         requestMessages.reserveCapacity(state.messages.count + 1)
-        if !systemPrompt.isEmpty {
-            requestMessages.append(.system(systemPrompt))
+        if !state.systemPrompt.isEmpty {
+            requestMessages.append(.system(state.systemPrompt))
         }
         requestMessages.append(contentsOf: state.messages)
 

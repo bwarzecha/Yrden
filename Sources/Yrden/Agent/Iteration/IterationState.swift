@@ -37,6 +37,10 @@ public struct IterationState<Output: SchemaType>: Sendable, Codable {
     /// The iterator uses this instead of agent.maxIterations.
     public internal(set) var maxIterations: Int
 
+    /// System prompt used for this run.
+    /// Stored here so serialized state is fully self-contained for trace analysis.
+    public let systemPrompt: String
+
     public init(
         runID: String,
         messages: [Message],
@@ -45,7 +49,8 @@ public struct IterationState<Output: SchemaType>: Sendable, Codable {
         toolCallCount: Int,
         validationRetryCount: Int = 0,
         phase: Phase,
-        maxIterations: Int = .max
+        maxIterations: Int = .max,
+        systemPrompt: String = ""
     ) {
         self.runID = runID
         self.messages = messages
@@ -55,6 +60,7 @@ public struct IterationState<Output: SchemaType>: Sendable, Codable {
         self.validationRetryCount = validationRetryCount
         self.phase = phase
         self.maxIterations = maxIterations
+        self.systemPrompt = systemPrompt
     }
 
     /// Creates a copy with a different phase.
@@ -68,7 +74,8 @@ public struct IterationState<Output: SchemaType>: Sendable, Codable {
             toolCallCount: toolCallCount,
             validationRetryCount: validationRetryCount,
             phase: newPhase,
-            maxIterations: maxIterations
+            maxIterations: maxIterations,
+            systemPrompt: systemPrompt
         )
     }
 }

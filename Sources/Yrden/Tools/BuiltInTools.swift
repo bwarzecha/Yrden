@@ -55,7 +55,8 @@ public struct BuiltInTools: Sendable {
 
         let validator = PathValidator(
             allowedWriteDirectories: writeDirs,
-            deniedReadDirectories: deniedDirs
+            deniedReadDirectories: deniedDirs,
+            workingDirectory: workingDirectory
         )
 
         let registry = BackgroundTaskRegistry()

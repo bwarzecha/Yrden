@@ -101,6 +101,7 @@ public struct AgentIterator<Output: SchemaType>: AsyncSequence, Sendable {
                 var messages = messageHistory
                 messages.append(.user(initialPrompt))
                 let maxIter = agent.maxIterations
+                let sysPrompt = agent.systemPrompt
                 self.state = IterationState(
                     runID: UUID().uuidString,
                     messages: messages,
@@ -108,7 +109,8 @@ public struct AgentIterator<Output: SchemaType>: AsyncSequence, Sendable {
                     iteration: 0,
                     toolCallCount: 0,
                     phase: .beforeModel,
-                    maxIterations: maxIter
+                    maxIterations: maxIter,
+                    systemPrompt: sysPrompt
                 )
             }
         }
@@ -306,12 +308,10 @@ public struct AgentIterator<Output: SchemaType>: AsyncSequence, Sendable {
 
         private func callModel() async throws -> CompletionResponse {
             // Build request messages — append instead of insert to avoid COW copy
-            let systemPrompt = await agent.systemPrompt
-
             var requestMessages: [Message] = []
             requestMessages.reserveCapacity(state!.messages.count + 1)
-            if !systemPrompt.isEmpty {
-                requestMessages.append(.system(systemPrompt))
+            if !state!.systemPrompt.isEmpty {
+                requestMessages.append(.system(state!.systemPrompt))
             }
             requestMessages.append(contentsOf: state!.messages)
 
