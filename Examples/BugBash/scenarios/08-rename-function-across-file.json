@@ -1,8 +1,8 @@
 {
   "name": "rename-function-across-file",
-  "description": "Multi-tool workflow: grep to find all occurrences of formatTokens, then edit_file with replace_all to rename them all. Tests grep + edit_file(replace_all) pipeline.",
+  "description": "Rename a function and all its call sites within a file. Multi-location rename task.",
   "setup": "./scripts/setup.sh",
-  "task": "In Examples/AgentCLI/main.swift, there is a function called 'formatTokens' that formats token counts for display. Rename this function to 'formatTokenCount' everywhere in the file — both the function definition and all call sites. There are multiple references to find and replace. Make sure you get them all.",
+  "task": "The function 'formatTokens' in Examples/AgentCLI/main.swift has a misleading name — it formats a count, not the tokens themselves. Rename it to 'formatTokenCount' everywhere it appears in that file.",
   "maxIterations": 15,
   "postconditions": {
     "completed": true,

@@ -1,8 +1,8 @@
 {
   "name": "cross-reference-tool-docs",
-  "description": "Multi-tool workflow: read BuiltInTools.swift to discover all 8 tools, then read each tool's source file to get its description, then write a summary doc. Tests read_file x N + write_file pipeline.",
+  "description": "Produce a reference document by cross-referencing a registry with individual source files. Multi-file analysis task.",
   "setup": "./scripts/setup.sh",
-  "task": "Read Sources/Yrden/Tools/BuiltInTools.swift to see what built-in tools exist. Then read each individual tool's source file to find its name and description string. Create a file at docs/tool-summary.md that lists all 8 built-in tools with their tool name (as registered), source file path, and the description string from the code. Format it as a markdown document with a table.",
+  "task": "We need documentation for the built-in tools. There's a factory at Sources/Yrden/Tools/BuiltInTools.swift that wires them all together. Figure out what tools exist, find each one's registered name and description, and produce docs/tool-summary.md with a table covering every tool.",
   "maxIterations": 15,
   "postconditions": {
     "completed": true,

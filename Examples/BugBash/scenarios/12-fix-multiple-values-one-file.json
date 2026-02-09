@@ -1,8 +1,8 @@
 {
   "name": "fix-multiple-values-one-file",
-  "description": "Multi-tool workflow: read_file to find two locations with the same model string, then edit_file twice to update both. Tests read_file + edit_file x2 pipeline.",
+  "description": "Update a default model string everywhere it appears in a file. Multi-location edit task.",
   "setup": "./scripts/setup.sh",
-  "task": "In Examples/AgentCLI/main.swift, the default Anthropic model is set to 'claude-sonnet-4-5-20250929'. This string appears in two places: once in the defaultModel variable assignment and once in the help text printed by printUsage(). Change both occurrences to 'claude-haiku-4-5-20251001'. Make sure you update BOTH locations — the help text AND the default model logic.",
+  "task": "The AgentCLI in Examples/AgentCLI/main.swift still defaults to claude-sonnet. Update it to use claude-haiku-4-5-20251001 instead — make sure you catch every reference to the old model string, including the help text.",
   "maxIterations": 15,
   "postconditions": {
     "completed": true,

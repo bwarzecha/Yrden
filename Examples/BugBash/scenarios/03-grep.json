@@ -1,8 +1,8 @@
 {
   "name": "grep",
-  "description": "Tests the grep tool by asking the agent to search for a pattern across the codebase. At commit b9baf80, 'PathValidator' appears in multiple source files (BuiltInTools.swift, PathValidator.swift, ReadFileTool.swift, ShellTool.swift, WriteFileTool.swift) and test/doc files.",
+  "description": "Search for usage of a type across the codebase. Pattern search task.",
   "setup": "./scripts/setup.sh",
-  "task": "Find all files in the repository that contain the string 'PathValidator'. Show which files reference it and tell me how many files total contain it.",
+  "task": "I want to understand how PathValidator is used across this codebase. Find every file that references it and give me a summary — which files define it, which ones instantiate it, and which ones just accept it as a dependency?",
   "maxIterations": 15,
   "postconditions": {
     "completed": true

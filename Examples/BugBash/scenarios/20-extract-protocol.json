@@ -1,8 +1,8 @@
 {
   "name": "extract-protocol",
-  "description": "Read ReadFileTool, WriteFileTool, and EditFileTool to identify the shared pathValidator pattern, then create a PathValidatedTool protocol that captures this commonality. Tests read_file for multiple files and write_file for the new protocol.",
+  "description": "Identify duplicated patterns across files and extract a shared protocol. Refactoring task.",
   "setup": "./scripts/setup.sh",
-  "task": "Look at the tool implementations in Sources/Yrden/Tools/. Read ReadFileTool.swift, WriteFileTool.swift, and EditFileTool.swift. Notice that all three have a 'public let pathValidator: PathValidator' property. Create a new file Sources/Yrden/Tools/PathValidatedTool.swift that defines a protocol called PathValidatedTool. The protocol should require a 'pathValidator' property of type PathValidator. Include a doc comment explaining that this protocol is for tools that validate file paths before operations. The protocol should extend Sendable since PathValidator is Sendable. Also read PathValidator.swift to confirm the PathValidator type name is correct.",
+  "task": "Several tools in Sources/Yrden/Tools/ share a common pattern — they all have a pathValidator property. Look at which tools have this and extract a PathValidatedTool protocol into a new file Sources/Yrden/Tools/PathValidatedTool.swift that captures the shared interface.",
   "maxIterations": 15,
   "postconditions": {
     "completed": true,

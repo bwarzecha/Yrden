@@ -1,8 +1,8 @@
 {
   "name": "read-file",
-  "description": "Tests the read_file tool by asking the agent to read a real source file and explain its contents. The agent must use read_file on ShellTool.swift and correctly identify the ShellToolArgs parameters (command, workingDirectory, timeout) and their types.",
+  "description": "Read a source file and explain its structure. Single-file comprehension task.",
   "setup": "./scripts/setup.sh",
-  "task": "Read the file at Sources/Yrden/Tools/ShellTool.swift and explain what parameters the ShellToolArgs struct accepts. For each parameter, tell me the property name, its Swift type, whether it's optional, and the description string from the @Guide annotation.",
+  "task": "I need to call the shell tool from JSON but I'm not sure what parameters it accepts. Look at Sources/Yrden/Tools/ShellTool.swift and tell me every parameter the ShellToolArgs struct defines — I need to know the JSON key names I should use, not the Swift property names.",
   "maxIterations": 15,
   "postconditions": {
     "completed": true

@@ -1,8 +1,8 @@
 {
   "name": "search-and-bulk-replace",
-  "description": "Multi-tool workflow: grep to find all 'spillover' references in ShellTool.swift, then edit_file with replace_all to rename them to 'overflow'. Tests grep + edit_file(replace_all) pipeline.",
+  "description": "Rename a concept across an entire file — properties, functions, and comments. Bulk rename task.",
   "setup": "./scripts/setup.sh",
-  "task": "In Sources/Yrden/Tools/ShellTool.swift, there are multiple references to 'spillover' — including the property 'spilloverDirectory', the function 'writeSpillover', the parameter name 'spilloverDirectory', and comments mentioning 'spillover'. Rename ALL of these to use 'overflow' instead: 'spilloverDirectory' becomes 'overflowDirectory', 'writeSpillover' becomes 'writeOverflow', and comments should say 'overflow' instead of 'spillover'. Make sure every occurrence is updated.",
+  "task": "The term 'spillover' in ShellTool.swift is confusing — rename it to 'overflow' everywhere in the file. This includes property names, function names, parameter names, and comments. Don't miss any.",
   "maxIterations": 15,
   "postconditions": {
     "completed": true,
@@ -16,7 +16,8 @@
       "Sources/Yrden/Tools/ShellTool.swift": [
         "spilloverDirectory",
         "writeSpillover",
-        "spillover"
+        "spillover",
+        "Spillover"
       ]
     }
   },

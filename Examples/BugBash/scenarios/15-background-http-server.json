@@ -1,8 +1,8 @@
 {
   "name": "background-http-server",
-  "description": "Start a Python HTTP server in the background, verify it's running via task_output, curl it, then stop it. Tests shell background mode, task_output, shell foreground, and task_stop tools working together.",
+  "description": "Write a server, run it in the background, hit it with curl, shut it down. Full background lifecycle.",
   "setup": "./scripts/setup.sh",
-  "task": "Create a simple Python HTTP server script at server.py in the working directory that serves a page with the text 'Hello from Yrden' on port 9876. Then start it in the background using the shell tool with run_in_background. Use task_output to check that the server is running. Then use the shell tool to curl http://localhost:9876 and confirm you get a response. Finally, stop the background server using task_stop. Write the curl output to curl_result.txt in the working directory.",
+  "task": "Write a tiny Python HTTP server that responds with 'Hello from Yrden' on port 9876, run it in the background, curl it to prove it works, then shut everything down. Save the curl response to curl_result.txt.",
   "maxIterations": 20,
   "postconditions": {
     "completed": true

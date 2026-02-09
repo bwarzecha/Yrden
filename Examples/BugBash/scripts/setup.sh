@@ -5,7 +5,7 @@
 set -euo pipefail
 
 REPO="${1:-$(git rev-parse --show-toplevel)}"
-COMMIT="a47963d"
+COMMIT="677def9"
 TMPDIR=$(mktemp -d /tmp/yrden-bugbash-XXXXXXXX)
 
 git clone --quiet --no-checkout "$REPO" "$TMPDIR"

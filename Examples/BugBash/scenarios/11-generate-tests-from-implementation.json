@@ -1,16 +1,15 @@
 {
   "name": "generate-tests-from-implementation",
-  "description": "Multi-tool workflow: read_file to understand EditFileTool error paths, then write_file to create edge case tests. Tests read_file + write_file pipeline.",
+  "description": "Study an implementation and generate edge case tests for its error paths. Test generation task.",
   "setup": "./scripts/setup.sh",
-  "task": "Read Sources/Yrden/Tools/EditFileTool.swift and study its error handling and edge cases. Then write a new test file at Tests/YrdenTests/Unit/Tools/EditFileEdgeCaseTests.swift that covers at least these edge cases: (1) empty old_string should return an error, (2) old_string equal to new_string should return an error, (3) file not found should return an error, (4) multiple matches without replace_all should return an error mentioning the count, (5) replace_all with multiple matches should succeed. Write valid Swift test code using XCTest conventions. The tests should be unit-test style — they can test the logic conceptually, and should reference the actual error messages from EditFileTool.",
+  "task": "The EditFileTool at Sources/Yrden/Tools/EditFileTool.swift has several error paths that aren't well tested. Read the implementation, figure out what can go wrong, and write edge case tests at Tests/YrdenTests/Unit/Tools/EditFileEdgeCaseTests.swift. Cover at least: invalid inputs, file not found, and the ambiguous-match case. Use XCTest and reference the actual error messages from the implementation.",
   "maxIterations": 15,
   "postconditions": {
     "completed": true,
     "file_exists": ["Tests/YrdenTests/Unit/Tools/EditFileEdgeCaseTests.swift"],
     "file_contains": {
       "Tests/YrdenTests/Unit/Tools/EditFileEdgeCaseTests.swift": [
-        "old_string is empty",
-        "old_string and new_string are the same",
+        "old_string",
         "File not found",
         "replace_all",
         "XCTest"

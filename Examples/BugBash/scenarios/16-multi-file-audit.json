@@ -1,8 +1,8 @@
 {
   "name": "multi-file-audit",
-  "description": "Audit all tool implementations in Sources/Yrden/Tools/ for path validation patterns. Uses glob to discover files, read_file to inspect each tool, and write_file to produce an audit report.",
+  "description": "Audit tool files for consistent security patterns and produce a report. Multi-file analysis task.",
   "setup": "./scripts/setup.sh",
-  "task": "Audit all tool implementations in Sources/Yrden/Tools/ for path validation patterns. Use the glob tool to find all .swift files in that directory, then read each tool file (ReadFileTool.swift, WriteFileTool.swift, EditFileTool.swift, GlobTool.swift, GrepTool.swift, ShellTool.swift) to check which tools have a pathValidator property and how they use it (e.g., calling validateRead or validateWrite). Write a markdown audit report to audit.md in the working directory listing each tool, whether it has a pathValidator, and which validation methods it calls.",
+  "task": "Security review: are all the tools in Sources/Yrden/Tools/ properly validating file paths before accessing the filesystem? Check each tool that takes a path parameter and see if it calls pathValidator.validateRead or pathValidator.validateWrite before using that path. Write your findings to audit.md — for each tool, say whether it validates and which methods it uses.",
   "maxIterations": 15,
   "postconditions": {
     "completed": true,

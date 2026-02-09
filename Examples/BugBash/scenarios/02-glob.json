@@ -1,8 +1,8 @@
 {
   "name": "glob",
-  "description": "Tests the glob tool by asking the agent to find all Swift files in a specific directory. At commit b9baf80, Sources/Yrden/Tools/ contains exactly 7 Swift files: BuiltInTools.swift, OutputTruncation.swift, PathValidator.swift, ReadFileTool.swift, ShellEnvironment.swift, ShellTool.swift, WriteFileTool.swift.",
+  "description": "Discover files in a directory and categorize them. File discovery task.",
   "setup": "./scripts/setup.sh",
-  "task": "How many Swift files are in the Sources/Yrden/Tools/ directory? List all of them by name.",
+  "task": "I'm new to this codebase. Give me an overview of what's in Sources/Yrden/Tools/ — how many Swift files are there, and what does each one seem to be responsible for based on its name? Group them into categories (e.g., file operations, search, shell, etc.).",
   "maxIterations": 15,
   "postconditions": {
     "completed": true

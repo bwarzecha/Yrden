@@ -1,8 +1,8 @@
 {
   "name": "find-todos-produce-report",
-  "description": "Multi-tool workflow: grep to search for TODO/FIXME comments across the codebase, then write_file to create a report. Tests grep + write_file pipeline.",
+  "description": "Find all TODO/FIXME comments and produce a tech debt report. Search + report task.",
   "setup": "./scripts/setup.sh",
-  "task": "Search the entire Yrden codebase (Sources/ and Tests/ directories) for all TODO and FIXME comments. Create a file called TODO_REPORT.md in the repository root that lists each finding with its file path, line number, and the comment text. Group findings by file. Include a count of total TODOs and FIXMEs at the top.",
+  "task": "We're doing a tech debt review. Find every TODO and FIXME comment in Sources/ and Tests/ and create a TODO_REPORT.md summarizing what you found — file path, line number, and the comment. Group them by file and include a total count at the top.",
   "maxIterations": 15,
   "postconditions": {
     "completed": true,
