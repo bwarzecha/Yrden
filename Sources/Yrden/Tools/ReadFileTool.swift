@@ -23,7 +23,27 @@ public struct ReadFileTool: TypedTool {
     public typealias Args = ReadFileArgs
 
     public let name = "read_file"
-    public let description = "Read a file's contents with line numbers. Supports ~ (tilde) and relative paths. Returns at most 500 lines starting from offset. Use offset and limit to paginate through large files."
+    public let description = """
+        Read a file's contents with line numbers. Use this to inspect files, verify edits, \
+        and understand code before making changes.
+
+        Output format: Each line is printed as N<TAB>content where N is the 1-based line \
+        number and a tab character separates it from the exact file content. Blank lines appear \
+        as just N<TAB> with nothing after the tab.
+
+        Usage:
+        - Always read a file before editing it with edit_file.
+        - Use offset and limit to paginate large files (default limit: 500 lines).
+        - After editing, read the file again to verify your changes.
+        - Supports ~ (tilde) and relative paths.
+
+        Cross-tool tips:
+        - read_file then edit_file: Use the content AFTER the tab as edit_file's old_string. \
+        Never include the line number or tab prefix — old_string must be raw file content.
+        - grep then read_file: Use grep to find line numbers, then read_file with offset to \
+        see surrounding context.
+        - glob then read_file: Use glob to discover files by name, then read_file to inspect them.
+        """
 
     public let pathValidator: PathValidator
     public let totalCharacterLimit: Int
@@ -50,9 +70,13 @@ public struct ReadFileTool: TypedTool {
             let resolvedPath = try pathValidator.validateRead(arguments.path)
             let url = URL(fileURLWithPath: resolvedPath)
 
-            // Check file exists
-            guard FileManager.default.fileExists(atPath: resolvedPath) else {
+            // Check file exists and is not a directory
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: resolvedPath, isDirectory: &isDir) else {
                 return .error("File not found: \(arguments.path)")
+            }
+            if isDir.boolValue {
+                return .error("\(arguments.path) is a directory, not a file. Use glob to list directory contents.")
             }
 
             // Binary check: read first 8KB and look for null bytes
@@ -67,20 +91,36 @@ public struct ReadFileTool: TypedTool {
             let offset = max(1, arguments.offset ?? 1)
             let limit = arguments.limit ?? defaultLineLimit
 
-            // Stream lines — break early after limit to avoid iterating entire file
+            // Read file and split on newlines, preserving empty lines
+            let fileContent = try String(contentsOf: url, encoding: .utf8)
+
+            // Handle empty file
+            if fileContent.isEmpty {
+                let header = "[File: \(arguments.path) | Lines 0-0 of 0 | \(formatSize(fileSize))]"
+                return .success(header)
+            }
+
+            var allLines = fileContent.split(separator: "\n", omittingEmptySubsequences: false)
+                .map(String.init)
+            // File ending with \n has no trailing "line" — trim the phantom empty element
+            if fileContent.hasSuffix("\n") && !allLines.isEmpty {
+                allLines.removeLast()
+            }
+            let totalLineCount = allLines.count
+
             var linesRead = 0
             var outputLines: [(lineNumber: Int, content: String)] = []
             var startLine = 0
             var endLine = 0
             var hitLimit = false
 
-            for try await line in url.lines {
+            for line in allLines {
                 linesRead += 1
 
                 // Skip lines before offset
                 if linesRead < offset { continue }
 
-                // Stop after limit — don't iterate rest of file
+                // Stop after limit
                 if outputLines.count >= limit {
                     hitLimit = true
                     break
@@ -101,21 +141,15 @@ public struct ReadFileTool: TypedTool {
                 outputLines.append((linesRead, truncatedLine))
             }
 
-            // Handle empty file
-            if linesRead == 0 {
-                let header = "[File: \(arguments.path) | Lines 0-0 of 0 | \(formatSize(fileSize))]"
-                return .success(header)
-            }
-
             // Build output with compact line numbers
-            var result = outputLines.map { "\($0.lineNumber): \($0.content)" }
+            var result = outputLines.map { "\($0.lineNumber)\t\($0.content)" }
                 .joined(separator: "\n")
 
             // Total character cap
             result = OutputTruncation.truncate(result, maxLength: totalCharacterLimit)
 
-            // Prepend header — indicate "more" when we broke early
-            let totalLabel = hitLimit ? "\(linesRead)+" : "\(linesRead)"
+            // Prepend header with total line count
+            let totalLabel = hitLimit ? "\(totalLineCount)" : "\(totalLineCount)"
             let header = "[File: \(arguments.path) | Lines \(startLine)-\(endLine) of \(totalLabel) | \(formatSize(fileSize))]"
             return .success(header + "\n" + result)
 

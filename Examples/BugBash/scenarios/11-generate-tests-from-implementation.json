@@ -1,21 +1,16 @@
 {
   "name": "generate-tests-from-implementation",
-  "description": "Study an implementation and generate edge case tests for its error paths. Test generation task.",
+  "description": "Study an implementation and generate edge case tests. Test generation task.",
   "setup": "./scripts/setup.sh",
-  "task": "The EditFileTool at Sources/Yrden/Tools/EditFileTool.swift has several error paths that aren't well tested. Read the implementation, figure out what can go wrong, and write edge case tests at Tests/YrdenTests/Unit/Tools/EditFileEdgeCaseTests.swift. Cover at least: invalid inputs, file not found, and the ambiguous-match case. Use XCTest and reference the actual error messages from the implementation. Do NOT attempt to compile or run the tests - just write the test file.",
-  "maxIterations": 15,
+  "task": "Read src/justhtml/encoding.py and understand the normalize_encoding_label function and the UTF-7 blocklist logic. Write edge case tests at tests/test_encoding_edge_cases.py covering: empty string input, whitespace-only input, blocked UTF-7 labels, case-insensitive matching, and unknown encoding labels. Use unittest or pytest style. Then run the tests with .venv/bin/pytest tests/test_encoding_edge_cases.py to verify they pass.",
+  "maxIterations": 30,
   "postconditions": {
     "completed": true,
-    "file_exists": ["Tests/YrdenTests/Unit/Tools/EditFileEdgeCaseTests.swift"],
+    "file_exists": ["tests/test_encoding_edge_cases.py"],
     "file_contains": {
-      "Tests/YrdenTests/Unit/Tools/EditFileEdgeCaseTests.swift": [
-        "old_string",
-        "File not found",
-        "replace_all",
-        "XCTest"
-      ]
+      "tests/test_encoding_edge_cases.py": ["normalize_encoding_label", "utf-7"]
     }
   },
   "extra_files": {},
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }

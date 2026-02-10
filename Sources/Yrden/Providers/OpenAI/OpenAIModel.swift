@@ -279,11 +279,21 @@ public struct OpenAIModel: Model, Sendable {
 
     private func sendResponsesRequest(_ request: ResponsesAPIRequest) async throws -> Data {
         let url = provider.baseURL.appendingPathComponent(OpenAIEndpoint.responses)
-        let (data, http) = try await HTTPClient.sendJSONPOST(
-            url: url,
-            body: request,
-            configure: provider.authenticate
-        )
+        let data: Data
+        let http: HTTPURLResponse
+        do {
+            (data, http) = try await HTTPClient.sendJSONPOST(
+                url: url,
+                body: request,
+                configure: provider.authenticate
+            )
+        } catch let urlError as URLError where urlError.code == .timedOut || urlError.code == .networkConnectionLost {
+            throw RetriableError(
+                underlyingError: LLMError.networkError("Request failed: \(urlError.localizedDescription)"),
+                retryAfter: nil,
+                statusCode: 0
+            )
+        }
         try handler.handleHTTPStatus(
             http.statusCode,
             data: data,
@@ -375,11 +385,21 @@ public struct OpenAIModel: Model, Sendable {
         continuation: AsyncThrowingStream<StreamEvent, Error>.Continuation
     ) async throws {
         let url = provider.baseURL.appendingPathComponent(OpenAIEndpoint.responses)
-        let (bytes, http) = try await HTTPClient.streamJSONPOST(
-            url: url,
-            body: request,
-            configure: provider.authenticate
-        )
+        let bytes: URLSession.AsyncBytes
+        let http: HTTPURLResponse
+        do {
+            (bytes, http) = try await HTTPClient.streamJSONPOST(
+                url: url,
+                body: request,
+                configure: provider.authenticate
+            )
+        } catch let urlError as URLError where urlError.code == .timedOut || urlError.code == .networkConnectionLost {
+            throw RetriableError(
+                underlyingError: LLMError.networkError("Request failed: \(urlError.localizedDescription)"),
+                retryAfter: nil,
+                statusCode: 0
+            )
+        }
 
         if http.statusCode != 200 {
             let errorData = try await HTTPClient.collectErrorData(from: bytes)

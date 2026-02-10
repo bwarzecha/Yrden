@@ -147,11 +147,21 @@ struct ChatCompletionsHandler: Sendable {
         modelName: String
     ) async throws -> Data {
         let url = provider.baseURL.appendingPathComponent(OpenAIEndpoint.chatCompletions)
-        let (data, http) = try await HTTPClient.sendJSONPOST(
-            url: url,
-            body: request,
-            configure: provider.authenticate
-        )
+        let data: Data
+        let http: HTTPURLResponse
+        do {
+            (data, http) = try await HTTPClient.sendJSONPOST(
+                url: url,
+                body: request,
+                configure: provider.authenticate
+            )
+        } catch let urlError as URLError where urlError.code == .timedOut || urlError.code == .networkConnectionLost {
+            throw RetriableError(
+                underlyingError: LLMError.networkError("Request failed: \(urlError.localizedDescription)"),
+                retryAfter: nil,
+                statusCode: 0
+            )
+        }
         try handleHTTPStatus(
             http.statusCode,
             data: data,
@@ -220,11 +230,21 @@ struct ChatCompletionsHandler: Sendable {
         stopSequences: [String]? = nil
     ) async throws {
         let url = provider.baseURL.appendingPathComponent(OpenAIEndpoint.chatCompletions)
-        let (bytes, http) = try await HTTPClient.streamJSONPOST(
-            url: url,
-            body: request,
-            configure: provider.authenticate
-        )
+        let bytes: URLSession.AsyncBytes
+        let http: HTTPURLResponse
+        do {
+            (bytes, http) = try await HTTPClient.streamJSONPOST(
+                url: url,
+                body: request,
+                configure: provider.authenticate
+            )
+        } catch let urlError as URLError where urlError.code == .timedOut || urlError.code == .networkConnectionLost {
+            throw RetriableError(
+                underlyingError: LLMError.networkError("Request failed: \(urlError.localizedDescription)"),
+                retryAfter: nil,
+                statusCode: 0
+            )
+        }
 
         if http.statusCode != 200 {
             let errorData = try await HTTPClient.collectErrorData(from: bytes)

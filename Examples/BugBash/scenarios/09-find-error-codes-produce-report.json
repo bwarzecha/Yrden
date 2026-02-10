@@ -1,0 +1,16 @@
+{
+  "name": "find-error-codes-produce-report",
+  "description": "Catalog error types from source and produce a report. Search + report task.",
+  "setup": "./scripts/setup.sh",
+  "task": "We're doing a tech debt review. Search across src/justhtml/ for every error class (any class inheriting from Exception, ValueError, SyntaxError, etc.) and catalog every error code string defined in errors.py. Create ERROR_REPORT.md with each error class name, its parent class, the file where it's defined, and a one-line description. Include a total count at the top.",
+  "maxIterations": 25,
+  "postconditions": {
+    "completed": true,
+    "file_exists": ["ERROR_REPORT.md"],
+    "file_contains": {
+      "ERROR_REPORT.md": ["ParseError", "Error"]
+    }
+  },
+  "extra_files": {},
+  "denied_commands": []
+}

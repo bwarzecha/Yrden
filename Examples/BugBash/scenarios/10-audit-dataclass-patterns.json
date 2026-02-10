@@ -1,0 +1,16 @@
+{
+  "name": "audit-dataclass-patterns",
+  "description": "Audit frozen dataclasses using object.__setattr__ across the codebase. Cross-file analysis task.",
+  "setup": "./scripts/setup.sh",
+  "task": "We had a bug where a frozen dataclass was mutated via object.__setattr__. Audit all frozen dataclasses in src/justhtml/ — find which files use @dataclass(frozen=True) and which of those also use object.__setattr__ to bypass immutability. Write the full audit to docs/dataclass-audit.md listing each class name, which file it's in, and whether it uses object.__setattr__.",
+  "maxIterations": 40,
+  "postconditions": {
+    "completed": true,
+    "file_exists": ["docs/dataclass-audit.md"],
+    "file_contains": {
+      "docs/dataclass-audit.md": ["SanitizationPolicy", "UrlRule", "frozen", "object.__setattr__"]
+    }
+  },
+  "extra_files": {},
+  "denied_commands": []
+}

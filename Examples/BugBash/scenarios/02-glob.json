@@ -2,11 +2,15 @@
   "name": "glob",
   "description": "Discover files in a directory and categorize them. File discovery task.",
   "setup": "./scripts/setup.sh",
-  "task": "I'm new to this codebase. Give me an overview of what's in Sources/Yrden/Tools/ — how many Swift files are there, and what does each one seem to be responsible for based on its name? Group them into categories (e.g., file operations, search, shell, etc.).",
-  "maxIterations": 15,
+  "task": "I'm new to this codebase. Use the glob tool to discover all Python source files under src/justhtml/. Write a file called module-map.md that lists each .py file grouped by category: parsing (tokenizer, tree builder), output (serialize), data model (node, element), and utilities (everything else).",
+  "maxIterations": 22,
   "postconditions": {
-    "completed": true
+    "completed": true,
+    "file_exists": ["module-map.md"],
+    "file_contains": {
+      "module-map.md": ["tokenizer", "serialize", "node"]
+    }
   },
   "extra_files": {},
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }

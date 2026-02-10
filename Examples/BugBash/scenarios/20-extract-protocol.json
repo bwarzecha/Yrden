@@ -1,19 +1,19 @@
 {
-  "name": "extract-protocol",
-  "description": "Identify duplicated patterns across files and extract a shared protocol. Refactoring task.",
+  "name": "extract-base-class",
+  "description": "Extract duplicated clone_node logic into a shared mixin. Refactoring task.",
   "setup": "./scripts/setup.sh",
-  "task": "Several tools in Sources/Yrden/Tools/ share a common pattern — they all have a pathValidator property. Look at which tools have this and extract a PathValidatedTool protocol into a new file Sources/Yrden/Tools/PathValidatedTool.swift that captures the shared interface.",
-  "maxIterations": 15,
+  "task": "Several node classes in src/justhtml/node.py have clone_node methods that all copy the same origin-tracking attributes: _source_html, _origin_pos, _origin_line, _origin_col. Look at which classes have this pattern and extract a CloneableNodeMixin into a new file src/justhtml/cloneable_mixin.py that captures the shared clone logic for these origin attributes.",
+  "maxIterations": 30,
   "postconditions": {
     "completed": true,
-    "file_exists": ["Sources/Yrden/Tools/PathValidatedTool.swift"],
+    "file_exists": ["src/justhtml/cloneable_mixin.py"],
     "file_contains": {
-      "Sources/Yrden/Tools/PathValidatedTool.swift": ["protocol PathValidatedTool", "pathValidator", "PathValidator"]
+      "src/justhtml/cloneable_mixin.py": ["CloneableNodeMixin", "_source_html", "_origin_pos"]
     },
     "file_not_contains": {
-      "Sources/Yrden/Tools/PathValidatedTool.swift": ["class PathValidatedTool"]
+      "src/justhtml/cloneable_mixin.py": ["class CloneableNodeMixin(Node)"]
     }
   },
   "extra_files": {},
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }

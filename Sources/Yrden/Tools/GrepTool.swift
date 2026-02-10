@@ -41,7 +41,31 @@ public struct GrepTool: TypedTool {
     public typealias Args = GrepToolArgs
 
     public let name = "grep"
-    public let description = "Search file contents using ripgrep (rg). Supports regex patterns, glob filtering, and multiple output modes. Respects .gitignore and skips binary files by default."
+    public let description = """
+        Search file contents using ripgrep (rg). Use this to find patterns across files — \
+        locating definitions, usages, or specific text.
+
+        Output modes:
+        - 'files' (default): Returns one matching file path per line. Best for discovering \
+        which files contain a pattern.
+        - 'content': Returns matching lines with context. Format is path:line:content when \
+        searching a directory, or line:content when searching a single file. Use context_lines \
+        to see surrounding code.
+        - 'count': Returns match counts per file.
+
+        Usage:
+        - Use glob parameter to filter by file type (e.g. glob: '*.swift').
+        - Supports full regex syntax for patterns.
+        - Respects .gitignore and skips binary files by default.
+        - Use case_insensitive: true for case-insensitive matching.
+
+        Cross-tool tips:
+        - grep then read_file: After finding matches, use read_file with offset to see full \
+        surrounding context.
+        - grep then edit_file: The content portion of grep output (after path:line:) is raw \
+        file content — usable as edit_file old_string.
+        - Use glob instead when searching by file name or extension, not file content.
+        """
 
     public let pathValidator: PathValidator
     public let workingDirectory: String
@@ -129,6 +153,9 @@ public struct GrepTool: TypedTool {
 
         let effectiveMaxResults = arguments.maxResults ?? maxResults
         args += ["--max-count", "\(effectiveMaxResults)"]
+
+        // Sort by path for deterministic output across calls
+        args += ["--sort", "path"]
 
         args.append(arguments.pattern)
         args.append(searchDir)

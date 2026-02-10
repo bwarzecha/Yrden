@@ -80,6 +80,9 @@ public actor Agent<Output: SchemaType> {
     /// in `run()` and `runStream()` modes.
     public let backgroundTaskRegistry: BackgroundTaskRegistry?
 
+    /// Optional hooks called at each phase of the iteration loop in `run()` and `runStream()`.
+    public let hooks: (any AgentHooks<Output>)?
+
     public init(
         model: any Model,
         systemPrompt: String = "",
@@ -90,7 +93,8 @@ public actor Agent<Output: SchemaType> {
         usageLimits: UsageLimits = .none,
         endStrategy: EndStrategy = .early,
         toolTimeout: Duration? = nil,
-        backgroundTaskRegistry: BackgroundTaskRegistry? = nil
+        backgroundTaskRegistry: BackgroundTaskRegistry? = nil,
+        hooks: (any AgentHooks<Output>)? = nil
     ) throws {
         var seenToolNames: Set<String> = []
         for tool in tools {
@@ -116,6 +120,7 @@ public actor Agent<Output: SchemaType> {
         self.outputToolDescription = "Provide the final result"
         self.toolTimeout = toolTimeout
         self.backgroundTaskRegistry = backgroundTaskRegistry
+        self.hooks = hooks
     }
 
     private static func resolveOutputToolName(base: String, toolNames: Set<String>) -> String {
@@ -475,11 +480,13 @@ public actor Agent<Output: SchemaType> {
                             ctx.state.messages.append(.system(notification))
                         }
                     }
+                    await hooks?.beforeModel(ctx)
 
-                case .afterModel:
-                    break
+                case .afterModel(let ctx):
+                    await hooks?.afterModel(ctx)
 
                 case .beforeTools(let ctx):
+                    await hooks?.beforeTools(ctx)
                     // Check for tools needing approval (run()'s policy)
                     let needsApproval = ctx.pendingCalls.filter {
                         $0.requiresApproval && $0.decision == .pending
@@ -492,6 +499,7 @@ public actor Agent<Output: SchemaType> {
                     }
 
                 case .afterTools(let ctx):
+                    await hooks?.afterTools(ctx)
                     // Check iteration limit (run()'s policy).
                     // iteration hasn't been incremented yet at this yield point,
                     // so iteration + 1 is the number of completed iterations.
@@ -503,6 +511,7 @@ public actor Agent<Output: SchemaType> {
                     }
 
                 case .finished(let ctx):
+                    await hooks?.finished(ctx)
                     return AgentRun(
                         state: ctx.state,
                         status: .completed(ctx.output)
@@ -555,6 +564,8 @@ public actor Agent<Output: SchemaType> {
                         }
                     }
 
+                    await hooks?.beforeModel(ctx)
+
                     // Emit the request snapshot before streaming
                     let request = await ctx.completionRequest()
                     continuation.yield(.modelRequest(request))
@@ -573,10 +584,11 @@ public actor Agent<Output: SchemaType> {
                         }
                     }
 
-                case .afterModel:
-                    break
+                case .afterModel(let ctx):
+                    await hooks?.afterModel(ctx)
 
                 case .beforeTools(let ctx):
+                    await hooks?.beforeTools(ctx)
                     // Check for approval (same policy as executeLoop)
                     let needsApproval = ctx.pendingCalls.filter {
                         $0.requiresApproval && $0.decision == .pending
@@ -601,6 +613,7 @@ public actor Agent<Output: SchemaType> {
                     }
 
                 case .afterTools(let ctx):
+                    await hooks?.afterTools(ctx)
                     continuation.yield(.usage(ctx.state.usage))
 
                     // Check iteration limit (run()'s policy)
@@ -612,6 +625,7 @@ public actor Agent<Output: SchemaType> {
                     }
 
                 case .finished(let ctx):
+                    await hooks?.finished(ctx)
                     return AgentRun(
                         state: ctx.state,
                         status: .completed(ctx.output)

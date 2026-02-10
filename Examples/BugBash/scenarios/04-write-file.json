@@ -1,21 +1,16 @@
 {
   "name": "write-file",
-  "description": "Create a new Swift file following existing codebase patterns. File creation task.",
+  "description": "Create a new file following existing codebase patterns. File creation task.",
   "setup": "./scripts/setup.sh",
-  "task": "Add a new tool called 'list_tools' to the codebase. Create it at Sources/Yrden/Tools/ListToolsTool.swift. It should follow the same pattern as the other tools in that directory — study one of the simpler existing tools to understand the conventions. The tool should accept an optional 'filter' string parameter and return a placeholder response. Don't worry about actual implementation logic, just get the structure right.",
-  "maxIterations": 15,
+  "task": "Read src/justhtml/transforms_spec.py to understand the pattern used for transform dataclasses. Then create a new file src/justhtml/transforms_custom.py containing a frozen dataclass called AddClass that takes a CSS selector string and a class_name string, following the same @dataclass(frozen=True, slots=True) pattern used in transforms_spec.py.",
+  "maxIterations": 22,
   "postconditions": {
     "completed": true,
-    "file_exists": ["Sources/Yrden/Tools/ListToolsTool.swift"],
+    "file_exists": ["src/justhtml/transforms_custom.py"],
     "file_contains": {
-      "Sources/Yrden/Tools/ListToolsTool.swift": [
-        "ListToolsTool",
-        "TypedTool",
-        "list_tools",
-        "filter"
-      ]
+      "src/justhtml/transforms_custom.py": ["AddClass", "dataclass", "selector", "class_name"]
     }
   },
   "extra_files": {},
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }

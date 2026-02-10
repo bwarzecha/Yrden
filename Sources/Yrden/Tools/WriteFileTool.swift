@@ -18,7 +18,22 @@ public struct WriteFileTool: TypedTool {
     public typealias Args = WriteFileArgs
 
     public let name = "write_file"
-    public let description = "Write content to a file. Supports ~ (tilde) and relative paths. Creates parent directories if needed. Overwrites existing files atomically."
+    public let description = """
+        Write content to a file, creating it and parent directories if needed. Use this to \
+        create new files or completely replace an existing file's content.
+
+        Usage:
+        - Prefer edit_file over write_file when modifying part of an existing file — edit_file \
+        is safer since it verifies the exact content being replaced.
+        - Use write_file when creating a new file from scratch.
+        - WARNING: Overwrites existing files completely and atomically.
+        - Supports ~ (tilde) and relative paths.
+
+        Cross-tool tips:
+        - For partial edits, use read_file to see current content, then edit_file to change \
+        specific sections.
+        - Only use write_file to replace an entire file when most of the content is changing.
+        """
 
     public let pathValidator: PathValidator
     public let createDirectories: Bool

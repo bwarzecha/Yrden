@@ -2,12 +2,12 @@
   "name": "shell",
   "description": "Run a shell pipeline and persist the result. Shell execution task.",
   "setup": "./scripts/setup.sh",
-  "task": "How much Swift code is in this project? Count all non-blank lines across every .swift file under Sources/ and save the total to line_count.txt.",
-  "maxIterations": 15,
+  "task": "How much Python code is in this project? Count all non-blank lines across every .py file under src/justhtml/ and save the total to line_count.txt.",
+  "maxIterations": 22,
   "postconditions": {
     "completed": true,
     "file_exists": ["line_count.txt"]
   },
   "extra_files": {},
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }

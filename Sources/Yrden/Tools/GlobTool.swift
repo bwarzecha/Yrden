@@ -18,7 +18,26 @@ public struct GlobTool: TypedTool {
     public typealias Args = GlobToolArgs
 
     public let name = "glob"
-    public let description = "Find files matching a glob pattern. Supports *, **, ?, [], and {} patterns. Results are sorted by modification time (newest first). Respects .gitignore by default."
+    public let description = """
+        Find files matching a glob pattern. Use this to discover files by name or extension \
+        before reading or editing them.
+
+        Pattern syntax:
+        - * matches any characters within a directory (e.g. '*.swift')
+        - ** matches across directories (e.g. '**/*.swift' finds all Swift files recursively)
+        - ? matches a single character, [] matches character sets, {} matches alternatives
+
+        Usage:
+        - Results are sorted by modification time (newest first).
+        - Returns relative paths from the search directory.
+        - Respects .gitignore by default.
+        - Use the path parameter to search in a specific directory.
+
+        Cross-tool tips:
+        - glob then read_file: Use glob to find files, then read_file to inspect them.
+        - glob then grep: Use glob to confirm a file exists, then grep to search its contents.
+        - Use grep instead when searching by file content rather than file name.
+        """
 
     public let pathValidator: PathValidator
     public let workingDirectory: String

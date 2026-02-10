@@ -1,16 +1,16 @@
 {
   "name": "investigate-architecture",
-  "description": "Explore an unfamiliar module and write an architecture document. Codebase exploration task.",
+  "description": "Explore the tokenizer module and write an architecture document. Codebase exploration task.",
   "setup": "./scripts/setup.sh",
-  "task": "I'm onboarding onto this project and need to understand how the agent system works. Explore Sources/Yrden/Agent/ and write architecture.md explaining the key types, how a request flows through the system, and how the iteration/streaming model works. I want to understand it well enough to add a new feature.",
-  "maxIterations": 15,
+  "task": "I'm onboarding onto this project and need to understand how the HTML tokenizer works. Explore src/justhtml/tokenizer.py and write architecture.md explaining: the Tokenizer class, how the state machine works (mention specific states like DATA and TAG_OPEN by name), how it interfaces with the TreeBuilder, and how tokens flow through the system. I want to understand it well enough to add a new feature.",
+  "maxIterations": 30,
   "postconditions": {
     "completed": true,
     "file_exists": ["architecture.md"],
     "file_contains": {
-      "architecture.md": ["Agent", "AgentIterator", "AgentRun", "IterationState", "TypedTool", "ToolExecutionEngine", "iter"]
+      "architecture.md": ["Tokenizer", "DATA", "TAG_OPEN", "TreeBuilder", "state"]
     }
   },
   "extra_files": {},
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }

@@ -39,7 +39,23 @@ public struct ShellTool: TypedTool {
     public let name = "shell"
 
     public var description: String {
-        var desc = "Execute a shell command and return its output. The user's full shell environment is available (Homebrew, nvm, pyenv, etc.). Working directory starts at \(initialWorkingDirectory) and persists between calls — if you cd, subsequent calls start from the new directory. Prefer absolute paths over cd. Output is truncated to \(maxOutputLength) characters; when truncated, full output is saved to a file whose path is shown."
+        var desc = """
+            Execute a shell command and return its output. Use this for build tools, tests, \
+            git operations, package managers, and other system commands.
+
+            Prefer dedicated tools over shell for file operations:
+            - Use read_file instead of cat/head/tail
+            - Use write_file instead of echo/cat redirects
+            - Use edit_file instead of sed/awk
+            - Use glob instead of find/ls
+            - Use grep instead of grep/rg
+
+            Working directory starts at \(initialWorkingDirectory) and persists between calls — \
+            if you cd, subsequent calls start from the new directory. Prefer absolute paths \
+            over cd. Output is truncated to \(maxOutputLength) characters; when truncated, \
+            full output is saved to a file whose path is shown. Use run_in_background for \
+            long-running commands.
+            """
         if let info = environmentInfo {
             desc += info.descriptionSuffix
         }
@@ -121,10 +137,9 @@ public struct ShellTool: TypedTool {
         // Clamp timeout
         let timeoutSeconds = arguments.timeout.map { max(1, min($0, Int(maxTimeout.components.seconds))) }
             ?? Int(defaultTimeout.components.seconds)
-        // Wrap command with CWD sentinel
-        let wrappedCommand = """
-        \(arguments.command); __yrden_exit=$?; echo ""; echo "__YRDEN_CWD__:$(pwd)"; exit $__yrden_exit
-        """
+        // Wrap command with CWD sentinel on a new line so heredoc delimiters
+        // (which must be on their own line) aren't broken by the appended sentinel.
+        let wrappedCommand = "\(arguments.command)\n__yrden_exit=$?; echo \"\"; echo \"__YRDEN_CWD__:$(pwd)\"; exit $__yrden_exit"
 
         let shellPath = environment.shellPath
 
@@ -171,8 +186,29 @@ public struct ShellTool: TypedTool {
             // Ensure process has fully terminated before reading pipes
             process.waitUntilExit()
 
-            let stdoutData = await stdoutTask.value
-            let stderrData = await stderrTask.value
+            // Give pipe readers a brief window to finish draining, then close
+            // the read-side handles to unblock them.  This prevents indefinite
+            // hangs when the command backgrounds a child that inherits the pipe
+            // fds (e.g. `python server.py &`).
+            let processId = process.processIdentifier
+            let (stdoutData, stdoutTimedOut) = await Self.awaitOrClose(
+                task: stdoutTask,
+                handle: stdoutPipe.fileHandleForReading,
+                timeout: .seconds(2)
+            )
+            let (stderrData, stderrTimedOut) = await Self.awaitOrClose(
+                task: stderrTask,
+                handle: stderrPipe.fileHandleForReading,
+                timeout: .seconds(2)
+            )
+
+            // If either pipe timed out, background children are still running
+            // in the process group. Kill them to avoid orphaned processes.
+            if stdoutTimedOut || stderrTimedOut {
+                kill(-processId, SIGTERM)
+                try? await Task.sleep(for: .seconds(1))
+                kill(-processId, SIGKILL)
+            }
 
             let exitCode = process.terminationStatus
             let output = (
@@ -247,21 +283,62 @@ public struct ShellTool: TypedTool {
 
     /// Read from a file handle up to `limit` bytes, discarding the rest.
     /// Prevents unbounded memory usage from runaway processes.
+    /// Uses the throwing `read(upToCount:)` API so that closing the handle
+    /// from another thread produces a catchable Swift error instead of an
+    /// uncatchable NSException.
     private static func readCapped(from handle: FileHandle, limit: Int) -> Data {
         var result = Data()
         let chunkSize = 65_536
         while true {
-            let chunk = handle.readData(ofLength: chunkSize)
-            if chunk.isEmpty { break }
+            let chunk: Data
+            do {
+                guard let data = try handle.read(upToCount: chunkSize), !data.isEmpty else { break }
+                chunk = data
+            } catch {
+                break  // Handle was closed (e.g. by awaitOrClose)
+            }
             let remaining = limit - result.count
             if remaining <= 0 {
                 // Drain remaining data to avoid broken pipe, but don't store it
-                while !handle.readData(ofLength: chunkSize).isEmpty {}
+                do {
+                    while let data = try handle.read(upToCount: chunkSize), !data.isEmpty {}
+                } catch { /* handle closed */ }
                 break
             }
             result.append(chunk.prefix(remaining))
         }
         return result
+    }
+
+    /// Await a pipe-reading task with a timeout.  If the task doesn't
+    /// complete in time (e.g. a background child still holds the fd),
+    /// close the read-side handle to force EOF, then await the result.
+    /// Returns `(data, timedOut)` so the caller can clean up orphaned children.
+    private static func awaitOrClose(
+        task: Task<Data, Never>,
+        handle: FileHandle,
+        timeout: Duration
+    ) async -> (data: Data, timedOut: Bool) {
+        await withTaskGroup(of: Data?.self) { group in
+            group.addTask { await task.value }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil  // sentinel: timeout fired
+            }
+            if let first = await group.next() {
+                if let data = first {
+                    group.cancelAll()
+                    return (data, false)
+                }
+                // Timeout fired — close handle to unblock the blocked read
+                handle.closeFile()
+                if let second = await group.next(), let data = second {
+                    return (data, true)
+                }
+                return (Data(), true)
+            }
+            return (Data(), false)
+        }
     }
 
     private func writeSpillover(_ content: String) throws -> String {

@@ -1,12 +1,16 @@
 {
   "name": "read-file",
-  "description": "Read a source file and explain its structure. Single-file comprehension task.",
+  "description": "Read a source file and identify its public API. Single-file comprehension task.",
   "setup": "./scripts/setup.sh",
-  "task": "I need to call the shell tool from JSON but I'm not sure what parameters it accepts. Look at Sources/Yrden/Tools/ShellTool.swift and tell me every parameter the ShellToolArgs struct defines — I need to know the JSON key names I should use, not the Swift property names.",
-  "maxIterations": 15,
+  "task": "Read src/justhtml/selector.py and write a summary of its public API to selector-api.md. List each public class and function with a one-line description of what it does.",
+  "maxIterations": 22,
   "postconditions": {
-    "completed": true
+    "completed": true,
+    "file_exists": ["selector-api.md"],
+    "file_contains": {
+      "selector-api.md": ["Selector", "select", "match"]
+    }
   },
   "extra_files": {},
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }

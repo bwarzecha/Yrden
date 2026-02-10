@@ -1,9 +1,9 @@
 {
   "name": "background-long-computation",
-  "description": "Run a long computation in the background, monitor progress, extract result. Background polling task.",
+  "description": "Run a long computation in background, monitor progress, extract result. Background polling task.",
   "setup": "./scripts/setup.sh",
-  "task": "There's a compute.py script in the working directory that runs a ~5 second calculation. Run it in the background, check on it at least once while it's still going, and when it finishes grab the final RESULT value and save just the number to result.txt.",
-  "maxIterations": 20,
+  "task": "There's a compute.py script in the working directory that runs a ~5 second calculation. Run it in the background using .venv/bin/python compute.py, check on it at least once while it's still going, and when it finishes grab the final RESULT value and save just the number to result.txt.",
+  "maxIterations": 35,
   "postconditions": {
     "completed": true,
     "file_exists": ["result.txt"],
@@ -14,5 +14,5 @@
   "extra_files": {
     "compute.py": "import time, sys\nprint('Starting...', flush=True)\ntotal = 0\nfor i in range(5):\n    time.sleep(1)\n    total += i * i\n    print(f'Step {i+1}/5: total={total}', flush=True)\nprint(f'RESULT: {total}', flush=True)\n"
   },
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }

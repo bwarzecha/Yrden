@@ -2,11 +2,15 @@
   "name": "grep",
   "description": "Search for usage of a type across the codebase. Pattern search task.",
   "setup": "./scripts/setup.sh",
-  "task": "I want to understand how PathValidator is used across this codebase. Find every file that references it and give me a summary — which files define it, which ones instantiate it, and which ones just accept it as a dependency?",
-  "maxIterations": 15,
+  "task": "Use grep to find every place ParseError is referenced across the codebase. Write a report to parse-errors.md that lists each file where ParseError appears, how many times, and whether the file raises it, catches it, or just imports it.",
+  "maxIterations": 22,
   "postconditions": {
-    "completed": true
+    "completed": true,
+    "file_exists": ["parse-errors.md"],
+    "file_contains": {
+      "parse-errors.md": ["ParseError", "tokenizer", "raise"]
+    }
   },
   "extra_files": {},
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }

@@ -1,0 +1,16 @@
+{
+  "name": "multi-file-security-audit",
+  "description": "Audit URL handling paths in the sanitizer and produce a security report. Multi-file analysis task.",
+  "setup": "./scripts/setup.sh",
+  "task": "Security review: the HTML sanitizer in src/justhtml/sanitize.py handles URL attributes. Audit the URL validation code path — find UrlPolicy, UrlRule, and _sanitize_url_value_with_rule. Document what schemes are allowed by default, how javascript: URLs are handled, and whether there are any bypass risks. Write your findings to audit.md.",
+  "maxIterations": 30,
+  "postconditions": {
+    "completed": true,
+    "file_exists": ["audit.md"],
+    "file_contains": {
+      "audit.md": ["UrlPolicy", "UrlRule", "allowed_schemes", "javascript"]
+    }
+  },
+  "extra_files": {},
+  "denied_commands": []
+}

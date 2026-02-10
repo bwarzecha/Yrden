@@ -291,6 +291,43 @@ struct ShellToolTests {
         #expect(output.count < 5_000)
     }
 
+    @Test("background child holding pipe does not block indefinitely", .timeLimit(.minutes(1)))
+    func backgroundChildDoesNotBlock() async throws {
+        let tool = makeTool()
+        // Start a background process that inherits stdout and sleeps forever.
+        // Without the awaitOrClose fix, this would block indefinitely.
+        // echo $! prints the PID so we can verify the orphan was killed.
+        let result = try await tool.execute(
+            context: makeContext(),
+            arguments: ShellToolArgs(
+                command: "echo before_bg; sleep 999 & echo $!; echo after_bg",
+                workingDirectory: nil,
+                timeout: nil,
+                runInBackground: nil,
+                description: nil
+            )
+        )
+
+        guard case .success(let output) = result else {
+            Issue.record("Expected success"); return
+        }
+
+        #expect(output.contains("before_bg"))
+        #expect(output.contains("after_bg"))
+
+        // The orphaned sleep process should have been killed by the
+        // process group cleanup. Give it a moment to fully exit.
+        try await Task.sleep(for: .milliseconds(500))
+
+        // Extract the PID printed by echo $!
+        let lines = output.split(separator: "\n")
+        if let pidLine = lines.first(where: { Int($0.trimmingCharacters(in: .whitespaces)) != nil }),
+           let pid = Int(pidLine.trimmingCharacters(in: .whitespaces)) {
+            let alive = kill(Int32(pid), 0) == 0
+            #expect(!alive, "Background child (PID \(pid)) should have been killed")
+        }
+    }
+
     @Test("spillover failure does not crash", .timeLimit(.minutes(1)))
     func spilloverFailureDoesNotCrash() async throws {
         let env = ShellEnvironment.inherited()

@@ -1,22 +1,15 @@
 {
-  "name": "fix-multiple-values-one-file",
-  "description": "Update a default model string everywhere it appears in a file. Multi-location edit task.",
+  "name": "fix-multiple-default-values",
+  "description": "Add a missing allowed scheme to an img src URL rule. Multi-location edit task.",
   "setup": "./scripts/setup.sh",
-  "task": "The AgentCLI in Examples/AgentCLI/main.swift still defaults to claude-sonnet. Update it to use claude-haiku-4-5-20251001 instead — make sure you catch every reference to the old model string, including the help text.",
-  "maxIterations": 15,
+  "task": "The DEFAULT_POLICY in src/justhtml/sanitize.py has a URL rule for (\"img\", \"src\") that specifies allowed_schemes. Currently it doesn't allow data: URIs for embedded images. Find the img src UrlRule and add \"data\" to its allowed_schemes list so inline base64 images work.",
+  "maxIterations": 30,
   "postconditions": {
     "completed": true,
     "file_contains": {
-      "Examples/AgentCLI/main.swift": [
-        "claude-haiku-4-5-20251001"
-      ]
-    },
-    "file_not_contains": {
-      "Examples/AgentCLI/main.swift": [
-        "claude-sonnet-4-5-20250929"
-      ]
+      "src/justhtml/sanitize.py": ["data"]
     }
   },
   "extra_files": {},
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }

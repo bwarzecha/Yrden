@@ -57,9 +57,9 @@ struct ReadFileToolTests {
 
         #expect(output.contains("[File:"))
         #expect(output.contains("Lines 1-3 of 3"))
-        #expect(output.contains("1: line one"))
-        #expect(output.contains("2: line two"))
-        #expect(output.contains("3: line three"))
+        #expect(output.contains("1\tline one"))
+        #expect(output.contains("2\tline two"))
+        #expect(output.contains("3\tline three"))
     }
 
     @Test("offset skips lines")
@@ -78,8 +78,8 @@ struct ReadFileToolTests {
             Issue.record("Expected success"); return
         }
 
-        #expect(output.contains("5: Line 5"))
-        #expect(!output.contains("4: Line 4"))
+        #expect(output.contains("5\tLine 5"))
+        #expect(!output.contains("4\tLine 4"))
     }
 
     @Test("limit caps output at N lines")
@@ -100,8 +100,8 @@ struct ReadFileToolTests {
 
         // With early break optimization, header shows "N+" when limit was hit
         #expect(output.contains("Lines 1-3 of"))
-        #expect(output.contains("3: Line 3"))
-        #expect(!output.contains("4: Line 4"))
+        #expect(output.contains("3\tLine 3"))
+        #expect(!output.contains("4\tLine 4"))
     }
 
     @Test("offset and limit combined")
@@ -122,9 +122,9 @@ struct ReadFileToolTests {
 
         // With early break, header shows "of N+" when limit was hit
         #expect(output.contains("Lines 5-7 of"))
-        #expect(output.contains("5: Line 5"))
-        #expect(output.contains("7: Line 7"))
-        #expect(!output.contains("8: Line 8"))
+        #expect(output.contains("5\tLine 5"))
+        #expect(output.contains("7\tLine 7"))
+        #expect(!output.contains("8\tLine 8"))
     }
 
     @Test("long line is truncated with overflow indicator")
@@ -243,8 +243,8 @@ struct ReadFileToolTests {
         #expect(tool.requiresApproval == false)
     }
 
-    @Test("limit does not iterate entire file (header shows N+ for large files)")
-    func limitHeaderShowsPlus() async throws {
+    @Test("limit caps output but header shows exact total line count")
+    func limitHeaderShowsTotal() async throws {
         let lines = (1...1000).map { "Line \($0)" }.joined(separator: "\n")
         let path = try writeTestFile(lines)
         defer { try? FileManager.default.removeItem(atPath: tempDir) }
@@ -259,9 +259,57 @@ struct ReadFileToolTests {
             Issue.record("Expected success"); return
         }
 
-        // Header should show "of N+" when limit was hit (not full file line count)
-        #expect(output.contains("Lines 1-3 of"))
-        #expect(output.contains("+"))
+        // Header shows exact total even when limit is hit
+        #expect(output.contains("Lines 1-3 of 1000"))
+    }
+
+    @Test("blank lines preserved with correct line numbers")
+    func blankLinesPreserved() async throws {
+        let content = "line1\n\nline3\n\n\nline6"
+        let path = try writeTestFile(content)
+        defer { try? FileManager.default.removeItem(atPath: tempDir) }
+
+        let tool = makeTool()
+        let result = try await tool.execute(
+            context: makeContext(),
+            arguments: ReadFileArgs(path: path, offset: nil, limit: nil)
+        )
+
+        guard case .success(let output) = result else {
+            Issue.record("Expected success, got \(result)")
+            return
+        }
+
+        #expect(output.contains("Lines 1-6 of 6"))
+        #expect(output.contains("1\tline1"))
+        #expect(output.contains("2\t"))
+        #expect(output.contains("3\tline3"))
+        #expect(output.contains("4\t"))
+        #expect(output.contains("5\t"))
+        #expect(output.contains("6\tline6"))
+    }
+
+    @Test("offset and limit work correctly with blank lines")
+    func offsetLimitWithBlankLines() async throws {
+        let content = "a\n\nb\n\nc"  // 5 lines: "a", "", "b", "", "c"
+        let path = try writeTestFile(content)
+        defer { try? FileManager.default.removeItem(atPath: tempDir) }
+
+        let tool = makeTool()
+        let result = try await tool.execute(
+            context: makeContext(),
+            arguments: ReadFileArgs(path: path, offset: 2, limit: 3)
+        )
+
+        guard case .success(let output) = result else {
+            Issue.record("Expected success, got \(result)")
+            return
+        }
+
+        #expect(output.contains("2\t"))
+        #expect(output.contains("3\tb"))
+        #expect(output.contains("4\t"))
+        #expect(!output.contains("5\tc"))
     }
 
     @Test("non-UTF-8 file returns error instead of crashing")

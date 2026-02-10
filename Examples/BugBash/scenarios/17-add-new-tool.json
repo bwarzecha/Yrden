@@ -1,17 +1,15 @@
 {
-  "name": "add-new-tool",
-  "description": "Implement a new tool from scratch and wire it into the factory. End-to-end feature addition.",
+  "name": "add-new-feature",
+  "description": "Add --format json output to the CLI. End-to-end feature addition.",
   "setup": "./scripts/setup.sh",
-  "task": "Add a 'word_count' tool to Yrden. It should accept a file path, read the file, and return how many words it contains. Study the existing tools in Sources/Yrden/Tools/ to match the conventions, create Sources/Yrden/Tools/WordCountTool.swift, and register it in BuiltInTools.swift so it's included when agents are created.",
-  "maxIterations": 20,
+  "task": "The justhtml CLI in src/justhtml/__main__.py currently outputs parsed HTML as text. Add a --format flag that accepts 'text' (default) or 'json'. When 'json' is selected, output the parsed document as a JSON structure with tag names and text content. Test it by running: .venv/bin/python -m justhtml --format json with some sample HTML input.",
+  "maxIterations": 35,
   "postconditions": {
     "completed": true,
-    "file_exists": ["Sources/Yrden/Tools/WordCountTool.swift"],
     "file_contains": {
-      "Sources/Yrden/Tools/WordCountTool.swift": ["WordCountTool", "TypedTool", "word_count", "pathValidator", "execute"],
-      "Sources/Yrden/Tools/BuiltInTools.swift": ["wordCount", "WordCountTool"]
+      "src/justhtml/__main__.py": ["json"]
     }
   },
   "extra_files": {},
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }

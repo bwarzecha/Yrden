@@ -32,7 +32,29 @@ public struct EditFileTool: TypedTool {
     public typealias Args = EditFileArgs
 
     public let name = "edit_file"
-    public let description = "Edit a file by finding and replacing exact string matches. Supports ~ (tilde) and relative paths. When replace_all is false, the old_string must appear exactly once (for safety)."
+    public let description = """
+        Edit a file by finding and replacing exact string matches. Use this for targeted \
+        changes to existing files — prefer over write_file when modifying part of a file.
+
+        Usage:
+        - Always read the file first with read_file to see the exact content.
+        - old_string must be raw file content — do NOT include line number prefixes (N<TAB>) \
+        from read_file output or path:line: prefixes from grep output.
+        - When replace_all is false (default), old_string must match exactly once. Include \
+        enough surrounding lines to make the match unique.
+        - Supports ~ (tilde) and relative paths.
+
+        Bulk operations — use replace_all: true:
+        - To rename a function, variable, or identifier across a file, set old_string to the \
+        old name, new_string to the new name, and replace_all to true. This replaces every \
+        occurrence in one call — much faster than editing each site individually.
+        - Example: old_string="_escape_text", new_string="_escape_html_chars", replace_all=true
+
+        Cross-tool tips:
+        - read_file then edit_file: Read the file, identify the section to change, copy the \
+        raw content (after the tab) as old_string, provide the modified version as new_string.
+        - Use write_file instead when creating a new file or replacing the entire content.
+        """
 
     public let pathValidator: PathValidator
     public let maxFileSize: Int

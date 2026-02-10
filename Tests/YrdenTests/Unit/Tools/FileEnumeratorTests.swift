@@ -287,6 +287,36 @@ struct FileEnumeratorTests {
         #expect(!paths.contains("binary.bin"))
     }
 
+    // MARK: - Double Star with Prefix
+
+    @Test("double star with directory prefix matches nested files")
+    func doubleStarWithPrefixMatchesNestedFiles() throws {
+        let root = tempDir
+        let fm = FileManager.default
+
+        // src/top.swift, src/sub/deep/main.swift
+        try fm.createDirectory(atPath: root + "/src/sub/deep", withIntermediateDirectories: true)
+        try "code".write(toFile: root + "/src/top.swift", atomically: true, encoding: .utf8)
+        try "code".write(toFile: root + "/src/sub/deep/main.swift", atomically: true, encoding: .utf8)
+        // tests/test.swift (should NOT match src/**)
+        try fm.createDirectory(atPath: root + "/tests", withIntermediateDirectories: true)
+        try "test".write(toFile: root + "/tests/test.swift", atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(atPath: tempDir) }
+
+        let enumerator = FileEnumerator(
+            rootDirectory: root,
+            pathValidator: makeValidator(),
+            respectGitignore: false,
+            globPattern: "src/**/*.swift"
+        )
+        let files = try enumerator.enumerate()
+        let paths = files.map { $0.relativePath }
+
+        #expect(paths.contains("src/top.swift"))
+        #expect(paths.contains("src/sub/deep/main.swift"))
+        #expect(!paths.contains("tests/test.swift"))
+    }
+
     @Test("skipBinaryFiles false includes binary files")
     func skipBinaryFalseIncludes() throws {
         try FileManager.default.createDirectory(atPath: tempDir, withIntermediateDirectories: true)

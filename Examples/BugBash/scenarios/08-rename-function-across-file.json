@@ -2,24 +2,17 @@
   "name": "rename-function-across-file",
   "description": "Rename a function and all its call sites within a file. Multi-location rename task.",
   "setup": "./scripts/setup.sh",
-  "task": "The function 'formatTokens' in Examples/AgentCLI/main.swift has a misleading name — it formats a count, not the tokens themselves. Rename it to 'formatTokenCount' everywhere it appears in that file.",
-  "maxIterations": 15,
+  "task": "The function '_escape_text' in src/justhtml/serialize.py has a misleading name — it escapes HTML special characters, not arbitrary text. Rename it to '_escape_html_chars' everywhere it appears in that file.",
+  "maxIterations": 25,
   "postconditions": {
     "completed": true,
     "file_contains": {
-      "Examples/AgentCLI/main.swift": [
-        "func formatTokenCount(",
-        "formatTokenCount(u.inputTokens)",
-        "formatTokenCount(u.outputTokens)",
-        "formatTokenCount(u.totalTokens)"
-      ]
+      "src/justhtml/serialize.py": ["_escape_html_chars"]
     },
     "file_not_contains": {
-      "Examples/AgentCLI/main.swift": [
-        "formatTokens("
-      ]
+      "src/justhtml/serialize.py": ["_escape_text"]
     }
   },
   "extra_files": {},
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }

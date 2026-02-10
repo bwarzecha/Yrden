@@ -109,7 +109,8 @@ extension TypedTool {
                let coercedArgs = try? JSONDecoder().decode(Args.self, from: coercedData) {
                 args = coercedArgs
             } else {
-                throw ToolExecutionError.argumentParsing(originalError.localizedDescription)
+                let message = describeDecodingError(originalError)
+                throw ToolExecutionError.argumentParsing(message)
             }
         }
         let result = try await execute(context: context, arguments: args)
@@ -274,6 +275,27 @@ extension ToolExecutionError: LocalizedError {
         case .toolNotFound(let name, let available):
             return "Tool not found: \(name). Available tools: \(available)"
         }
+    }
+}
+
+/// Extract actionable information from decoding errors for LLM-friendly messages.
+private func describeDecodingError(_ error: any Error) -> String {
+    guard let decodingError = error as? DecodingError else {
+        return error.localizedDescription
+    }
+    switch decodingError {
+    case .keyNotFound(let key, _):
+        return "Missing required parameter '\(key.stringValue)'"
+    case .typeMismatch(let type, let context):
+        let field = context.codingPath.last?.stringValue ?? "unknown"
+        return "Type mismatch for '\(field)': expected \(type)"
+    case .valueNotFound(let type, let context):
+        let field = context.codingPath.last?.stringValue ?? "unknown"
+        return "Null value for '\(field)': expected \(type)"
+    case .dataCorrupted(let context):
+        return "Invalid data: \(context.debugDescription)"
+    @unknown default:
+        return error.localizedDescription
     }
 }
 

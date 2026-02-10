@@ -172,8 +172,16 @@ public struct FileEnumerator: Sendable {
                     if fnmatch(s, subpath, FNM_PATHNAME) == 0 { return true }
                 }
             } else {
-                // Prefix before **: check prefix matches start, then suffix against rest
-                if fnmatch(prefix + s, path, FNM_PATHNAME) == 0 { return true }
+                // Prefix before **: check path starts with prefix, then match
+                // suffix against subpaths of the remainder
+                guard path.hasPrefix(prefix) else { continue }
+                let remainder = String(path.dropFirst(prefix.count))
+                if fnmatch(s, remainder, FNM_PATHNAME) == 0 { return true }
+                let components = remainder.components(separatedBy: "/")
+                for i in 1..<components.count {
+                    let subpath = components[i...].joined(separator: "/")
+                    if fnmatch(s, subpath, FNM_PATHNAME) == 0 { return true }
+                }
             }
         }
 

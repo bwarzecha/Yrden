@@ -266,6 +266,46 @@ struct AgentToolArgumentTests {
         #expect(ToolCall(id: "x", name: "y", arguments: "{}").arguments == "{}")
     }
 
+    @Test("missing field error message names the missing parameter")
+    func missingFieldErrorMessageNamesField() async throws {
+        let tool = FakeTool<MultiFieldArgs, String>(name: "multi_tool") { _ in
+            .success("should not run")
+        }
+
+        let counter = CallCounter()
+        let model = FakeModel(onComplete: { request in
+            switch await counter.increment() {
+            case 1:
+                // Missing 'count' and 'tags' fields
+                return MockResponse.toolCall(
+                    name: "multi_tool",
+                    arguments: #"{"name":"test"}"#,
+                    id: "tc-1"
+                )
+            case 2:
+                let error = request.toolResultContent(for: "tc-1") ?? ""
+                // Error should name the missing field
+                #expect(error.contains("count") || error.contains("tags"),
+                        "Error should name missing field, got: \(error)")
+                // Should not use generic localizedDescription
+                #expect(!error.contains("couldn't be read"),
+                        "Error should not use generic message, got: \(error)")
+                return MockResponse.text("Done")
+            default:
+                throw LLMError.serverError("Unexpected call")
+            }
+        })
+
+        let agent = try Agent<String>(
+            model: model,
+            systemPrompt: "You are helpful.",
+            tools: [tool]
+        )
+
+        let result = try await agent.run("Go")
+        #expect(result.output == "Done")
+    }
+
     @Test("malformed args then correct args: model recovers on second attempt")
     func malformedArgsThenCorrectArgsRecovery() async throws {
         let tool = ConfigurableTool.succeeding("tool succeeded", name: "test_tool")

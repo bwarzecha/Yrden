@@ -1,26 +1,18 @@
 {
   "name": "search-and-bulk-replace",
-  "description": "Rename a concept across an entire file — properties, functions, and comments. Bulk rename task.",
+  "description": "Rename a concept across an entire file — variables, functions, and comments. Bulk rename task.",
   "setup": "./scripts/setup.sh",
-  "task": "The term 'spillover' in ShellTool.swift is confusing — rename it to 'overflow' everywhere in the file. This includes property names, function names, parameter names, and comments. Don't miss any.",
-  "maxIterations": 15,
+  "task": "The term 'force_quirks' in src/justhtml/tokenizer.py is confusing — rename it to 'set_quirks' everywhere in the file. This includes property names, method calls, assignments, and comments. Don't miss any occurrence.",
+  "maxIterations": 35,
   "postconditions": {
     "completed": true,
     "file_contains": {
-      "Sources/Yrden/Tools/ShellTool.swift": [
-        "overflowDirectory",
-        "writeOverflow"
-      ]
+      "src/justhtml/tokenizer.py": ["set_quirks"]
     },
     "file_not_contains": {
-      "Sources/Yrden/Tools/ShellTool.swift": [
-        "spilloverDirectory",
-        "writeSpillover",
-        "spillover",
-        "Spillover"
-      ]
+      "src/justhtml/tokenizer.py": ["force_quirks"]
     }
   },
   "extra_files": {},
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }

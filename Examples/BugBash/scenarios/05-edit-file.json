@@ -1,18 +1,15 @@
 {
   "name": "edit-file",
-  "description": "Change a default parameter value in a source file. Single-value edit task.",
+  "description": "Add a missing encoding alias to a blocklist. Single-value edit task.",
   "setup": "./scripts/setup.sh",
-  "task": "The shell tool's output truncation kicks in too early at 30K characters. Bump the default maxOutputLength to 50_000 in ShellTool.swift.",
-  "maxIterations": 15,
+  "task": "Read src/justhtml/encoding.py and find the set of blocked UTF-7 encoding labels. The alias \"unicode-1-1-utf-7\" is missing from this blocklist. Add it to the existing set.",
+  "maxIterations": 22,
   "postconditions": {
     "completed": true,
     "file_contains": {
-      "Sources/Yrden/Tools/ShellTool.swift": ["maxOutputLength: Int = 50_000"]
-    },
-    "file_not_contains": {
-      "Sources/Yrden/Tools/ShellTool.swift": ["maxOutputLength: Int = 30_000"]
+      "src/justhtml/encoding.py": ["unicode-1-1-utf-7"]
     }
   },
   "extra_files": {},
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }

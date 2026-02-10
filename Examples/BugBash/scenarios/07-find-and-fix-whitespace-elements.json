@@ -1,0 +1,15 @@
+{
+  "name": "find-and-fix-whitespace-elements",
+  "description": "Diagnose a bug report by finding a constant set and adding a missing element. Search + targeted edit workflow.",
+  "setup": "./scripts/setup.sh",
+  "task": "Bug report: the HTML serializer is collapsing whitespace inside <xmp> tags, but <xmp> is a whitespace-preserving element. Find the WHITESPACE_PRESERVING_ELEMENTS constant in the codebase and add \"xmp\" to it.",
+  "maxIterations": 25,
+  "postconditions": {
+    "completed": true,
+    "file_contains": {
+      "src/justhtml/constants.py": ["xmp"]
+    }
+  },
+  "extra_files": {},
+  "denied_commands": []
+}

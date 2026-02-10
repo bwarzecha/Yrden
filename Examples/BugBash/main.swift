@@ -307,11 +307,11 @@ enum RunnerError: Error, CustomStringConvertible {
 
 // MARK: - Setup
 
-func runSetup(baseDir: String, repoPath: String) throws -> String {
+func runSetup(baseDir: String) throws -> String {
     let scriptPath = baseDir + "/scripts/setup.sh"
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/bash")
-    process.arguments = [scriptPath, repoPath]
+    process.arguments = [scriptPath]
     let pipe = Pipe()
     process.standardOutput = pipe
     process.standardError = FileHandle.nullDevice
@@ -399,7 +399,7 @@ func checkPostconditions(
             do {
                 let content = try String(contentsOfFile: fullPath, encoding: .utf8)
                 for s in strings {
-                    if !content.contains(s) {
+                    if content.range(of: s, options: .caseInsensitive) == nil {
                         failures.append("file_contains: \(path) missing \"\(s)\"")
                     }
                 }
@@ -415,7 +415,7 @@ func checkPostconditions(
             do {
                 let content = try String(contentsOfFile: fullPath, encoding: .utf8)
                 for s in strings {
-                    if content.contains(s) {
+                    if content.range(of: s, options: .caseInsensitive) != nil {
                         failures.append("file_not_contains: \(path) still contains \"\(s)\"")
                     }
                 }
@@ -453,27 +453,39 @@ func saveErrorTrace(_ error: String, to path: String) throws {
 
 let systemPrompt = """
     You are a coding assistant with access to file and shell tools. \
-    Complete the user's task thoroughly. \
-    All file paths are relative to the current working directory unless otherwise specified.
+    Complete the user's task, then respond with a brief summary without calling any more tools. \
+    Do not over-verify your work or write test scripts unless the task specifically asks for it.
+
+    You have a limited number of tool-use turns. Before each turn you will see \
+    "[Turn N of M]" indicating which turn you are on and how many you have total. \
+    A turn is one round-trip: you respond, your tool calls execute, you see the results. \
+    Calling multiple tools in a single response still counts as just one turn, so batch \
+    independent operations together (e.g. read multiple files at once, or run parallel \
+    grep searches) to use your budget efficiently. When you respond without any tool calls, \
+    the task ends. If you are approaching the limit, prioritize producing required output \
+    files over extra verification.
+
+    All file paths are relative to the current working directory unless otherwise specified. \
+    The working directory contains a Python project with a virtual environment at .venv/. \
+    Use .venv/bin/python and .venv/bin/pytest to run Python code and tests.
     """
+
+struct TurnAwarenessHook: AgentHooks {
+    typealias Output = String
+    let maxIterations: Int
+
+    func beforeModel(_ context: BeforeModelContext<String>) async {
+        let turn = context.state.iteration + 1
+        context.state.messages.append(
+            .system("[Turn \(turn) of \(maxIterations)]")
+        )
+    }
+}
 
 guard let config = parseArgs() else { exit(1) }
 
 do {
     let model = try createModel(config: config)
-
-    // Detect repo root for setup.sh
-    let repoProcess = Process()
-    repoProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-    repoProcess.arguments = ["rev-parse", "--show-toplevel"]
-    let repoPipe = Pipe()
-    repoProcess.standardOutput = repoPipe
-    repoProcess.standardError = FileHandle.nullDevice
-    try repoProcess.run()
-    repoProcess.waitUntilExit()
-    let repoData = repoPipe.fileHandleForReading.readDataToEndOfFile()
-    let repoPath = String(data: repoData, encoding: .utf8)!
-        .trimmingCharacters(in: .whitespacesAndNewlines)
 
     // Load scenarios
     let scenarios = try loadScenarios(from: config.scenarioDir, filter: config.selectedScenarios)
@@ -512,7 +524,7 @@ do {
 
         do {
             // Setup
-            let dir = try runSetup(baseDir: config.baseDir, repoPath: repoPath)
+            let dir = try runSetup(baseDir: config.baseDir)
             tempDir = dir
 
             defer {
@@ -555,7 +567,8 @@ do {
                 systemPrompt: systemPrompt,
                 tools: agentTools,
                 maxIterations: scenario.maxIterations,
-                backgroundTaskRegistry: tools.registry
+                backgroundTaskRegistry: tools.registry,
+                hooks: TurnAwarenessHook(maxIterations: scenario.maxIterations)
             )
 
             // Run with streaming for progress visibility
@@ -673,10 +686,14 @@ do {
                     }
 
                 case .usage(let usage):
+                    var usageDetail = "in=\(usage.inputTokens) out=\(usage.outputTokens) total=\(usage.totalTokens)"
+                    if let cached = usage.cachedTokens, cached > 0 {
+                        usageDetail += " cached=\(cached)"
+                    }
                     progress.log(
                         iteration: currentIteration,
                         event: "usage",
-                        detail: "in=\(usage.inputTokens) out=\(usage.outputTokens) total=\(usage.totalTokens)"
+                        detail: usageDetail
                     )
                     // After usage, the agent is about to call the model again
                     waitingForModel = true

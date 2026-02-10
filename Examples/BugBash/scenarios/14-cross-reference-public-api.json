@@ -1,0 +1,16 @@
+{
+  "name": "cross-reference-public-api",
+  "description": "Document __all__ exports with source locations. Multi-file analysis task.",
+  "setup": "./scripts/setup.sh",
+  "task": "The __all__ list in src/justhtml/__init__.py defines the public API. For each exported name, find which source file defines it and what kind of thing it is (class, function, constant). Write docs/api-reference.md with a table: Name | Type | Source File | One-line description.",
+  "maxIterations": 30,
+  "postconditions": {
+    "completed": true,
+    "file_exists": ["docs/api-reference.md"],
+    "file_contains": {
+      "docs/api-reference.md": ["JustHTML", "Element", "ParseError", "Selector"]
+    }
+  },
+  "extra_files": {},
+  "denied_commands": []
+}

@@ -1,12 +1,13 @@
 {
   "name": "background-http-server",
-  "description": "Write a server, run it in the background, hit it with curl, shut it down. Full background lifecycle.",
+  "description": "Write an HTML-parsing server, run it in background, test via curl. Full background lifecycle.",
   "setup": "./scripts/setup.sh",
-  "task": "Write a tiny Python HTTP server that responds with 'Hello from Yrden' on port 9876, run it in the background, curl it to prove it works, then shut everything down. Save the curl response to curl_result.txt.",
-  "maxIterations": 20,
+  "task": "Write a tiny Python HTTP server (using the http.server module) that accepts POST requests with HTML body, parses them with justhtml, and responds with the text content. Run it in the background on port 9876, curl it with a sample HTML body to prove it works, then shut everything down. Save the curl response to curl_result.txt.",
+  "maxIterations": 35,
   "postconditions": {
-    "completed": true
+    "completed": true,
+    "file_exists": ["curl_result.txt"]
   },
   "extra_files": {},
-  "denied_commands": ["swift (build|test)", "xcodebuild"]
+  "denied_commands": []
 }
